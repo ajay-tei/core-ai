@@ -4,6 +4,26 @@
 
 ---
 
+## [2026-05-12] Runtime Bug Fixes — LLM Config Resolution & ToolBindings Deserialization
+
+### Root Cause
+
+`docker-compose.yml` changed the API key env var from `ANTHROPIC_API_KEY` to `LLM_DIRECT_API_KEY`
+(with `:-no-key` fallback). Services that read `LlmOptions.DirectProvider.ApiKey` directly received
+`"no-key"` at runtime instead of the DB-stored platform API key. Additionally, `ToolBindings` in the
+DB stores full `McpToolBinding` JSON objects but agents were attempting to deserialize them as `string[]`.
+
+### Fixes
+
+| File | Change |
+|------|--------|
+| `src/Diva.Agents/Registry/DynamicReActAgent.cs` | Fixed `GetCapability()` ToolBindings deserialization — `ToolBindings` column stores `McpToolBinding` objects `[{"name":"…","command":"…",…}]`; now uses `JsonNode.Parse().AsArray()` to extract the `name` property instead of `JsonSerializer.Deserialize<string[]>()` which threw `JsonException`. Added `using System.Text.Json.Nodes;` |
+| `src/Diva.Agents/Workers/RemoteA2AAgent.cs` | Same ToolBindings deserialization fix as `DynamicReActAgent` |
+| `src/Diva.Infrastructure/Optimization/TurnScoringService.cs` | Injected `ILlmConfigResolver`; added `ResolveLlmConfigAsync(agentId, ct)` that looks up the agent's `TenantId`/`LlmConfigId`/`ModelId` from DB and calls `_resolver.ResolveAsync()`. Both `CallAnthropicAsync` and `CallOpenAiCompatibleAsync` now accept `ResolvedLlmConfig` param instead of reading `LlmOptions.DirectProvider` directly. Falls back to global `DirectProvider` only if DB lookup fails |
+| `src/Diva.Infrastructure/Learning/LlmRuleExtractor.cs` | Removed `IOptions<LlmOptions>` dependency; injected `ILlmConfigResolver`; `ExtractAsync` now calls `_resolver.ResolveAsync(tenantId: 0, null, null, ct)` to resolve the platform-level API key from DB. Both `CallAnthropicAsync` and `CallOpenAiCompatibleAsync` accept `ResolvedLlmConfig` param |
+
+---
+
 ## [2026-05-10] Phase 24 Addendum — Quick Prompt Fix, Per-Agent Optimization Overrides, LLM Merge Improvements
 
 ### Quick Prompt Fix (`POST /api/agents/{id}/prompt/improve`)

@@ -4,6 +4,7 @@ using Anthropic.SDK;
 using Anthropic.SDK.Messaging;
 using Diva.Core.Configuration;
 using Diva.Infrastructure.Data;
+using Diva.Infrastructure.LiteLLM;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -18,18 +19,21 @@ public sealed class TurnScoringService : ITurnScoringService
     private readonly LlmOptions _llm;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly AgentOptions _opts;
+    private readonly ILlmConfigResolver _resolver;
     private readonly ILogger<TurnScoringService> _logger;
 
     public TurnScoringService(
         IOptions<LlmOptions> llm,
         IOptions<AgentOptions> opts,
         IServiceScopeFactory scopeFactory,
+        ILlmConfigResolver resolver,
         ILogger<TurnScoringService> logger)
     {
-        _llm         = llm.Value;
-        _opts        = opts.Value;
+        _llm = llm.Value;
+        _opts = opts.Value;
         _scopeFactory = scopeFactory;
-        _logger      = logger;
+        _resolver = resolver;
+        _logger = logger;
     }
 
     public async Task ScoreTurnAsync(
@@ -46,9 +50,10 @@ public sealed class TurnScoringService : ITurnScoringService
         try
         {
             var prompt = BuildScoringPrompt(userMessage, assistantResponse, toolEvidence);
-            var raw = _llm.DirectProvider.Provider.Equals("Anthropic", StringComparison.OrdinalIgnoreCase)
-                ? await CallAnthropicAsync(prompt, ct)
-                : await CallOpenAiCompatibleAsync(prompt, ct);
+            var llmConf = await ResolveLlmConfigAsync(agentId, ct);
+            var raw = llmConf.Provider.Equals("Anthropic", StringComparison.OrdinalIgnoreCase)
+                ? await CallAnthropicAsync(prompt, llmConf, ct)
+                : await CallOpenAiCompatibleAsync(prompt, llmConf, ct);
 
             var scores = ParseScores(raw);
             if (scores is null) return;
@@ -59,11 +64,11 @@ public sealed class TurnScoringService : ITurnScoringService
                 .FirstOrDefaultAsync(t => t.SessionId == sessionId && t.TurnNumber == turnNumber, ct);
             if (turn is null) return;
 
-            turn.FaithfulnessScore    = scores.Faithfulness;
-            turn.CompletenessScore    = scores.Completeness;
-            turn.ToolEfficiencyScore  = scores.ToolEfficiency;
-            turn.CoherenceScore       = scores.Coherence;
-            turn.ScoresAvailable      = true;
+            turn.FaithfulnessScore = scores.Faithfulness;
+            turn.CompletenessScore = scores.Completeness;
+            turn.ToolEfficiencyScore = scores.ToolEfficiency;
+            turn.CoherenceScore = scores.Coherence;
+            turn.ScoresAvailable = true;
 
             await traceDb.SaveChangesAsync(ct);
             _logger.LogDebug(
@@ -98,29 +103,48 @@ public sealed class TurnScoringService : ITurnScoringService
             "Return ONLY JSON: {\"faithfulness\":0.0,\"completeness\":0.0,\"tool_efficiency\":0.0,\"coherence\":0.0}";
     }
 
-    private async Task<string> CallAnthropicAsync(string prompt, CancellationToken ct)
+    private async Task<ResolvedLlmConfig> ResolveLlmConfigAsync(string agentId, CancellationToken ct)
     {
-        var opts   = _llm.DirectProvider;
-        var client = new AnthropicClient(new APIAuthentication(opts.ApiKey));
+        try
+        {
+            await using var scope = _scopeFactory.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<DivaDbContext>();
+            var agent = await db.AgentDefinitions
+                .AsNoTracking()
+                .FirstOrDefaultAsync(a => a.Id == agentId, ct);
+            if (agent is not null)
+                return await _resolver.ResolveAsync(agent.TenantId, agent.LlmConfigId, agent.ModelId, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to resolve LLM config for agent {AgentId} — falling back to global defaults", agentId);
+        }
+        // Fallback: build a ResolvedLlmConfig from global DirectProvider options
+        var d = _llm.DirectProvider;
+        return new ResolvedLlmConfig(d.Provider, d.ApiKey, d.Model, d.Endpoint, null, []);
+    }
+
+    private async Task<string> CallAnthropicAsync(string prompt, ResolvedLlmConfig conf, CancellationToken ct)
+    {
+        var client = new AnthropicClient(new APIAuthentication(conf.ApiKey));
         var parameters = new MessageParameters
         {
-            Model     = opts.Model,
+            Model = conf.Model,
             MaxTokens = _opts.Optimization.ScorerMaxTokens,
-            System    = [new SystemMessage("You are a JSON-only scorer. Respond ONLY with the JSON object.")],
-            Messages  = [new Message { Role = RoleType.User, Content = [new TextContent { Text = prompt }] }]
+            System = [new SystemMessage("You are a JSON-only scorer. Respond ONLY with the JSON object.")],
+            Messages = [new Message { Role = RoleType.User, Content = [new TextContent { Text = prompt }] }]
         };
         var msg = await client.Messages.GetClaudeMessageAsync(parameters, ct);
         return msg.Content.OfType<TextContent>().FirstOrDefault()?.Text ?? "{}";
     }
 
-    private async Task<string> CallOpenAiCompatibleAsync(string prompt, CancellationToken ct)
+    private async Task<string> CallOpenAiCompatibleAsync(string prompt, ResolvedLlmConfig conf, CancellationToken ct)
     {
-        var opts       = _llm.DirectProvider;
-        var credential = new ApiKeyCredential(string.IsNullOrEmpty(opts.ApiKey) ? "no-key" : opts.ApiKey);
+        var credential = new ApiKeyCredential(string.IsNullOrEmpty(conf.ApiKey) ? "no-key" : conf.ApiKey);
         var clientOpts = new OpenAIClientOptions();
-        if (!string.IsNullOrEmpty(opts.Endpoint))
-            clientOpts.Endpoint = new Uri(opts.Endpoint);
-        var chatClient = new OpenAIClient(credential, clientOpts).GetChatClient(opts.Model);
+        if (!string.IsNullOrEmpty(conf.Endpoint))
+            clientOpts.Endpoint = new Uri(conf.Endpoint);
+        var chatClient = new OpenAIClient(credential, clientOpts).GetChatClient(conf.Model);
         var messages = new ChatMessage[]
         {
             new SystemChatMessage("You are a JSON-only scorer. Respond ONLY with the JSON object."),
@@ -137,7 +161,7 @@ public sealed class TurnScoringService : ITurnScoringService
         {
             var json = raw.Trim().TrimStart('`').TrimEnd('`');
             var start = json.IndexOf('{');
-            var end   = json.LastIndexOf('}');
+            var end = json.LastIndexOf('}');
             if (start < 0 || end < start) return null;
             json = json[start..(end + 1)];
 
@@ -145,10 +169,10 @@ public sealed class TurnScoringService : ITurnScoringService
             var r = doc.RootElement;
             return new ScoringResult
             {
-                Faithfulness   = GetFloat(r, "faithfulness"),
-                Completeness   = GetFloat(r, "completeness"),
+                Faithfulness = GetFloat(r, "faithfulness"),
+                Completeness = GetFloat(r, "completeness"),
                 ToolEfficiency = GetFloat(r, "tool_efficiency"),
-                Coherence      = GetFloat(r, "coherence")
+                Coherence = GetFloat(r, "coherence")
             };
         }
         catch (Exception ex)

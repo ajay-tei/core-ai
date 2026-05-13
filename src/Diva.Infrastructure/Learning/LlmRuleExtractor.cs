@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using Anthropic.SDK;
 using Anthropic.SDK.Messaging;
 using Diva.Core.Configuration;
+using Diva.Infrastructure.LiteLLM;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OpenAI;
@@ -14,18 +15,21 @@ namespace Diva.Infrastructure.Learning;
 /// <summary>
 /// Makes a single-shot LLM call to extract business rules from a conversation transcript.
 /// Uses the same provider split as AnthropicAgentRunner and ResponseVerifier:
-///   "Anthropic" → native Anthropic.SDK (avoids ME.AI version conflict)
-///   everything else → OpenAI-compatible ChatClient
+///   "Anthropic" -> native Anthropic.SDK (avoids ME.AI version conflict)
+///   everything else -> OpenAI-compatible ChatClient
 /// </summary>
 public sealed class LlmRuleExtractor
 {
-    private readonly LlmOptions _llm;
+    private readonly ILlmConfigResolver _resolver;
     private readonly int _extractorMaxTokens;
     private readonly ILogger<LlmRuleExtractor> _logger;
 
-    public LlmRuleExtractor(IOptions<LlmOptions> llm, IOptions<AgentOptions> agentOptions, ILogger<LlmRuleExtractor> logger)
+    public LlmRuleExtractor(
+        IOptions<AgentOptions> agentOptions,
+        ILlmConfigResolver resolver,
+        ILogger<LlmRuleExtractor> logger)
     {
-        _llm                = llm.Value;
+        _resolver           = resolver;
         _extractorMaxTokens = agentOptions.Value.RuleLearning.ExtractorMaxTokens;
         _logger             = logger;
     }
@@ -35,33 +39,33 @@ public sealed class LlmRuleExtractor
         string sessionId,
         CancellationToken ct)
     {
-        _logger.LogDebug("Extracting rules from conversation transcript (session={SessionId})", sessionId);
+        _logger.LogDebug("Extracting rules from transcript (session={SessionId})", sessionId);
 
         try
         {
             var prompt = BuildPrompt(conversationTranscript);
-            var raw    = _llm.DirectProvider.Provider.Equals("Anthropic", StringComparison.OrdinalIgnoreCase)
-                ? await CallAnthropicAsync(prompt, ct)
-                : await CallOpenAiCompatibleAsync(prompt, ct);
+            var conf   = await _resolver.ResolveAsync(0, null, null, ct);
+            var raw    = conf.Provider.Equals("Anthropic", StringComparison.OrdinalIgnoreCase)
+                ? await CallAnthropicAsync(prompt, conf, ct)
+                : await CallOpenAiCompatibleAsync(prompt, conf, ct);
 
             return ParseRules(raw, sessionId);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Rule extraction failed — returning empty list");
+            _logger.LogWarning(ex, "Rule extraction failed -- returning empty list");
             return [];
         }
     }
 
-    // ── LLM calls ─────────────────────────────────────────────────────────────
+    // -- Provider calls ----------------------------------------------------
 
-    private async Task<string> CallAnthropicAsync(string prompt, CancellationToken ct)
+    private async Task<string> CallAnthropicAsync(string prompt, ResolvedLlmConfig conf, CancellationToken ct)
     {
-        var opts   = _llm.DirectProvider;
-        var client = new AnthropicClient(new APIAuthentication(opts.ApiKey));
+        var client     = new AnthropicClient(new APIAuthentication(conf.ApiKey));
         var parameters = new MessageParameters
         {
-            Model     = opts.Model,
+            Model     = conf.Model,
             MaxTokens = _extractorMaxTokens,
             System    = [new SystemMessage("You are a JSON-only business rule detector. Respond ONLY with a valid JSON array.")],
             Messages  = [new Message
@@ -75,15 +79,14 @@ public sealed class LlmRuleExtractor
         return msg.Content.OfType<Anthropic.SDK.Messaging.TextContent>().FirstOrDefault()?.Text ?? "[]";
     }
 
-    private async Task<string> CallOpenAiCompatibleAsync(string prompt, CancellationToken ct)
+    private async Task<string> CallOpenAiCompatibleAsync(string prompt, ResolvedLlmConfig conf, CancellationToken ct)
     {
-        var opts       = _llm.DirectProvider;
-        var credential = new ApiKeyCredential(string.IsNullOrEmpty(opts.ApiKey) ? "no-key" : opts.ApiKey);
+        var credential = new ApiKeyCredential(string.IsNullOrEmpty(conf.ApiKey) ? "no-key" : conf.ApiKey);
         var clientOpts = new OpenAIClientOptions();
-        if (!string.IsNullOrEmpty(opts.Endpoint))
-            clientOpts.Endpoint = new Uri(opts.Endpoint);
+        if (!string.IsNullOrEmpty(conf.Endpoint))
+            clientOpts.Endpoint = new Uri(conf.Endpoint);
 
-        var chatClient = new OpenAIClient(credential, clientOpts).GetChatClient(opts.Model);
+        var chatClient = new OpenAIClient(credential, clientOpts).GetChatClient(conf.Model);
         var messages   = new ChatMessage[]
         {
             new SystemChatMessage("You are a JSON-only business rule detector. Respond ONLY with a valid JSON array."),
@@ -94,7 +97,7 @@ public sealed class LlmRuleExtractor
         return result.Value.Content.FirstOrDefault()?.Text ?? "[]";
     }
 
-    // ── Prompt & parsing ──────────────────────────────────────────────────────
+    // -- Prompt & parsing --------------------------------------------------
 
     private static string BuildPrompt(string transcript) =>
         "Analyze this conversation and identify any business rules the user is defining or correcting.\n\n" +
@@ -111,16 +114,14 @@ public sealed class LlmRuleExtractor
         "  { \"agent_type\": \"*\", \"rule_category\": \"reporting\", \"rule_key\": \"snake_case_key\",\n" +
         "    \"prompt_injection\": \"text to inject into future agent prompts\", \"confidence\": 0.0 }\n\n" +
         "agent_type: \"*\" for all agents, or \"Analytics\", \"Reservation\", etc.\n" +
-        "confidence: 0.0–1.0 (how certain you are this is a deliberate business rule).\n" +
+        "confidence: 0.0-1.0 (how certain you are this is a deliberate business rule).\n" +
         "Return [] if no rules found. Return ONLY valid JSON, no explanation.";
 
     private List<SuggestedRule> ParseRules(string raw, string sessionId)
     {
-        // Strip any markdown fences
         var json = Regex.Replace(raw.Trim(), @"^```json?\s*|\s*```$", "", RegexOptions.Multiline).Trim();
         if (string.IsNullOrEmpty(json) || json == "[]") return [];
 
-        // Extract just the JSON array in case the model appended explanation text
         var firstBracket = json.IndexOf('[');
         var lastBracket  = json.LastIndexOf(']');
         if (firstBracket >= 0 && lastBracket > firstBracket)
@@ -128,8 +129,8 @@ public sealed class LlmRuleExtractor
 
         try
         {
-            using var doc  = JsonDocument.Parse(json);
-            var results    = new List<SuggestedRule>();
+            using var doc     = JsonDocument.Parse(json);
+            var       results = new List<SuggestedRule>();
 
             foreach (var el in doc.RootElement.EnumerateArray())
             {
@@ -154,7 +155,7 @@ public sealed class LlmRuleExtractor
         }
         catch (JsonException ex)
         {
-            _logger.LogWarning(ex, "Failed to parse rule extractor response — returning empty list");
+            _logger.LogWarning(ex, "Failed to parse rule extractor response -- returning empty list");
             return [];
         }
     }

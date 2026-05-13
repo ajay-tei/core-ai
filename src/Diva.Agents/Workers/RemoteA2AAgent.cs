@@ -2,6 +2,7 @@ namespace Diva.Agents.Workers;
 
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Diva.Core.Configuration;
 using Diva.Core.Models;
 using Diva.Infrastructure.A2A;
@@ -27,13 +28,19 @@ public sealed class RemoteA2AAgent : IStreamableWorkerAgent
 
     public AgentCapability GetCapability() => new()
     {
-        AgentId          = _definition.Id,
-        AgentType        = _definition.AgentType,
-        Description      = _definition.Description,
-        Capabilities     = JsonSerializer.Deserialize<string[]>(_definition.Capabilities     ?? "[]") ?? [],
-        SupportedTools   = JsonSerializer.Deserialize<string[]>(_definition.ToolBindings     ?? "[]") ?? [],
+        AgentId = _definition.Id,
+        AgentType = _definition.AgentType,
+        Description = _definition.Description,
+        Capabilities = JsonSerializer.Deserialize<string[]>(_definition.Capabilities ?? "[]") ?? [],
+        SupportedTools = string.IsNullOrEmpty(_definition.ToolBindings) ? [] :
+            (JsonNode.Parse(_definition.ToolBindings)?.AsArray()
+                ?.Select(n => n is JsonObject obj && obj["name"] is JsonNode nameNode
+                    ? nameNode.GetValue<string>()
+                    : n?.GetValue<string>() ?? "")
+                .Where(s => s.Length > 0)
+                .ToArray() ?? []),
         DelegateAgentIds = JsonSerializer.Deserialize<string[]>(_definition.DelegateAgentIdsJson ?? "[]") ?? [],
-        Priority         = 3,
+        Priority = 3,
     };
 
     public async Task<AgentResponse> ExecuteAsync(
@@ -78,7 +85,7 @@ public sealed class RemoteA2AAgent : IStreamableWorkerAgent
                     // the ref name as a token (which always causes 401 on the remote).
                     yield return new AgentStreamChunk
                     {
-                        Type    = "error",
+                        Type = "error",
                         Content = $"A2A credential '{_definition.A2ASecretRef}' not found in the credential vault for this tenant. " +
                                   "Add it in Settings → MCP Credentials, then retry.",
                     };

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Diva.Agents.Workers;
 using Diva.Core.Models;
 using Diva.Infrastructure.Data.Entities;
@@ -18,7 +19,7 @@ public sealed class DynamicReActAgent : IWorkerAgent, IStreamableWorkerAgent
     public DynamicReActAgent(AgentDefinitionEntity definition, IAgentRunner runner)
     {
         _definition = definition;
-        _runner     = runner;
+        _runner = runner;
     }
 
     public AgentCapability GetCapability()
@@ -29,7 +30,12 @@ public sealed class DynamicReActAgent : IWorkerAgent, IStreamableWorkerAgent
 
         var tools = string.IsNullOrEmpty(_definition.ToolBindings)
             ? Array.Empty<string>()
-            : JsonSerializer.Deserialize<string[]>(_definition.ToolBindings) ?? [];
+            : (JsonNode.Parse(_definition.ToolBindings)?.AsArray()
+                ?.Select(n => n is JsonObject obj && obj["name"] is JsonNode nameNode
+                    ? nameNode.GetValue<string>()
+                    : n?.GetValue<string>() ?? "")
+                .Where(s => s.Length > 0)
+                .ToArray() ?? []);
 
         var delegates = string.IsNullOrEmpty(_definition.DelegateAgentIdsJson)
             ? Array.Empty<string>()
@@ -37,14 +43,14 @@ public sealed class DynamicReActAgent : IWorkerAgent, IStreamableWorkerAgent
 
         return new AgentCapability
         {
-            AgentId          = _definition.Id,
-            AgentType        = _definition.AgentType,
-            Description      = _definition.Description,
-            Capabilities     = caps,
-            SupportedTools   = tools,
+            AgentId = _definition.Id,
+            AgentType = _definition.AgentType,
+            Description = _definition.Description,
+            Capabilities = caps,
+            SupportedTools = tools,
             DelegateAgentIds = delegates,
             // Dynamic agents have lower priority than statically registered agents
-            Priority         = 5
+            Priority = 5
         };
     }
 
