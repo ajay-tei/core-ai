@@ -11,6 +11,7 @@ using Diva.Core.Models;
 using Diva.Core.Optimization;
 using Diva.Host.Hubs;
 using Diva.Infrastructure.A2A;
+using Diva.Infrastructure.AgentExport;
 using Diva.Infrastructure.Auth;
 using Diva.Infrastructure.Data;
 using Diva.Infrastructure.Data.Entities;
@@ -139,6 +140,9 @@ builder.Services.AddSingleton<IPromptBuilder, TenantAwarePromptBuilder>();
 builder.Services.AddSingleton<IRulePackService, RulePackService>();
 builder.Services.AddSingleton<RulePackEngine>();
 builder.Services.AddSingleton<RulePackConflictAnalyzer>();
+
+// ── Agent Export / Import ─────────────────────────────────────────────────
+builder.Services.AddScoped<IAgentExportService, AgentExportService>();
 
 // ── Phase 17: Agent Setup Assistant ──────────────────────────────────────
 builder.Services.AddSingleton<PromptTemplateStore>();
@@ -338,8 +342,8 @@ var app = builder.Build();
 // ── Post-DI wiring: break circular dependency between TenantGroupService ←→ GroupAgentOverlayService
 // TenantGroupService needs the overlay service to invalidate caches when templates are updated,
 // but both are Singletons — inject via setter after the container is built.
-var tenantGroupSvc  = app.Services.GetRequiredService<ITenantGroupService>() as TenantGroupService;
-var overlaySvc      = app.Services.GetRequiredService<IGroupAgentOverlayService>();
+var tenantGroupSvc = app.Services.GetRequiredService<ITenantGroupService>() as TenantGroupService;
+var overlaySvc = app.Services.GetRequiredService<IGroupAgentOverlayService>();
 tenantGroupSvc?.SetOverlayService(overlaySvc);
 
 // ── Auto-migrate on startup ────────────────────────────────────────────────
@@ -415,11 +419,11 @@ using (var scope = app.Services.CreateScope())
         {
             db.PlatformLlmConfigs.Add(new PlatformLlmConfigEntity
             {
-                Id             = 1,
-                Provider       = dp.Provider,
-                ApiKey         = dp.ApiKey,
-                Model          = dp.Model,
-                Endpoint       = dp.Endpoint,
+                Id = 1,
+                Provider = dp.Provider,
+                ApiKey = dp.ApiKey,
+                Model = dp.Model,
+                Endpoint = dp.Endpoint,
                 DeploymentName = dp.DeploymentName,
                 AvailableModelsJson = llmOpts.AvailableModels.Count > 0
                     ? System.Text.Json.JsonSerializer.Serialize(llmOpts.AvailableModels) : null,
@@ -432,9 +436,9 @@ using (var scope = app.Services.CreateScope())
                  || existing.Endpoint != dp.Endpoint)
         {
             // Env vars changed — sync structural fields; update ApiKey only if it changed too
-            existing.Provider  = dp.Provider;
-            existing.Model     = dp.Model;
-            existing.Endpoint  = dp.Endpoint;
+            existing.Provider = dp.Provider;
+            existing.Model = dp.Model;
+            existing.Endpoint = dp.Endpoint;
             if (existing.ApiKey != dp.ApiKey)
                 existing.ApiKey = dp.ApiKey;
             existing.UpdatedAt = DateTime.UtcNow;
@@ -462,7 +466,7 @@ app.MapControllers();
 app.MapHub<AgentStreamHub>("/hubs/agent");
 app.MapMcp("/mcp/diva").RequireAuthorization();
 
-app.MapHealthChecks("/health/live",  new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions { Predicate = _ => false });
+app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions { Predicate = _ => false });
 app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions());
 
 // Prometheus /metrics endpoint (prometheus-net.AspNetCore)

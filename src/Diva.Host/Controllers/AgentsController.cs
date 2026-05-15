@@ -4,6 +4,7 @@ using Diva.Agents.Registry;
 using Diva.Agents.Workers;
 using Diva.Core.Configuration;
 using Diva.Core.Models;
+using Diva.Infrastructure.AgentExport;
 using Diva.Infrastructure.Auth;
 using Diva.Infrastructure.Data;
 using Diva.Infrastructure.Data.Entities;
@@ -29,6 +30,7 @@ public class AgentsController : ControllerBase
     private readonly IAgentRegistry _registry;
     private readonly IAgentSetupAssistant _assistant;
     private readonly IOptimizationLlmAnalyzer _promptImprover;
+    private readonly IAgentExportService _agentExport;
     private readonly ICredentialResolver? _credentialResolver;
     private readonly ILogger<AgentsController> _logger;
 
@@ -41,6 +43,7 @@ public class AgentsController : ControllerBase
         IAgentRegistry registry,
         IAgentSetupAssistant assistant,
         IOptimizationLlmAnalyzer promptImprover,
+        IAgentExportService agentExport,
         ILogger<AgentsController> logger,
         ICredentialResolver? credentialResolver = null)
     {
@@ -52,6 +55,7 @@ public class AgentsController : ControllerBase
         _registry = registry;
         _assistant = assistant;
         _promptImprover = promptImprover;
+        _agentExport = agentExport;
         _credentialResolver = credentialResolver;
         _logger = logger;
     }
@@ -107,11 +111,11 @@ public class AgentsController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] AgentDefinitionEntity dto, CancellationToken ct)
     {
-        var tenant    = Tenant;
-        dto.Id        = Guid.NewGuid().ToString();
-        dto.TenantId  = tenant.TenantId;
+        var tenant = Tenant;
+        dto.Id = Guid.NewGuid().ToString();
+        dto.TenantId = tenant.TenantId;
         dto.CreatedAt = DateTime.UtcNow;
-        dto.Status    = "Draft";
+        dto.Status = "Draft";
 
         using var db = _db.CreateDbContext(tenant);
         db.AgentDefinitions.Add(dto);
@@ -127,38 +131,38 @@ public class AgentsController : ControllerBase
         var existing = await db.AgentDefinitions.FindAsync([id], ct);
         if (existing is null) return NotFound();
 
-        existing.Name                 = dto.Name;
-        existing.DisplayName          = dto.DisplayName;
-        existing.Description          = dto.Description;
-        existing.SystemPrompt         = dto.SystemPrompt;
-        existing.Temperature          = dto.Temperature;
-        existing.MaxIterations        = dto.MaxIterations;
-        existing.Capabilities         = dto.Capabilities;
-        existing.ToolBindings         = dto.ToolBindings;
-        existing.VerificationMode     = dto.VerificationMode;
-        existing.ContextWindowJson        = dto.ContextWindowJson;
+        existing.Name = dto.Name;
+        existing.DisplayName = dto.DisplayName;
+        existing.Description = dto.Description;
+        existing.SystemPrompt = dto.SystemPrompt;
+        existing.Temperature = dto.Temperature;
+        existing.MaxIterations = dto.MaxIterations;
+        existing.Capabilities = dto.Capabilities;
+        existing.ToolBindings = dto.ToolBindings;
+        existing.VerificationMode = dto.VerificationMode;
+        existing.ContextWindowJson = dto.ContextWindowJson;
         existing.OptimizationOverrideJson = dto.OptimizationOverrideJson;
-        existing.CustomVariablesJson      = dto.CustomVariablesJson;
-        existing.MaxContinuations     = dto.MaxContinuations;
-        existing.MaxToolResultChars   = dto.MaxToolResultChars;
-        existing.MaxOutputTokens      = dto.MaxOutputTokens;
+        existing.CustomVariablesJson = dto.CustomVariablesJson;
+        existing.MaxContinuations = dto.MaxContinuations;
+        existing.MaxToolResultChars = dto.MaxToolResultChars;
+        existing.MaxOutputTokens = dto.MaxOutputTokens;
         existing.EnableHistoryCaching = dto.EnableHistoryCaching;
-        existing.PipelineStagesJson   = dto.PipelineStagesJson;
-        existing.ToolFilterJson       = dto.ToolFilterJson;
+        existing.PipelineStagesJson = dto.PipelineStagesJson;
+        existing.ToolFilterJson = dto.ToolFilterJson;
         existing.StageInstructionsJson = dto.StageInstructionsJson;
-        existing.ArchetypeId          = dto.ArchetypeId;
-        existing.HooksJson            = dto.HooksJson;
-        existing.A2AEndpoint          = dto.A2AEndpoint;
-        existing.A2AAuthScheme        = dto.A2AAuthScheme;
-        existing.A2ASecretRef         = dto.A2ASecretRef;
-        existing.A2ARemoteAgentId     = dto.A2ARemoteAgentId;
-        existing.ModelId              = dto.ModelId;
-        existing.LlmConfigId          = dto.LlmConfigId;
-        existing.ExecutionMode        = dto.ExecutionMode;
-        existing.ModelSwitchingJson   = dto.ModelSwitchingJson;
+        existing.ArchetypeId = dto.ArchetypeId;
+        existing.HooksJson = dto.HooksJson;
+        existing.A2AEndpoint = dto.A2AEndpoint;
+        existing.A2AAuthScheme = dto.A2AAuthScheme;
+        existing.A2ASecretRef = dto.A2ASecretRef;
+        existing.A2ARemoteAgentId = dto.A2ARemoteAgentId;
+        existing.ModelId = dto.ModelId;
+        existing.LlmConfigId = dto.LlmConfigId;
+        existing.ExecutionMode = dto.ExecutionMode;
+        existing.ModelSwitchingJson = dto.ModelSwitchingJson;
         existing.DelegateAgentIdsJson = dto.DelegateAgentIdsJson;
-        existing.IsEnabled            = dto.IsEnabled;
-        existing.Status               = dto.Status;
+        existing.IsEnabled = dto.IsEnabled;
+        existing.Status = dto.Status;
         if (dto.Status == "Published") existing.PublishedAt = DateTime.UtcNow;
 
         await db.SaveChangesAsync(ct);
@@ -209,7 +213,7 @@ public class AgentsController : ControllerBase
     public async Task<IActionResult> Invoke(string id, [FromBody] AgentInvokeRequest req, CancellationToken ct)
     {
         var tenant = Tenant;
-        var agent  = await ResolveAgentAsync(id, tenant, ct);
+        var agent = await ResolveAgentAsync(id, tenant, ct);
         if (agent is null) return NotFound();
         if (!agent.IsEnabled) return BadRequest(new { error = "Agent is disabled." });
         if (!tenant.CanInvokeAgent(agent.AgentType))
@@ -226,7 +230,7 @@ public class AgentsController : ControllerBase
     public async Task InvokeStream(string id, [FromBody] AgentInvokeRequest req, CancellationToken ct)
     {
         var tenant = Tenant;
-        var agent  = await ResolveAgentAsync(id, tenant, ct);
+        var agent = await ResolveAgentAsync(id, tenant, ct);
         if (agent is null) { Response.StatusCode = 404; return; }
         if (!agent.IsEnabled) { Response.StatusCode = 400; return; }
         if (!tenant.CanInvokeAgent(agent.AgentType))
@@ -263,6 +267,50 @@ public class AgentsController : ControllerBase
                 await Response.Body.FlushAsync(ct);
             }
         }
+    }
+
+    // ── GET /api/agents/{id}/export ───────────────────────────────────────────
+    [HttpGet("{id}/export")]
+    public async Task<IActionResult> Export(string id, CancellationToken ct)
+    {
+        var tenant = Tenant;
+        try
+        {
+            var bundle = await _agentExport.ExportAsync(id, tenant, ct);
+            var fileName = $"{bundle.Agent.Name.Replace(" ", "-").ToLowerInvariant()}-export.json";
+            var json = System.Text.Json.JsonSerializer.Serialize(bundle, new System.Text.Json.JsonSerializerOptions
+            {
+                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
+                WriteIndented = true,
+            });
+            return File(System.Text.Encoding.UTF8.GetBytes(json), "application/json", fileName);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return NotFound(new { error = ex.Message });
+        }
+    }
+
+    // ── POST /api/agents/import ───────────────────────────────────────────────
+    [HttpPost("import")]
+    public async Task<IActionResult> Import(
+        [FromBody] AgentExportBundle bundle,
+        [FromQuery] bool overwrite = false,
+        [FromQuery] bool importRules = true,
+        CancellationToken ct = default)
+    {
+        if (bundle?.Agent is null)
+            return BadRequest(new { error = "Invalid export bundle." });
+
+        var tenant = Tenant;
+        var options = new AgentImportOptions
+        {
+            OverwriteExisting = overwrite,
+            ImportRules = importRules,
+        };
+
+        var result = await _agentExport.ImportAsync(bundle, tenant, options, ct);
+        return CreatedAtAction(nameof(Get), new { id = result.AgentId }, result);
     }
 
     // ── POST /api/agents/mcp-probe ────────────────────────────────────────────
@@ -320,8 +368,8 @@ public class AgentsController : ControllerBase
             {
                 transport = new StdioClientTransport(new StdioClientTransportOptions
                 {
-                    Name      = "probe",
-                    Command   = req.Command,
+                    Name = "probe",
+                    Command = req.Command,
                     Arguments = req.Args ?? [],
                 });
             }
@@ -368,7 +416,7 @@ public class AgentsController : ControllerBase
     [HttpGet("group-templates")]
     public async Task<IActionResult> ListGroupTemplates(CancellationToken ct)
     {
-        var tenant    = Tenant;
+        var tenant = Tenant;
         var templates = await _groups.GetAgentTemplatesForTenantAsync(tenant.TenantId, ct);
         var overlayMap = (await _overlays.GetOverlaysAsync(tenant.TenantId, ct))
             .ToDictionary(o => o.GroupTemplateId);
@@ -388,9 +436,9 @@ public class AgentsController : ControllerBase
     [HttpGet("group-templates/{templateId}")]
     public async Task<IActionResult> GetGroupTemplate(string templateId, CancellationToken ct)
     {
-        var tenant    = Tenant;
+        var tenant = Tenant;
         var templates = await _groups.GetAgentTemplatesForTenantAsync(tenant.TenantId, ct);
-        var template  = templates.FirstOrDefault(t => t.Id == templateId);
+        var template = templates.FirstOrDefault(t => t.Id == templateId);
         return template is null ? NotFound() : Ok(template);
     }
 
@@ -488,47 +536,47 @@ public class AgentsController : ControllerBase
 
     private static AgentDefinitionEntity MapToDefinition(Diva.Infrastructure.Data.Entities.GroupAgentTemplateEntity t, int tenantId) => new()
     {
-        Id                    = t.Id,
-        TenantId              = tenantId,
-        Name                  = t.Name,
-        DisplayName           = t.DisplayName,
-        Description           = t.Description,
-        AgentType             = t.AgentType,
-        SystemPrompt          = t.SystemPrompt,
-        ModelId               = t.ModelId,
-        Temperature           = t.Temperature,
-        MaxIterations         = t.MaxIterations,
-        Capabilities          = t.Capabilities,
-        ToolBindings          = t.ToolBindings,
-        VerificationMode      = t.VerificationMode,
-        ContextWindowJson     = t.ContextWindowJson,
-        CustomVariablesJson   = t.CustomVariablesJson,
-        MaxContinuations      = t.MaxContinuations,
-        MaxToolResultChars    = t.MaxToolResultChars,
-        MaxOutputTokens       = t.MaxOutputTokens,
-        EnableHistoryCaching  = t.EnableHistoryCaching,
-        PipelineStagesJson    = t.PipelineStagesJson,
-        ToolFilterJson        = t.ToolFilterJson,
+        Id = t.Id,
+        TenantId = tenantId,
+        Name = t.Name,
+        DisplayName = t.DisplayName,
+        Description = t.Description,
+        AgentType = t.AgentType,
+        SystemPrompt = t.SystemPrompt,
+        ModelId = t.ModelId,
+        Temperature = t.Temperature,
+        MaxIterations = t.MaxIterations,
+        Capabilities = t.Capabilities,
+        ToolBindings = t.ToolBindings,
+        VerificationMode = t.VerificationMode,
+        ContextWindowJson = t.ContextWindowJson,
+        CustomVariablesJson = t.CustomVariablesJson,
+        MaxContinuations = t.MaxContinuations,
+        MaxToolResultChars = t.MaxToolResultChars,
+        MaxOutputTokens = t.MaxOutputTokens,
+        EnableHistoryCaching = t.EnableHistoryCaching,
+        PipelineStagesJson = t.PipelineStagesJson,
+        ToolFilterJson = t.ToolFilterJson,
         StageInstructionsJson = t.StageInstructionsJson,
-        IsEnabled             = t.IsEnabled,
-        Status                = t.Status,
-        CreatedAt             = t.CreatedAt,
+        IsEnabled = t.IsEnabled,
+        Status = t.Status,
+        CreatedAt = t.CreatedAt,
         // Phase-15 fields
-        ArchetypeId           = t.ArchetypeId,
-        HooksJson             = t.HooksJson,
-        A2AEndpoint           = t.A2AEndpoint,
-        A2AAuthScheme         = t.A2AAuthScheme,
-        A2ASecretRef          = t.A2ASecretRef,
-        A2ARemoteAgentId      = t.A2ARemoteAgentId,
-        ExecutionMode         = t.ExecutionMode,
-        ModelSwitchingJson    = t.ModelSwitchingJson,
-        LlmConfigId           = t.LlmConfigId,
+        ArchetypeId = t.ArchetypeId,
+        HooksJson = t.HooksJson,
+        A2AEndpoint = t.A2AEndpoint,
+        A2AAuthScheme = t.A2AAuthScheme,
+        A2ASecretRef = t.A2ASecretRef,
+        A2ARemoteAgentId = t.A2ARemoteAgentId,
+        ExecutionMode = t.ExecutionMode,
+        ModelSwitchingJson = t.ModelSwitchingJson,
+        LlmConfigId = t.LlmConfigId,
     };
 
     private static readonly JsonSerializerOptions _sseOptions = new()
     {
-        PropertyNamingPolicy        = JsonNamingPolicy.CamelCase,
-        DefaultIgnoreCondition      = JsonIgnoreCondition.WhenWritingNull,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
     // ── GET /api/agents/archetypes ────────────────────────────────────────────

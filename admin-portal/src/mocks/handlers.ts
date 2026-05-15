@@ -1,4 +1,4 @@
-import { http, HttpResponse, delay } from "msw";
+import { delay, http, HttpResponse } from "msw";
 
 const BASE = "http://localhost:5000";
 
@@ -67,11 +67,13 @@ const AGENTS = [
 
 let weatherTurnCount = 0;
 
-function buildWeatherResponse(query: string) {
+function buildWeatherResponse(query: string)
+{
   weatherTurnCount++;
   const session = "sess-wx-sandbox-001";
 
-  if (query.toLowerCase().includes("error") || query.toLowerCase().includes("fail")) {
+  if (query.toLowerCase().includes("error") || query.toLowerCase().includes("fail"))
+  {
     return {
       success: false,
       errorMessage: "Weather API rate limit exceeded. Please try again in 60 seconds.",
@@ -109,7 +111,8 @@ Output: [{"date":"2026-03-23","high":16,"low":9,"condition":"Light rain"},{"date
     followUpQuestions: [] as object[],
   };
 
-  if (weatherTurnCount % 3 === 0) {
+  if (weatherTurnCount % 3 === 0)
+  {
     baseResponse.followUpQuestions = [
       {
         type: "rule_confirmation",
@@ -131,10 +134,12 @@ Output: [{"date":"2026-03-23","high":16,"low":9,"condition":"Light rain"},{"date
   return baseResponse;
 }
 
-function buildBookingResponse(query: string) {
+function buildBookingResponse(query: string)
+{
   const session = "sess-bk-sandbox-002";
 
-  if (query.toLowerCase().includes("cancel")) {
+  if (query.toLowerCase().includes("cancel"))
+  {
     return {
       success: true,
       content: "I've cancelled reservation REF-88821 for John Smith on 24 March 2026. A confirmation email has been sent.",
@@ -174,10 +179,12 @@ function buildBookingResponse(query: string) {
   };
 }
 
-function buildAnalyticsResponse(query: string) {
+function buildAnalyticsResponse(query: string)
+{
   const session = "sess-an-sandbox-003";
 
-  if (query.toLowerCase().includes("revenue")) {
+  if (query.toLowerCase().includes("revenue"))
+  {
     return {
       success: true,
       content: "Q1 2026 revenue was £2.4M, up 18% YoY. Top performing segment: Enterprise (£1.1M, +32%).",
@@ -198,7 +205,8 @@ function buildAnalyticsResponse(query: string) {
     };
   }
 
-  if (query.toLowerCase().includes("block") || query.toLowerCase().includes("risk")) {
+  if (query.toLowerCase().includes("block") || query.toLowerCase().includes("risk"))
+  {
     return {
       success: false,
       errorMessage: "Response blocked — confidence too low (0.21). The query requires cross-referencing multiple data sources that are unavailable.",
@@ -288,10 +296,10 @@ const GROUP_RULE_TEMPLATES = [
 // ─── Business rules mock data ──────────────────────────────────────────────────
 
 let BUSINESS_RULES = [
-  { id: 1, guid: "11111111-0001-0001-0001-000000000001", tenantId: 1, agentType: "*",             agentId: null, ruleCategory: "tone",            ruleKey: "formal_english",        promptInjection: "Always respond in formal British English. Avoid contractions.",                                                                    isActive: true, priority: 10,  hookPoint: "OnInit", hookRuleType: "inject_prompt", orderInPack: 0, stopOnMatch: false, maxEvaluationMs: 100, createdAt: "2026-03-01T09:00:00Z" },
-  { id: 2, guid: "22222222-0002-0002-0002-000000000002", tenantId: 1, agentType: "rag",           agentId: null, ruleCategory: "response_format", ruleKey: "include_sources",       promptInjection: "Always cite document sources when answering from retrieved content.",                                                              isActive: true, priority: 100, hookPoint: "OnInit", hookRuleType: "inject_prompt", orderInPack: 0, stopOnMatch: false, maxEvaluationMs: 100, createdAt: "2026-03-15T10:00:00Z" },
-  { id: 3, guid: "33333333-0003-0003-0003-000000000003", tenantId: 1, agentType: "data-analyst",  agentId: null, ruleCategory: "terminology",     ruleKey: "revenue_definition",    promptInjection: "Revenue includes Sales, Services, Retail, Subscriptions. DEPOSITS are NOT revenue.",                                             isActive: true, priority: 100, hookPoint: "OnInit", hookRuleType: "inject_prompt", orderInPack: 0, stopOnMatch: false, maxEvaluationMs: 100, createdAt: "2026-03-18T14:00:00Z" },
-  { id: 4, guid: "44444444-0004-0004-0004-000000000004", tenantId: 1, agentType: "conversational",agentId: null, ruleCategory: "safety",          ruleKey: "confirm_before_cancel", promptInjection: "Always ask for explicit confirmation before cancelling any reservation or action on the user's behalf.",                           isActive: true, priority: 50,  hookPoint: "OnInit", hookRuleType: "inject_prompt", orderInPack: 0, stopOnMatch: false, maxEvaluationMs: 100, createdAt: "2026-03-20T11:00:00Z" },
+  { id: 1, guid: "11111111-0001-0001-0001-000000000001", tenantId: 1, agentType: "*", agentId: null, ruleCategory: "tone", ruleKey: "formal_english", promptInjection: "Always respond in formal British English. Avoid contractions.", isActive: true, priority: 10, hookPoint: "OnInit", hookRuleType: "inject_prompt", orderInPack: 0, stopOnMatch: false, maxEvaluationMs: 100, createdAt: "2026-03-01T09:00:00Z" },
+  { id: 2, guid: "22222222-0002-0002-0002-000000000002", tenantId: 1, agentType: "rag", agentId: null, ruleCategory: "response_format", ruleKey: "include_sources", promptInjection: "Always cite document sources when answering from retrieved content.", isActive: true, priority: 100, hookPoint: "OnInit", hookRuleType: "inject_prompt", orderInPack: 0, stopOnMatch: false, maxEvaluationMs: 100, createdAt: "2026-03-15T10:00:00Z" },
+  { id: 3, guid: "33333333-0003-0003-0003-000000000003", tenantId: 1, agentType: "data-analyst", agentId: null, ruleCategory: "terminology", ruleKey: "revenue_definition", promptInjection: "Revenue includes Sales, Services, Retail, Subscriptions. DEPOSITS are NOT revenue.", isActive: true, priority: 100, hookPoint: "OnInit", hookRuleType: "inject_prompt", orderInPack: 0, stopOnMatch: false, maxEvaluationMs: 100, createdAt: "2026-03-18T14:00:00Z" },
+  { id: 4, guid: "44444444-0004-0004-0004-000000000004", tenantId: 1, agentType: "conversational", agentId: null, ruleCategory: "safety", ruleKey: "confirm_before_cancel", promptInjection: "Always ask for explicit confirmation before cancelling any reservation or action on the user's behalf.", isActive: true, priority: 50, hookPoint: "OnInit", hookRuleType: "inject_prompt", orderInPack: 0, stopOnMatch: false, maxEvaluationMs: 100, createdAt: "2026-03-20T11:00:00Z" },
 ];
 let ruleNextId = 5;
 
@@ -344,7 +352,8 @@ const overlays: Record<string, Record<string, unknown>> = {};
 export const handlers = [
 
   // LLM config
-  http.get(`${BASE}/api/config/llm`, async () => {
+  http.get(`${ BASE }/api/config/llm`, async () =>
+  {
     await delay(100);
     return HttpResponse.json({
       availableModels: ["claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-haiku-4-5-20251001"],
@@ -354,14 +363,16 @@ export const handlers = [
   }),
 
   // List agents (own + shared group templates, matching real API behaviour)
-  http.get(`${BASE}/api/agents`, async () => {
+  http.get(`${ BASE }/api/agents`, async () =>
+  {
     await delay(300);
     const own = AGENTS.map(({ id, name, displayName, agentType, isEnabled, status, createdAt }) =>
       ({ id, name, displayName, agentType, isEnabled, status, createdAt, isShared: false, isActivated: false })
     );
     const shared = MOCK_TEMPLATES
       .filter(t => own.every(o => o.id !== t.id))
-      .map(t => {
+      .map(t =>
+      {
         const ov = overlays[t.id];
         return {
           id: t.id, name: t.name, displayName: t.displayName, agentType: t.agentType,
@@ -374,38 +385,102 @@ export const handlers = [
     return HttpResponse.json([...own, ...shared]);
   }),
 
+  // ── Agent Export / Import ─────────────────────────────────────────────────────
+  http.get(`${ BASE }/api/agents/:id/export`, async ({ params }) =>
+  {
+    await delay(200);
+    const agent = AGENTS.find((a) => a.id === params.id) ?? AGENTS[0];
+    return HttpResponse.json({
+      schemaVersion: "1.0",
+      exportedAt: new Date().toISOString(),
+      sourceTenantId: 1,
+      agent: {
+        name: agent.name,
+        displayName: agent.displayName,
+        description: agent.description ?? "",
+        agentType: agent.agentType,
+        systemPrompt: agent.systemPrompt ?? "You are a helpful AI assistant.",
+        temperature: agent.temperature,
+        maxIterations: agent.maxIterations,
+        capabilities: agent.capabilities ?? null,
+        toolBindings: agent.toolBindings ?? null,
+        verificationMode: null,
+        executionMode: "Full",
+        isEnabled: agent.isEnabled,
+        status: agent.status,
+        delegateAgentNames: [],
+      },
+      rules: [
+        {
+          agentType: agent.agentType,
+          ruleCategory: "Behaviour",
+          ruleKey: "tone",
+          ruleValueJson: null,
+          promptInjection: "Always respond in a concise and professional tone.",
+          isActive: true,
+          priority: 100,
+          hookPoint: "OnInit",
+          hookRuleType: "inject_prompt",
+          orderInPack: 0,
+          stopOnMatch: false,
+          maxEvaluationMs: 100,
+        },
+      ],
+    });
+  }),
+
+  http.post(`${ BASE }/api/agents/import`, async ({ request }) =>
+  {
+    await delay(300);
+    const body = await request.json() as { agent?: { name?: string; }; };
+    const agentName = body?.agent?.name ?? "Imported Agent";
+    const newId = `agent-imported-${ Date.now() }`;
+    return HttpResponse.json(
+      {
+        agentId: newId,
+        agentName,
+        rulesImported: 1,
+        warnings: [],
+      },
+      { status: 201 }
+    );
+  }),
+
   // ── Archetypes ────────────────────────────────────────────────────────────────
-  http.get(`${BASE}/api/agents/archetypes`, async () => {
+  http.get(`${ BASE }/api/agents/archetypes`, async () =>
+  {
     await delay(150);
     return HttpResponse.json([
-      { id: "general",       displayName: "General Assistant",        description: "Versatile agent for open-ended tasks.",                        icon: "bot",      category: "General" },
-      { id: "rag",           displayName: "RAG Knowledge Agent",      description: "Retrieval-Augmented Generation — grounds answers in docs.",    icon: "database", category: "Knowledge" },
-      { id: "code-analyst",  displayName: "Code Analyst",             description: "Code review, debugging, refactoring, and documentation.",      icon: "code",     category: "Engineering" },
-      { id: "data-analyst",  displayName: "Data Analyst",             description: "Analyses datasets, SQL queries, and statistical findings.",    icon: "chart",    category: "Analytics" },
-      { id: "researcher",    displayName: "Research Agent",           description: "Deep-dive research with multi-source synthesis and reports.",  icon: "search",   category: "Research" },
-      { id: "coordinator",   displayName: "Multi-Agent Coordinator",  description: "Orchestrates sub-tasks across multiple specialised agents.",   icon: "network",  category: "Orchestration" },
-      { id: "conversational",displayName: "Conversational Agent",     description: "Multi-turn conversation with memory and guided workflows.",     icon: "chat",     category: "Communication" },
-      { id: "remote-a2a",    displayName: "Remote A2A Agent",         description: "Proxy agent that delegates to an external A2A endpoint.",      icon: "globe",    category: "Federation" },
+      { id: "general", displayName: "General Assistant", description: "Versatile agent for open-ended tasks.", icon: "bot", category: "General" },
+      { id: "rag", displayName: "RAG Knowledge Agent", description: "Retrieval-Augmented Generation — grounds answers in docs.", icon: "database", category: "Knowledge" },
+      { id: "code-analyst", displayName: "Code Analyst", description: "Code review, debugging, refactoring, and documentation.", icon: "code", category: "Engineering" },
+      { id: "data-analyst", displayName: "Data Analyst", description: "Analyses datasets, SQL queries, and statistical findings.", icon: "chart", category: "Analytics" },
+      { id: "researcher", displayName: "Research Agent", description: "Deep-dive research with multi-source synthesis and reports.", icon: "search", category: "Research" },
+      { id: "coordinator", displayName: "Multi-Agent Coordinator", description: "Orchestrates sub-tasks across multiple specialised agents.", icon: "network", category: "Orchestration" },
+      { id: "conversational", displayName: "Conversational Agent", description: "Multi-turn conversation with memory and guided workflows.", icon: "chat", category: "Communication" },
+      { id: "remote-a2a", displayName: "Remote A2A Agent", description: "Proxy agent that delegates to an external A2A endpoint.", icon: "globe", category: "Federation" },
     ]);
   }),
 
-  http.get(`${BASE}/api/agents/archetypes/:id`, async ({ params }) => {
+  http.get(`${ BASE }/api/agents/archetypes/:id`, async ({ params }) =>
+  {
     const archetypes: Record<string, object> = {
-      "general":        { id: "general",        displayName: "General Assistant",        description: "Versatile agent for open-ended tasks.",                        icon: "bot",      category: "General",       defaultTemperature: 0.7, defaultMaxIterations: 10, defaultCapabilities: ["general"], suggestedTools: [], defaultHooks: {}, defaultExecutionMode: "Full" },
-      "rag":            { id: "rag",            displayName: "RAG Knowledge Agent",      description: "Retrieval-Augmented Generation — grounds answers in docs.",    icon: "database", category: "Knowledge",     defaultTemperature: 0.3, defaultMaxIterations: 8,  defaultCapabilities: ["rag"], suggestedTools: ["knowledge-search"], defaultHooks: {}, defaultVerificationMode: "ToolGrounded", defaultExecutionMode: "Full" },
-      "code-analyst":   { id: "code-analyst",   displayName: "Code Analyst",             description: "Code review, debugging, refactoring, and documentation.",      icon: "code",     category: "Engineering",   defaultTemperature: 0.2, defaultMaxIterations: 15, defaultCapabilities: ["code-review"], suggestedTools: ["linter"], defaultHooks: {}, defaultVerificationMode: "LlmVerifier", defaultExecutionMode: "Full" },
-      "data-analyst":   { id: "data-analyst",   displayName: "Data Analyst",             description: "Analyses datasets, SQL queries, and statistical findings.",    icon: "chart",    category: "Analytics",     defaultTemperature: 0.3, defaultMaxIterations: 12, defaultCapabilities: ["data-analysis"], suggestedTools: ["sql-query"], defaultHooks: {}, defaultVerificationMode: "Strict", defaultExecutionMode: "Full" },
-      "researcher":     { id: "researcher",     displayName: "Research Agent",           description: "Deep-dive research with multi-source synthesis and reports.",  icon: "search",   category: "Research",      defaultTemperature: 0.5, defaultMaxIterations: 20, defaultCapabilities: ["research"], suggestedTools: ["web-search"], defaultHooks: {}, defaultVerificationMode: "LlmVerifier", defaultExecutionMode: "Full" },
-      "coordinator":    { id: "coordinator",    displayName: "Multi-Agent Coordinator",  description: "Orchestrates sub-tasks across multiple specialised agents.",   icon: "network",  category: "Orchestration", defaultTemperature: 0.4, defaultMaxIterations: 25, defaultCapabilities: ["orchestration"], suggestedTools: [], defaultHooks: {}, defaultExecutionMode: "Full" },
-      "conversational": { id: "conversational", displayName: "Conversational Agent",     description: "Multi-turn conversation with memory and guided workflows.",     icon: "chat",     category: "Communication", defaultTemperature: 0.8, defaultMaxIterations: 6,  defaultCapabilities: ["conversation"], suggestedTools: [], defaultHooks: {}, defaultVerificationMode: "Off", defaultExecutionMode: "ChatOnly" },
-      "remote-a2a":     { id: "remote-a2a",     displayName: "Remote A2A Agent",         description: "Proxy agent that delegates to an external A2A endpoint.",      icon: "globe",    category: "Federation",    defaultTemperature: 0,   defaultMaxIterations: 1,  defaultCapabilities: ["a2a"], suggestedTools: [], defaultHooks: {}, defaultExecutionMode: "Full" },
+      "general": { id: "general", displayName: "General Assistant", description: "Versatile agent for open-ended tasks.", icon: "bot", category: "General", defaultTemperature: 0.7, defaultMaxIterations: 10, defaultCapabilities: ["general"], suggestedTools: [], defaultHooks: {}, defaultExecutionMode: "Full" },
+      "rag": { id: "rag", displayName: "RAG Knowledge Agent", description: "Retrieval-Augmented Generation — grounds answers in docs.", icon: "database", category: "Knowledge", defaultTemperature: 0.3, defaultMaxIterations: 8, defaultCapabilities: ["rag"], suggestedTools: ["knowledge-search"], defaultHooks: {}, defaultVerificationMode: "ToolGrounded", defaultExecutionMode: "Full" },
+      "code-analyst": { id: "code-analyst", displayName: "Code Analyst", description: "Code review, debugging, refactoring, and documentation.", icon: "code", category: "Engineering", defaultTemperature: 0.2, defaultMaxIterations: 15, defaultCapabilities: ["code-review"], suggestedTools: ["linter"], defaultHooks: {}, defaultVerificationMode: "LlmVerifier", defaultExecutionMode: "Full" },
+      "data-analyst": { id: "data-analyst", displayName: "Data Analyst", description: "Analyses datasets, SQL queries, and statistical findings.", icon: "chart", category: "Analytics", defaultTemperature: 0.3, defaultMaxIterations: 12, defaultCapabilities: ["data-analysis"], suggestedTools: ["sql-query"], defaultHooks: {}, defaultVerificationMode: "Strict", defaultExecutionMode: "Full" },
+      "researcher": { id: "researcher", displayName: "Research Agent", description: "Deep-dive research with multi-source synthesis and reports.", icon: "search", category: "Research", defaultTemperature: 0.5, defaultMaxIterations: 20, defaultCapabilities: ["research"], suggestedTools: ["web-search"], defaultHooks: {}, defaultVerificationMode: "LlmVerifier", defaultExecutionMode: "Full" },
+      "coordinator": { id: "coordinator", displayName: "Multi-Agent Coordinator", description: "Orchestrates sub-tasks across multiple specialised agents.", icon: "network", category: "Orchestration", defaultTemperature: 0.4, defaultMaxIterations: 25, defaultCapabilities: ["orchestration"], suggestedTools: [], defaultHooks: {}, defaultExecutionMode: "Full" },
+      "conversational": { id: "conversational", displayName: "Conversational Agent", description: "Multi-turn conversation with memory and guided workflows.", icon: "chat", category: "Communication", defaultTemperature: 0.8, defaultMaxIterations: 6, defaultCapabilities: ["conversation"], suggestedTools: [], defaultHooks: {}, defaultVerificationMode: "Off", defaultExecutionMode: "ChatOnly" },
+      "remote-a2a": { id: "remote-a2a", displayName: "Remote A2A Agent", description: "Proxy agent that delegates to an external A2A endpoint.", icon: "globe", category: "Federation", defaultTemperature: 0, defaultMaxIterations: 1, defaultCapabilities: ["a2a"], suggestedTools: [], defaultHooks: {}, defaultExecutionMode: "Full" },
     };
     const arch = archetypes[params.id as string];
     return arch ? HttpResponse.json(arch) : new HttpResponse(null, { status: 404 });
   }),
 
   // ── My groups (tenant-scoped membership list) ────────────────────────────────
-  http.get(`${BASE}/api/agents/my-groups`, async () => {
+  http.get(`${ BASE }/api/agents/my-groups`, async () =>
+  {
     await delay(200);
     // In sandbox, the mock tenant (id=1) is a member of Platform Group (id=1).
     return HttpResponse.json([
@@ -414,10 +489,12 @@ export const handlers = [
   }),
 
   // ── Group templates + overlays (must precede /:id to avoid param capture) ───
-  http.get(`${BASE}/api/agents/group-templates`, async () => {
+  http.get(`${ BASE }/api/agents/group-templates`, async () =>
+  {
     await delay(300);
     return HttpResponse.json(
-      MOCK_TEMPLATES.map((t) => {
+      MOCK_TEMPLATES.map((t) =>
+      {
         const ov = overlays[t.id];
         return {
           id: t.id, name: t.name, displayName: t.displayName, description: t.description,
@@ -430,26 +507,29 @@ export const handlers = [
     );
   }),
 
-  http.get(`${BASE}/api/agents/group-templates/:templateId`, async ({ params }) => {
+  http.get(`${ BASE }/api/agents/group-templates/:templateId`, async ({ params }) =>
+  {
     await delay(200);
     const tmpl = MOCK_TEMPLATES.find((t) => t.id === params.templateId);
     if (!tmpl) return new HttpResponse(null, { status: 404 });
     return HttpResponse.json(tmpl);
   }),
 
-  http.get(`${BASE}/api/agents/group-templates/:templateId/overlay`, async ({ params }) => {
+  http.get(`${ BASE }/api/agents/group-templates/:templateId/overlay`, async ({ params }) =>
+  {
     await delay(200);
     const ov = overlays[params.templateId as string];
     if (!ov) return new HttpResponse(null, { status: 404 });
     return HttpResponse.json(ov);
   }),
 
-  http.post(`${BASE}/api/agents/group-templates/:templateId/overlay`, async ({ request, params }) => {
+  http.post(`${ BASE }/api/agents/group-templates/:templateId/overlay`, async ({ request, params }) =>
+  {
     await delay(400);
     const body = await request.json() as Record<string, unknown>;
     const id = params.templateId as string;
     overlays[id] = {
-      guid: `ov-${Date.now()}`,
+      guid: `ov-${ Date.now() }`,
       tenantId: 1, groupTemplateId: id, groupId: 1,
       isEnabled: body.isEnabled ?? true,
       systemPromptAddendum: body.systemPromptAddendum ?? null,
@@ -463,7 +543,8 @@ export const handlers = [
     return HttpResponse.json(overlays[id]);
   }),
 
-  http.put(`${BASE}/api/agents/group-templates/:templateId/overlay`, async ({ request, params }) => {
+  http.put(`${ BASE }/api/agents/group-templates/:templateId/overlay`, async ({ request, params }) =>
+  {
     await delay(400);
     const body = await request.json() as Record<string, unknown>;
     const id = params.templateId as string;
@@ -471,29 +552,33 @@ export const handlers = [
     return HttpResponse.json(overlays[id]);
   }),
 
-  http.delete(`${BASE}/api/agents/group-templates/:templateId/overlay`, async ({ params }) => {
+  http.delete(`${ BASE }/api/agents/group-templates/:templateId/overlay`, async ({ params }) =>
+  {
     await delay(300);
     delete overlays[params.templateId as string];
     return new HttpResponse(null, { status: 204 });
   }),
 
-  http.patch(`${BASE}/api/agents/group-templates/:templateId/overlay/enabled`, async ({ request, params }) => {
+  http.patch(`${ BASE }/api/agents/group-templates/:templateId/overlay/enabled`, async ({ request, params }) =>
+  {
     await delay(300);
-    const body = await request.json() as { isEnabled: boolean };
+    const body = await request.json() as { isEnabled: boolean; };
     const id = params.templateId as string;
     if (overlays[id]) overlays[id].isEnabled = body.isEnabled;
     return HttpResponse.json(overlays[id]);
   }),
 
   // ── Platform group list + detail (must be before parameterized sub-routes) ───
-  http.get(`${BASE}/api/platform/groups`, async () => {
+  http.get(`${ BASE }/api/platform/groups`, async () =>
+  {
     await delay(200);
     return HttpResponse.json([
       { id: 1, name: "Platform Group", description: "Default platform group", isActive: true, createdAt: "2026-01-01T00:00:00Z" },
     ]);
   }),
 
-  http.get(`${BASE}/api/platform/groups/:id`, async ({ params }) => {
+  http.get(`${ BASE }/api/platform/groups/:id`, async ({ params }) =>
+  {
     await delay(200);
     if (String(params.id) !== "1") return new HttpResponse(null, { status: 404 });
     return HttpResponse.json({
@@ -506,26 +591,29 @@ export const handlers = [
 
   // ── Platform group agent templates CRUD (/api/platform/groups/:groupId/agents) ──
   // Must be before /api/agents/:id to avoid param capture.
-  http.get(`${BASE}/api/platform/groups/:groupId/agents`, async ({ params }) => {
+  http.get(`${ BASE }/api/platform/groups/:groupId/agents`, async ({ params }) =>
+  {
     await delay(300);
     const gid = Number(params.groupId);
     return HttpResponse.json(MOCK_TEMPLATES.filter(t => t.groupId === gid));
   }),
 
-  http.get(`${BASE}/api/platform/groups/:groupId/agents/:id`, async ({ params }) => {
+  http.get(`${ BASE }/api/platform/groups/:groupId/agents/:id`, async ({ params }) =>
+  {
     await delay(200);
     const tmpl = MOCK_TEMPLATES.find(t => t.id === params.id && t.groupId === Number(params.groupId));
     if (!tmpl) return new HttpResponse(null, { status: 404 });
     return HttpResponse.json(tmpl);
   }),
 
-  http.post(`${BASE}/api/platform/groups/:groupId/agents`, async ({ request, params }) => {
+  http.post(`${ BASE }/api/platform/groups/:groupId/agents`, async ({ request, params }) =>
+  {
     await delay(400);
     const body = await request.json() as Record<string, unknown>;
     const gid = Number(params.groupId);
     const newTpl = {
       ...body,
-      id: `tpl-${gid}-${Date.now()}`,
+      id: `tpl-${ gid }-${ Date.now() }`,
       groupId: gid,
       group: { name: "Platform Group" },
       createdAt: new Date().toISOString(),
@@ -535,7 +623,8 @@ export const handlers = [
     return HttpResponse.json(newTpl, { status: 201 });
   }),
 
-  http.put(`${BASE}/api/platform/groups/:groupId/agents/:id`, async ({ request, params }) => {
+  http.put(`${ BASE }/api/platform/groups/:groupId/agents/:id`, async ({ request, params }) =>
+  {
     await delay(400);
     const body = await request.json() as Record<string, unknown>;
     const idx = MOCK_TEMPLATES.findIndex(t => t.id === params.id && t.groupId === Number(params.groupId));
@@ -544,10 +633,12 @@ export const handlers = [
     return HttpResponse.json(MOCK_TEMPLATES[idx]);
   }),
 
-  http.delete(`${BASE}/api/platform/groups/:groupId/agents/:id`, async ({ params }) => {
+  http.delete(`${ BASE }/api/platform/groups/:groupId/agents/:id`, async ({ params }) =>
+  {
     await delay(300);
     const idx = MOCK_TEMPLATES.findIndex(t => t.id === params.id && t.groupId === Number(params.groupId));
-    if (idx !== -1) {
+    if (idx !== -1)
+    {
       MOCK_TEMPLATES.splice(idx, 1);
       delete overlays[params.id as string];
     }
@@ -555,7 +646,8 @@ export const handlers = [
   }),
 
   // Get agent by id
-  http.get(`${BASE}/api/agents/:id`, async ({ params }) => {
+  http.get(`${ BASE }/api/agents/:id`, async ({ params }) =>
+  {
     await delay(200);
     const agent = AGENTS.find(a => a.id === params.id);
     if (!agent) return new HttpResponse(null, { status: 404 });
@@ -563,30 +655,34 @@ export const handlers = [
   }),
 
   // Create agent
-  http.post(`${BASE}/api/agents`, async ({ request }) => {
+  http.post(`${ BASE }/api/agents`, async ({ request }) =>
+  {
     await delay(400);
     const body = await request.json() as Record<string, unknown>;
-    const newAgent = { ...body, id: `agent-${Date.now()}`, version: 1, createdAt: new Date().toISOString() };
+    const newAgent = { ...body, id: `agent-${ Date.now() }`, version: 1, createdAt: new Date().toISOString() };
     return HttpResponse.json(newAgent, { status: 201 });
   }),
 
   // Update agent
-  http.put(`${BASE}/api/agents/:id`, async ({ request, params }) => {
+  http.put(`${ BASE }/api/agents/:id`, async ({ request, params }) =>
+  {
     await delay(400);
     const body = await request.json() as Record<string, unknown>;
     return HttpResponse.json({ ...body, id: params.id });
   }),
 
   // Delete agent
-  http.delete(`${BASE}/api/agents/:id`, async () => {
+  http.delete(`${ BASE }/api/agents/:id`, async () =>
+  {
     await delay(300);
     return new HttpResponse(null, { status: 204 });
   }),
 
   // Invoke agent (non-streaming)
-  http.post(`${BASE}/api/agents/:id/invoke`, async ({ request, params }) => {
+  http.post(`${ BASE }/api/agents/:id/invoke`, async ({ request, params }) =>
+  {
     await delay(800 + Math.random() * 800); // simulate LLM latency
-    const body = await request.json() as { query: string };
+    const body = await request.json() as { query: string; };
     const { query } = body;
     const agentId = params.id as string;
 
@@ -599,22 +695,23 @@ export const handlers = [
   }),
 
   // Invoke agent — SSE streaming
-  http.post(`${BASE}/api/agents/:id/invoke/stream`, async ({ request, params }) => {
-    const body = await request.json() as { query: string };
+  http.post(`${ BASE }/api/agents/:id/invoke/stream`, async ({ request, params }) =>
+  {
+    const body = await request.json() as { query: string; };
     void body;
-    const agentId  = params.id as string;
+    const agentId = params.id as string;
     const sessionId = agentId.includes("weather") ? "sess-wx-sandbox-001"
-                    : agentId.includes("booking") ? "sess-bk-sandbox-002"
-                    : "sess-an-sandbox-003";
+      : agentId.includes("booking") ? "sess-bk-sandbox-002"
+        : "sess-an-sandbox-003";
 
     // Build scenario-specific chunks
-    const isWeather   = agentId.includes("weather");
-    const isBooking   = agentId.includes("booking");
+    const isWeather = agentId.includes("weather");
+    const isBooking = agentId.includes("booking");
     const isAnalytics = !isWeather && !isBooking;
 
-    const thinkingText1 = isWeather  ? "The user is asking about weather. I should call the weather API."
-                        : isBooking  ? "I'll help with the reservation. Let me clarify what's needed."
-                        : "This is an analytics query. I need to run a SQL query to retrieve the data.";
+    const thinkingText1 = isWeather ? "The user is asking about weather. I should call the weather API."
+      : isBooking ? "I'll help with the reservation. Let me clarify what's needed."
+        : "This is an analytics query. I need to run a SQL query to retrieve the data.";
     // Simulate streaming: split thinking text into word-level text_delta events before the thinking event
     const words1 = thinkingText1.split(" ");
     const chunks: object[] = [
@@ -623,18 +720,20 @@ export const handlers = [
       { type: "thinking", iteration: 1, content: thinkingText1 },
     ];
 
-    if (isWeather) {
+    if (isWeather)
+    {
       chunks.push(
-        { type: "tool_call",   iteration: 1, toolName: "get_current_weather", toolInput: `{"location":"London","units":"metric"}` },
+        { type: "tool_call", iteration: 1, toolName: "get_current_weather", toolInput: `{"location":"London","units":"metric"}` },
         { type: "tool_result", iteration: 1, toolName: "get_current_weather", toolOutput: `{"temperature":14,"feels_like":11,"humidity":72,"condition":"Overcast clouds","wind_speed":5.2}` },
         { type: "iteration_start", iteration: 2 },
         { type: "thinking", iteration: 2, content: "Got current conditions. Now I'll fetch the 3-day forecast." },
-        { type: "tool_call",   iteration: 2, toolName: "get_forecast", toolInput: `{"location":"London","days":3}` },
+        { type: "tool_call", iteration: 2, toolName: "get_forecast", toolInput: `{"location":"London","days":3}` },
         { type: "tool_result", iteration: 2, toolName: "get_forecast", toolOutput: `[{"date":"2026-03-23","high":16,"low":9,"condition":"Light rain"},{"date":"2026-03-24","high":13,"low":8,"condition":"Heavy rain"},{"date":"2026-03-25","high":15,"low":10,"condition":"Partly cloudy"}]` },
       );
-    } else if (isAnalytics) {
+    } else if (isAnalytics)
+    {
       chunks.push(
-        { type: "tool_call",   iteration: 1, toolName: "run_query", toolInput: `{"sql":"SELECT segment, SUM(revenue) FROM sales WHERE quarter='Q1-2026' GROUP BY segment"}` },
+        { type: "tool_call", iteration: 1, toolName: "run_query", toolInput: `{"sql":"SELECT segment, SUM(revenue) FROM sales WHERE quarter='Q1-2026' GROUP BY segment"}` },
         { type: "tool_result", iteration: 1, toolName: "run_query", toolOutput: `[{"segment":"Enterprise","revenue":1100000},{"segment":"SMB","revenue":900000},{"segment":"Consumer","revenue":400000}]` },
       );
     }
@@ -642,24 +741,28 @@ export const handlers = [
     const finalChunk = isWeather
       ? { type: "final_response", sessionId, content: `The current weather in London is **14°C** (feels like 11°C) with overcast clouds and 72% humidity.\n\nForecast:\n• Tomorrow: Light rain, 9–16°C\n• Wednesday: Heavy rain, 8–13°C\n• Thursday: Partly cloudy, 10–15°C` }
       : isBooking
-      ? { type: "final_response", sessionId, content: "I can help with your reservation. Could you please provide:\n1. Your preferred date and time\n2. Number of guests\n3. Any special requirements" }
-      : { type: "final_response", sessionId, content: "Q1 2026 revenue was £2.4M, up 18% YoY. Top performing segment: Enterprise (£1.1M, +32%)." };
+        ? { type: "final_response", sessionId, content: "I can help with your reservation. Could you please provide:\n1. Your preferred date and time\n2. Number of guests\n3. Any special requirements" }
+        : { type: "final_response", sessionId, content: "Q1 2026 revenue was £2.4M, up 18% YoY. Top performing segment: Enterprise (£1.1M, +32%)." };
 
     chunks.push(finalChunk);
 
-    if (isWeather) {
+    if (isWeather)
+    {
       chunks.push({ type: "verification", verification: { isVerified: true, confidence: 0.94, mode: "ToolGrounded", ungroundedClaims: [], wasBlocked: false, reasoning: "All claims are directly supported by tool output." } });
-    } else if (isAnalytics) {
+    } else if (isAnalytics)
+    {
       chunks.push({ type: "verification", verification: { isVerified: false, confidence: 0.58, mode: "LlmVerifier", ungroundedClaims: ["up 18% YoY"], wasBlocked: false, reasoning: "YoY comparison requires Q1 2025 data which was not queried." } });
     }
 
-    chunks.push({ type: "done", executionTime: `${(0.8 + Math.random()).toFixed(1)}s` });
+    chunks.push({ type: "done", executionTime: `${ (0.8 + Math.random()).toFixed(1) }s` });
 
     const encoder = new TextEncoder();
-    const stream  = new ReadableStream({
-      async start(controller) {
-        for (const chunk of chunks) {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
+    const stream = new ReadableStream({
+      async start(controller)
+      {
+        for (const chunk of chunks)
+        {
+          controller.enqueue(encoder.encode(`data: ${ JSON.stringify(chunk) }\n\n`));
           await delay(350 + Math.random() * 200);
         }
         controller.close();
@@ -672,13 +775,15 @@ export const handlers = [
   }),
 
   // List pending learned rules
-  http.get(`${BASE}/api/learned-rules`, async () => {
+  http.get(`${ BASE }/api/learned-rules`, async () =>
+  {
     await delay(250);
     return HttpResponse.json(pendingRules);
   }),
 
   // Approve rule
-  http.post(`${BASE}/api/learned-rules/:id/approve`, async ({ params }) => {
+  http.post(`${ BASE }/api/learned-rules/:id/approve`, async ({ params }) =>
+  {
     await delay(300);
     const id = Number(params.id);
     pendingRules = pendingRules.filter(r => r.id !== id);
@@ -686,7 +791,8 @@ export const handlers = [
   }),
 
   // Reject rule
-  http.post(`${BASE}/api/learned-rules/:id/reject`, async ({ params }) => {
+  http.post(`${ BASE }/api/learned-rules/:id/reject`, async ({ params }) =>
+  {
     await delay(300);
     const id = Number(params.id);
     pendingRules = pendingRules.filter(r => r.id !== id);
@@ -695,11 +801,12 @@ export const handlers = [
 
   // ── Business rules ────────────────────────────────────────────────────────
 
-  http.get(`${BASE}/api/admin/business-rules`, async ({ request }) => {
+  http.get(`${ BASE }/api/admin/business-rules`, async ({ request }) =>
+  {
     await delay(200);
     const url = new URL(request.url);
     const agentType = url.searchParams.get("agentType") ?? "*";
-    const agentId   = url.searchParams.get("agentId") ?? null;
+    const agentId = url.searchParams.get("agentId") ?? null;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let filtered: any[] = agentType === "*"
       ? BUSINESS_RULES
@@ -712,7 +819,8 @@ export const handlers = [
     return HttpResponse.json(filtered);
   }),
 
-  http.post(`${BASE}/api/admin/business-rules`, async ({ request }) => {
+  http.post(`${ BASE }/api/admin/business-rules`, async ({ request }) =>
+  {
     await delay(300);
     const body = await request.json() as Record<string, unknown>;
     const entity = { ...body, id: ruleNextId++, guid: crypto.randomUUID(), tenantId: 1, isActive: true, createdAt: new Date().toISOString() };
@@ -720,7 +828,8 @@ export const handlers = [
     return HttpResponse.json(entity, { status: 201 });
   }),
 
-  http.put(`${BASE}/api/admin/business-rules/:id`, async ({ request, params }) => {
+  http.put(`${ BASE }/api/admin/business-rules/:id`, async ({ request, params }) =>
+  {
     await delay(300);
     const body = await request.json() as Record<string, unknown>;
     const id = Number(params.id);
@@ -728,7 +837,8 @@ export const handlers = [
     return HttpResponse.json(BUSINESS_RULES.find(r => r.id === id));
   }),
 
-  http.delete(`${BASE}/api/admin/business-rules/:id`, async ({ params }) => {
+  http.delete(`${ BASE }/api/admin/business-rules/:id`, async ({ params }) =>
+  {
     await delay(250);
     BUSINESS_RULES = BUSINESS_RULES.filter(r => r.id !== Number(params.id));
     return new HttpResponse(null, { status: 204 });
@@ -736,17 +846,20 @@ export const handlers = [
 
   // ── Group rule templates (opt-in templates shared by tenant groups) ───────
 
-  http.get(`${BASE}/api/admin/group-rule-templates`, async () => {
+  http.get(`${ BASE }/api/admin/group-rule-templates`, async () =>
+  {
     await delay(300);
     return HttpResponse.json(
-      GROUP_RULE_TEMPLATES.map(t => {
+      GROUP_RULE_TEMPLATES.map(t =>
+      {
         const activated = BUSINESS_RULES.find(r => (r as Record<string, unknown>).sourceGroupRuleId === t.id && r.isActive);
         return { ...t, isActivated: !!activated, activatedRuleId: activated?.id ?? null };
       })
     );
   }),
 
-  http.post(`${BASE}/api/admin/group-rule-templates/:groupRuleId/activate`, async ({ params }) => {
+  http.post(`${ BASE }/api/admin/group-rule-templates/:groupRuleId/activate`, async ({ params }) =>
+  {
     await delay(300);
     const templateId = Number(params.groupRuleId);
     const tpl = GROUP_RULE_TEMPLATES.find(t => t.id === templateId);
@@ -780,7 +893,8 @@ export const handlers = [
     return HttpResponse.json(entity, { status: 201 });
   }),
 
-  http.delete(`${BASE}/api/admin/group-rule-templates/:groupRuleId/activate`, async ({ params }) => {
+  http.delete(`${ BASE }/api/admin/group-rule-templates/:groupRuleId/activate`, async ({ params }) =>
+  {
     await delay(300);
     const templateId = Number(params.groupRuleId);
     BUSINESS_RULES = BUSINESS_RULES.filter(r => (r as Record<string, unknown>).sourceGroupRuleId !== templateId);
@@ -789,7 +903,8 @@ export const handlers = [
 
   // ── Prompt overrides ──────────────────────────────────────────────────────
 
-  http.get(`${BASE}/api/admin/prompt-overrides`, async ({ request }) => {
+  http.get(`${ BASE }/api/admin/prompt-overrides`, async ({ request }) =>
+  {
     await delay(200);
     const url = new URL(request.url);
     const agentType = url.searchParams.get("agentType") ?? "*";
@@ -799,7 +914,8 @@ export const handlers = [
     return HttpResponse.json(filtered);
   }),
 
-  http.post(`${BASE}/api/admin/prompt-overrides`, async ({ request }) => {
+  http.post(`${ BASE }/api/admin/prompt-overrides`, async ({ request }) =>
+  {
     await delay(300);
     const body = await request.json() as Record<string, unknown>;
     const entity = { ...body, id: overrideNextId++, tenantId: 1, isActive: true, version: 1, createdAt: new Date().toISOString() };
@@ -807,7 +923,8 @@ export const handlers = [
     return HttpResponse.json(entity, { status: 201 });
   }),
 
-  http.put(`${BASE}/api/admin/prompt-overrides/:id`, async ({ request, params }) => {
+  http.put(`${ BASE }/api/admin/prompt-overrides/:id`, async ({ request, params }) =>
+  {
     await delay(300);
     const body = await request.json() as Record<string, unknown>;
     const id = Number(params.id);
@@ -815,7 +932,8 @@ export const handlers = [
     return HttpResponse.json(PROMPT_OVERRIDES.find(o => o.id === id));
   }),
 
-  http.delete(`${BASE}/api/admin/prompt-overrides/:id`, async ({ params }) => {
+  http.delete(`${ BASE }/api/admin/prompt-overrides/:id`, async ({ params }) =>
+  {
     await delay(250);
     PROMPT_OVERRIDES = PROMPT_OVERRIDES.filter(o => o.id !== Number(params.id));
     return new HttpResponse(null, { status: 204 });
@@ -823,12 +941,14 @@ export const handlers = [
 
   // ── Group prompt templates (opt-in templates shared by tenant groups) ─────
 
-  http.get(`${BASE}/api/admin/group-prompt-templates`, async () => {
+  http.get(`${ BASE }/api/admin/group-prompt-templates`, async () =>
+  {
     await delay(300);
     return HttpResponse.json(GROUP_PROMPT_TEMPLATES);
   }),
 
-  http.post(`${BASE}/api/admin/group-prompt-templates/:groupOverrideId/activate`, async ({ params }) => {
+  http.post(`${ BASE }/api/admin/group-prompt-templates/:groupOverrideId/activate`, async ({ params }) =>
+  {
     await delay(300);
     const id = Number(params.groupOverrideId);
     const tpl = GROUP_PROMPT_TEMPLATES.find(t => t.id === id);
@@ -842,27 +962,30 @@ export const handlers = [
     });
   }),
 
-  http.delete(`${BASE}/api/admin/group-prompt-templates/:groupOverrideId/activate`, async () => {
+  http.delete(`${ BASE }/api/admin/group-prompt-templates/:groupOverrideId/activate`, async () =>
+  {
     await delay(300);
     return new HttpResponse(null, { status: 204 });
   }),
 
   // ── Dashboard ─────────────────────────────────────────────────────────────
 
-  http.get(`${BASE}/api/admin/dashboard`, async () => {
+  http.get(`${ BASE }/api/admin/dashboard`, async () =>
+  {
     await delay(300);
     return HttpResponse.json({
-      agentCount:       AGENTS.length,
-      activeRuleCount:  BUSINESS_RULES.filter(r => r.isActive).length,
+      agentCount: AGENTS.length,
+      activeRuleCount: BUSINESS_RULES.filter(r => r.isActive).length,
       pendingRuleCount: pendingRules.length,
-      sessionCount:     42,
-      asOf:             new Date().toISOString(),
+      sessionCount: 42,
+      asOf: new Date().toISOString(),
     });
   }),
 
   // ── Phase 17 — Agent Setup Assistant ──────────────────────────────────────
 
-  http.post(`${BASE}/api/agents/suggest-prompt`, async () => {
+  http.post(`${ BASE }/api/agents/suggest-prompt`, async () =>
+  {
     await delay(900);
     return HttpResponse.json({
       systemPrompt:
@@ -876,7 +999,8 @@ export const handlers = [
     });
   }),
 
-  http.post(`${BASE}/api/agents/suggest-rule-packs`, async () => {
+  http.post(`${ BASE }/api/agents/suggest-rule-packs`, async () =>
+  {
     await delay(1100);
     return HttpResponse.json([
       {
@@ -903,7 +1027,8 @@ export const handlers = [
     ]);
   }),
 
-  http.get(`${BASE}/api/agents/:agentId/prompt-history`, async () => {
+  http.get(`${ BASE }/api/agents/:agentId/prompt-history`, async () =>
+  {
     await delay(300);
     return HttpResponse.json([
       { id: 1, agentId: "agent-weather-01", version: 1, systemPrompt: "Initial prompt v1.", createdAtUtc: "2026-02-15T09:00:00Z", createdBy: "admin", source: "manual", reason: null },
@@ -911,7 +1036,8 @@ export const handlers = [
     ]);
   }),
 
-  http.post(`${BASE}/api/agents/:agentId/prompt-history/:version/restore`, async ({ params }) => {
+  http.post(`${ BASE }/api/agents/:agentId/prompt-history/:version/restore`, async ({ params }) =>
+  {
     await delay(400);
     return HttpResponse.json({
       id: 3,
@@ -925,7 +1051,8 @@ export const handlers = [
     });
   }),
 
-  http.post(`${BASE}/api/admin/rule-packs/suggest-regex`, async () => {
+  http.post(`${ BASE }/api/admin/rule-packs/suggest-regex`, async () =>
+  {
     await delay(800);
     return HttpResponse.json({
       pattern: "^[a-zA-Z0-9._%+\\-]+@(example\\.com|acme\\.org)$",
@@ -937,7 +1064,8 @@ export const handlers = [
     });
   }),
 
-  http.get(`${BASE}/api/admin/rule-packs/:packId/history`, async () => {
+  http.get(`${ BASE }/api/admin/rule-packs/:packId/history`, async () =>
+  {
     await delay(300);
     return HttpResponse.json([
       { id: 1, packId: 1, version: 1, rulesJson: "[]", createdAtUtc: "2026-03-01T10:00:00Z", createdBy: "admin", source: "manual", reason: null },
@@ -945,7 +1073,8 @@ export const handlers = [
     ]);
   }),
 
-  http.post(`${BASE}/api/admin/rule-packs/:packId/history/:version/restore`, async ({ params }) => {
+  http.post(`${ BASE }/api/admin/rule-packs/:packId/history/:version/restore`, async ({ params }) =>
+  {
     await delay(400);
     return HttpResponse.json({
       id: 3, packId: Number(params.packId), version: 3, rulesJson: "[]",
@@ -953,7 +1082,8 @@ export const handlers = [
     });
   }),
 
-  http.get(`${BASE}/api/admin/rule-packs/meta`, async () => {
+  http.get(`${ BASE }/api/admin/rule-packs/meta`, async () =>
+  {
     await delay(200);
     return HttpResponse.json({
       hookPoints: ["OnInit", "OnToolCall", "OnToolResult", "OnToolError", "OnComplete", "OnError", "OnTokenLimit"],

@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Code2,
   Cpu,
+  Download,
   History,
   Info,
   Plus,
@@ -15,15 +16,18 @@ import {
   Settings2,
   Sliders,
   Sparkles,
+  Upload,
   X,
 } from "lucide-react";
 import { AgentAssistantDrawer } from "@/components/AgentAssistantDrawer";
+import { AgentImportDialog } from "@/components/AgentImportDialog";
 import { PromptQuickFixDialog } from "@/components/PromptQuickFixDialog";
 import {
   api,
   type AgentArchetype,
   type AgentDefaults,
   type AgentDefinition,
+  type AgentImportResult,
   type AgentPromptHistoryEntry,
   type AvailableLlmConfig,
   type LlmConfig,
@@ -31,6 +35,7 @@ import {
   type McpToolBinding,
   type McpToolInfo,
 } from "@/api";
+import { triggerJsonDownload } from "@/lib/download";
 import { ArchetypeSelector } from "@/components/ArchetypeSelector";
 import { HookEditor } from "@/components/HookEditor";
 import { A2AConfigPanel } from "@/components/A2AConfigPanel";
@@ -931,6 +936,7 @@ export function AgentBuilder() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [promptHistory, setPromptHistory] = useState<AgentPromptHistoryEntry[]>([]);
   const [credentials, setCredentials] = useState<McpCredential[]>([]);
+  const [importOpen, setImportOpen] = useState(false);
 
   useEffect(() => {
     api.getLlmConfig().then(setLlmConfig).catch(() => {});
@@ -991,7 +997,6 @@ export function AgentBuilder() {
       toast.error("Agent name is required");
       return;
     }
-    setSaving(true);
     try {
       const hasBindings = bindings.some((b) => b.name.trim() !== "" && (b.command.trim() !== "" || b.endpoint.trim() !== ""));
       const dto: AgentDefinition = {
@@ -1016,6 +1021,25 @@ export function AgentBuilder() {
     }
   };
 
+  const handleExport = async () => {
+    if (!agentId) return;
+    try {
+      const bundle = await api.exportAgent(agentId);
+      const filename = `${(form.name || "agent").replace(/\s+/g, "-").toLowerCase()}-export.json`;
+      triggerJsonDownload(bundle, filename);
+      toast.success("Agent exported");
+    } catch (e: unknown) {
+      toast.error("Export failed", { description: String(e) });
+    }
+  };
+
+  const handleImportSuccess = (result: AgentImportResult) => {
+    toast.success(`Imported "${result.agentName}"`, {
+      description: result.warnings.length > 0 ? result.warnings.join(" ") : undefined,
+    });
+    navigate(`/agents/${result.agentId}/edit`);
+  };
+
   return (
     <div className="space-y-6 max-w-4xl">
       <div className="flex items-center justify-between">
@@ -1028,6 +1052,18 @@ export function AgentBuilder() {
           </p>
         </div>
         <div className="flex gap-3">
+          {agentId && (
+            <Button variant="outline" size="sm" onClick={handleExport}>
+              <Download className="mr-2 size-4" />
+              Export
+            </Button>
+          )}
+          {!agentId && (
+            <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
+              <Upload className="mr-2 size-4" />
+              Import
+            </Button>
+          )}
           <Button variant="outline" onClick={() => navigate("/agents")}>
             Cancel
           </Button>
@@ -1506,6 +1542,12 @@ export function AgentBuilder() {
           {saving ? "Saving..." : agentId ? "Save Changes" : "Create Agent"}
         </Button>
       </div>
+
+      <AgentImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onSuccess={handleImportSuccess}
+      />
     </div>
   );
 }

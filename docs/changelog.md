@@ -4,6 +4,36 @@
 
 ---
 
+## [2026-05-14] Agent Export / Import
+
+Full round-trip portable agent configuration — export an agent (definition + linked business rules)
+to a JSON bundle and re-import it into any tenant, with delegate-agent name resolution, overwrite
+toggle, and selective rule import.
+
+### New files
+
+| File | Purpose |
+|------|---------|
+| `src/Diva.Core/Models/AgentExport.cs` | DTOs: `AgentExportBundle`, `AgentExportDefinition`, `AgentExportRule`, `AgentImportOptions`, `AgentImportResult` |
+| `src/Diva.Core/Models/IAgentExportService.cs` | Service interface (`ExportAsync` / `ImportAsync`) |
+| `src/Diva.Infrastructure/AgentExport/AgentExportService.cs` | Concrete implementation — resolves `DelegateAgentIdsJson` → names on export, names → IDs on import (warns on misses), optional rule import, overwrite support |
+| `admin-portal/src/lib/download.ts` | `triggerJsonDownload()` + `readJsonFile<T>()` utilities |
+| `admin-portal/src/components/AgentImportDialog.tsx` | File-upload dialog with bundle preview, overwrite/rule toggles, warnings display |
+| `tests/Diva.Agents.Tests/AgentExportServiceTests.cs` | 7 xunit tests covering export, delegate resolution, create, overwrite, rule skip, and missing-delegate warnings |
+
+### Modified files
+
+| File | Change |
+|------|--------|
+| `src/Diva.Host/Controllers/AgentsController.cs` | `GET /api/agents/{id}/export` → file download; `POST /api/agents/import` → 201 with `AgentImportResult` |
+| `src/Diva.Host/Program.cs` | `AddScoped<IAgentExportService, AgentExportService>()` |
+| `admin-portal/src/api.ts` | `AgentExportBundle`, `AgentExportDefinition`, `AgentExportRule`, `AgentImportResult`, `AgentImportOptions` interfaces; `exportAgent()` + `importAgent()` methods |
+| `admin-portal/src/components/AgentList.tsx` | Export in row dropdown; Import button near "New Agent" |
+| `admin-portal/src/components/AgentBuilder.tsx` | Export button in edit toolbar; Import button in new-agent mode |
+| `admin-portal/src/mocks/handlers.ts` | MSW mock handlers for both endpoints |
+
+---
+
 ## [2026-05-14] Vision Support for Local LLMs + User Attachments + Agent-Scoped Rule Learning
 
 ### Overview

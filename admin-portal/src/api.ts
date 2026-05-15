@@ -298,6 +298,56 @@ export interface RulePackExport
   }[];
 }
 
+// ── Agent Export / Import ──────────────────────────────────────────────────────
+
+export interface AgentExportRule
+{
+  agentType: string;
+  ruleCategory: string;
+  ruleKey: string;
+  ruleValueJson?: string;
+  promptInjection?: string;
+  isActive: boolean;
+  priority: number;
+  hookPoint: string;
+  hookRuleType: string;
+  pattern?: string;
+  replacement?: string;
+  toolName?: string;
+  orderInPack: number;
+  stopOnMatch: boolean;
+  maxEvaluationMs: number;
+}
+
+export interface AgentExportDefinition extends Omit<AgentDefinition, "id" | "tenantId" | "createdAt" | "publishedAt" | "version">
+{
+  delegateAgentNames: string[];
+}
+
+export interface AgentExportBundle
+{
+  schemaVersion: string;
+  exportedAt: string;
+  sourceTenantId: number;
+  agent: AgentExportDefinition;
+  rules: AgentExportRule[];
+}
+
+export interface AgentImportResult
+{
+  agentId: string;
+  agentName: string;
+  rulesImported: number;
+  warnings: string[];
+}
+
+export interface AgentImportOptions
+{
+  overwriteExisting?: boolean;
+  importRules?: boolean;
+  newAgentName?: string;
+}
+
 export interface Tenant
 {
   id: number;
@@ -944,7 +994,8 @@ export type CreateScheduleDto = Omit<ScheduledTask, "id" | "tenantId" | "lastRun
 export type UpdateScheduleDto = Partial<CreateScheduleDto>;
 
 // Export / Import types
-export interface ScheduledTaskExport {
+export interface ScheduledTaskExport
+{
   agentId: string;
   name: string;
   description?: string;
@@ -959,26 +1010,29 @@ export interface ScheduledTaskExport {
   isEnabled: boolean;
 }
 
-export interface ScheduleExportEnvelope {
+export interface ScheduleExportEnvelope
+{
   version: "1";
   exportedAt: string;
   type: "tenant-schedules" | "group-schedules";
   tasks: ScheduledTaskExport[];
 }
 
-export interface ScheduleImportRequest {
+export interface ScheduleImportRequest
+{
   tasks: ScheduledTaskExport[];
   skipConflicts: boolean;
 }
 
-export interface ScheduleImportResult {
+export interface ScheduleImportResult
+{
   created: number;
   skipped: number;
   skippedNames: string[];
 }
 
 // Group schedule export types (agentType instead of agentId)
-export type GroupScheduledTaskExport = Omit<ScheduledTaskExport, "agentId"> & { agentType: string };
+export type GroupScheduledTaskExport = Omit<ScheduledTaskExport, "agentId"> & { agentType: string; };
 export type GroupScheduleImportRequest = { tasks: GroupScheduledTaskExport[]; skipConflicts: boolean; };
 export type GroupScheduleImportResult = ScheduleImportResult;
 
@@ -1083,8 +1137,17 @@ export const api = {
   createAgent: (dto: AgentDefinition) => request<AgentDefinition>("/api/agents", { method: "POST", body: JSON.stringify(dto) }),
   updateAgent: (id: string, dto: AgentDefinition) => request<AgentDefinition>(`/api/agents/${ id }`, { method: "PUT", body: JSON.stringify(dto) }),
   improvePrompt: (id: string, instruction: string) =>
-    request<{ improvedPrompt: string }>(`/api/agents/${ id }/prompt/improve`, { method: "POST", body: JSON.stringify({ instruction }) }),
+    request<{ improvedPrompt: string; }>(`/api/agents/${ id }/prompt/improve`, { method: "POST", body: JSON.stringify({ instruction }) }),
   deleteAgent: (id: string) => request<void>(`/api/agents/${ id }`, { method: "DELETE" }),
+  exportAgent: (id: string) => request<AgentExportBundle>(`/api/agents/${ id }/export`),
+  importAgent: (bundle: AgentExportBundle, opts?: AgentImportOptions) =>
+  {
+    const params = new URLSearchParams();
+    if (opts?.overwriteExisting) params.set("overwrite", "true");
+    if (opts?.importRules === false) params.set("importRules", "false");
+    const qs = params.toString();
+    return request<AgentImportResult>(`/api/agents/import${ qs ? `?${ qs }` : "" }`, { method: "POST", body: JSON.stringify(bundle) });
+  },
   getLlmConfig: (llmConfigId?: number) =>
     request<LlmConfig>(llmConfigId ? `/api/config/llm?llmConfigId=${ llmConfigId }` : "/api/config/llm"),
   getAgentDefaults: () => request<AgentDefaults>("/api/config/agent-defaults"),
@@ -1919,8 +1982,8 @@ export interface FewShotExample
 
 export async function triggerOptimizationRun(
   agentId: string,
-  opts: { from?: string; to?: string; sessionId?: string; userContext?: string } = {}
-): Promise<{ runId: number }>
+  opts: { from?: string; to?: string; sessionId?: string; userContext?: string; } = {}
+): Promise<{ runId: number; }>
 {
   const r = await fetch(`${ BASE }/api/admin/agents/${ agentId }/optimize`, {
     method: "POST",
@@ -1954,7 +2017,7 @@ export async function getOptimizationRunDetail(agentId: string, runId: number): 
 
 export async function getOptimizationSuggestions(
   agentId: string,
-  opts?: { status?: string; type?: string; runId?: number; minConfidence?: number }
+  opts?: { status?: string; type?: string; runId?: number; minConfidence?: number; }
 ): Promise<OptimizationSuggestion[]>
 {
   const params = new URLSearchParams();
@@ -1968,7 +2031,7 @@ export async function getOptimizationSuggestions(
   return r.json();
 }
 
-export async function mergePrompt(agentId: string, suggestionIds: number[]): Promise<{ mergedPrompt: string }>
+export async function mergePrompt(agentId: string, suggestionIds: number[]): Promise<{ mergedPrompt: string; }>
 {
   const r = await fetch(`${ BASE }/api/admin/agents/${ agentId }/optimize/suggestions/merge-prompt`, {
     method: "POST",
@@ -2037,7 +2100,7 @@ export async function getFewShotExamples(agentId: string): Promise<FewShotExampl
   return r.json();
 }
 
-export async function addFewShotExample(agentId: string, example: Partial<FewShotExample>): Promise<{ id: number }>
+export async function addFewShotExample(agentId: string, example: Partial<FewShotExample>): Promise<{ id: number; }>
 {
   const r = await fetch(`${ BASE }/api/admin/agents/${ agentId }/examples`, {
     method: "POST",
@@ -2068,7 +2131,7 @@ export async function reorderFewShotExamples(agentId: string, orderedIds: number
 
 export async function triggerSessionOptimization(
   sessionId: string
-): Promise<{ runId: number; agentId: string }>
+): Promise<{ runId: number; agentId: string; }>
 {
   const r = await fetch(`${ BASE }/api/admin/sessions/${ sessionId }/optimize`, {
     method: "POST", headers: authHeaders()
@@ -2079,7 +2142,7 @@ export async function triggerSessionOptimization(
 
 export async function markTurnAsExample(
   sessionId: string, turnNumber: number, description?: string
-): Promise<{ id: number }>
+): Promise<{ id: number; }>
 {
   const r = await fetch(`${ BASE }/api/admin/sessions/${ sessionId }/turns/${ turnNumber }/examples`, {
     method: "POST",

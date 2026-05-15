@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
 import {
   Bot,
+  Download,
   Edit,
   MessageSquare,
   MoreHorizontal,
@@ -14,8 +15,11 @@ import {
   Trash2,
   ToggleLeft,
   ToggleRight,
+  Upload,
 } from "lucide-react";
-import { api, type AgentSummary } from "@/api";
+import { api, type AgentSummary, type AgentImportResult } from "@/api";
+import { triggerJsonDownload } from "@/lib/download";
+import { AgentImportDialog } from "@/components/AgentImportDialog";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -93,6 +97,7 @@ export function AgentList() {
   const [groupsLoading, setGroupsLoading] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState<string>("");
   const [publishing, setPublishing] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -156,6 +161,32 @@ export function AgentList() {
     finally { setPublishing(false); }
   };
 
+  const handleExport = async (agent: AgentSummary) =>
+  {
+    try
+    {
+      const bundle = await api.exportAgent(agent.id);
+      const filename = `${(agent.name || "agent").replace(/\s+/g, "-").toLowerCase()}-export.json`;
+      triggerJsonDownload(bundle, filename);
+      toast.success(`Exported "${agent.displayName || agent.name}"`);
+    }
+    catch (e: unknown)
+    {
+      toast.error("Export failed", { description: String(e) });
+    }
+  };
+
+  const handleImportSuccess = (result: AgentImportResult) =>
+  {
+    const msg = result.warnings.length > 0
+      ? result.warnings.join(" ")
+      : undefined;
+    toast.success(`Imported "${result.agentName}" (${result.rulesImported} rule${result.rulesImported !== 1 ? "s" : ""})`, {
+      description: msg,
+    });
+    load();
+  };
+
   useEffect(() => { load(); }, []);
 
   const handleDelete = async () => {
@@ -185,12 +216,18 @@ export function AgentList() {
           <h1 className="text-2xl font-semibold tracking-tight">Agents</h1>
           <p className="text-sm text-muted-foreground">Manage your AI agent configurations</p>
         </div>
-        <Button asChild>
-          <Link to="/agents/new">
-            <Plus className="mr-2 size-4" />
-            New Agent
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setImportOpen(true)}>
+            <Upload className="mr-2 size-4" />
+            Import
+          </Button>
+          <Button asChild>
+            <Link to="/agents/new">
+              <Plus className="mr-2 size-4" />
+              New Agent
+            </Link>
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -302,6 +339,10 @@ export function AgentList() {
                                 <Share2 className="mr-2 size-4" />
                                 Publish to Group
                               </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleExport(agent)}>
+                                <Download className="mr-2 size-4" />
+                                Export
+                              </DropdownMenuItem>
                             </>
                           )}
                           {agent.isShared && !agent.isActivated && (
@@ -388,6 +429,13 @@ export function AgentList() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Agent Import dialog */}
+      <AgentImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onSuccess={handleImportSuccess}
+      />
 
       {/* Delete confirmation dialog */}
       <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
