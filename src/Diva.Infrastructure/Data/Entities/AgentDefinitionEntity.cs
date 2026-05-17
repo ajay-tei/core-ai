@@ -75,4 +75,10 @@ public class AgentDefinitionEntity : ITenantEntity
     /// e.g. ["agent-1","agent-2"]. null = no delegation.
     /// </summary>
     public string? DelegateAgentIdsJson { get; set; }
+
+    /// <summary>
+    /// JSON AgentKnowledgeProfile defining the agent's default knowledge filter and retrieval behaviour.
+    /// null = no knowledge profile configured.
+    /// </summary>
+    public string? KnowledgeProfileJson { get; set; }
 }

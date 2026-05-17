@@ -640,6 +640,131 @@ function DockerGatewayPanel({ onUse }: { onUse: (binding: McpToolBinding) => voi
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Agent Memory Configuration
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface KnowledgeProfile {
+  enableMemory?: boolean;
+  memoryAutoRecall?: boolean;
+  memoryAutoRecallTypes?: string[];
+  memoryMaxRecallResults?: number;
+  saveTaskCheckpoint?: boolean;
+}
+
+function AgentMemoryConfigPanel({
+  knowledgeProfileJson,
+  onChange,
+}: {
+  knowledgeProfileJson?: string;
+  onChange: (json: string | undefined) => void;
+}) {
+  const profile: KnowledgeProfile = knowledgeProfileJson
+    ? (() => { try { return JSON.parse(knowledgeProfileJson); } catch { return {}; } })()
+    : {};
+
+  const update = (patch: Partial<KnowledgeProfile>) => {
+    const next = { ...profile, ...patch };
+    // Remove disabled defaults to keep JSON clean
+    if (!next.enableMemory) {
+      delete next.memoryAutoRecall;
+      delete next.memoryAutoRecallTypes;
+      delete next.memoryMaxRecallResults;
+      delete next.saveTaskCheckpoint;
+    }
+    const keys = Object.keys(next);
+    onChange(keys.length > 0 ? JSON.stringify(next) : undefined);
+  };
+
+  const RECALL_TYPE_OPTIONS = ["working", "episodic", "semantic"];
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Agent Memory</CardTitle>
+        <CardDescription>
+          Enable memory so the agent can remember facts across sessions using working, episodic, and semantic memory tiers.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center gap-3">
+          <Switch
+            checked={!!profile.enableMemory}
+            onCheckedChange={(checked) => update({ enableMemory: checked })}
+          />
+          <Label>Enable Memory</Label>
+        </div>
+
+        {profile.enableMemory && (
+          <>
+            <div className="flex items-center gap-3">
+              <Switch
+                checked={!!profile.saveTaskCheckpoint}
+                onCheckedChange={(checked) => update({ saveTaskCheckpoint: checked })}
+              />
+              <div>
+                <Label>Save task checkpoint</Label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Auto-saves an episodic memory at the end of each task so the agent can resume
+                  from where it left off on the next invocation. Enable auto-recall below to inject it.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Switch
+                checked={!!profile.memoryAutoRecall}
+                onCheckedChange={(checked) => update({ memoryAutoRecall: checked })}
+              />
+              <Label>Auto-recall memories before each turn</Label>
+            </div>
+
+            {profile.memoryAutoRecall && (
+              <div className="ml-10 space-y-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Auto-recall memory types</Label>
+                  <div className="flex gap-2">
+                    {RECALL_TYPE_OPTIONS.map((t) => {
+                      const selected = (profile.memoryAutoRecallTypes ?? ["episodic", "semantic"]).includes(t);
+                      return (
+                        <Button
+                          key={t}
+                          type="button"
+                          variant={selected ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => {
+                            const current = profile.memoryAutoRecallTypes ?? ["episodic", "semantic"];
+                            const next = selected ? current.filter((x) => x !== t) : [...current, t];
+                            update({ memoryAutoRecallTypes: next.length > 0 ? next : ["episodic", "semantic"] });
+                          }}
+                        >
+                          {t.charAt(0).toUpperCase() + t.slice(1)}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Max recall results</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={profile.memoryMaxRecallResults ?? 3}
+                    onChange={(e) => update({ memoryMaxRecallResults: parseInt(e.target.value) || 3 })}
+                    className="w-20"
+                  />
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Advanced Configuration (Collapsible)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1529,6 +1654,11 @@ export function AgentBuilder() {
             currentAgentId={agentId}
             value={form.delegateAgentIdsJson}
             onChange={(json) => set("delegateAgentIdsJson", json)}
+          />
+
+          <AgentMemoryConfigPanel
+            knowledgeProfileJson={form.knowledgeProfileJson}
+            onChange={(json) => set("knowledgeProfileJson", json)}
           />
         </TabsContent>
       </Tabs>

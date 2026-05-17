@@ -64,7 +64,7 @@ public sealed class McpConnectionManager : IMcpConnectionManager
         {
             try
             {
-                var client = await CreateClientAsync(b, definition.TenantId, ct, fallbackTenant, forcePassSsoToken);
+                var client = await CreateClientAsync(b, definition.TenantId, ct, fallbackTenant, forcePassSsoToken, agentId: definition.Id);
                 _logger.LogInformation("Connected to MCP server {Name} ({Transport})", b.Name, b.Transport);
                 return (b.Name, Client: (McpClient?)client);
             }
@@ -104,7 +104,7 @@ public sealed class McpConnectionManager : IMcpConnectionManager
 
     // ── Transport factory ────────────────────────────────────────────────────
 
-    private async Task<McpClient> CreateClientAsync(McpToolBinding binding, int tenantId, CancellationToken ct, TenantContext? fallbackTenant = null, bool forcePassSsoToken = false)
+    private async Task<McpClient> CreateClientAsync(McpToolBinding binding, int tenantId, CancellationToken ct, TenantContext? fallbackTenant = null, bool forcePassSsoToken = false, string? agentId = null)
     {
         // Resolve credential if referenced (for both HTTP and stdio transports)
         ResolvedCredential? credential = null;
@@ -193,13 +193,15 @@ public sealed class McpConnectionManager : IMcpConnectionManager
                         }
 
                         var mcpCtx = includeBearerToken && hasToken
-                            ? McpRequestContext.FromTenant(tc)
+                            ? McpRequestContext.FromTenant(tc, agentId: agentId, sessionId: GetInboundHeader("X-Session-Id"))
                             : new McpRequestContext
                             {
                                 TenantId      = tc.TenantId,
                                 SiteId        = tc.CurrentSiteId,
                                 CorrelationId = tc.CorrelationId,
-                                CustomHeaders = tc.CustomHeaders
+                                CustomHeaders = tc.CustomHeaders,
+                                AgentId       = agentId,
+                                SessionId     = GetInboundHeader("X-Session-Id"),
                             };
                         headers = mcpCtx.ToHeaders();
                     }
@@ -310,5 +312,15 @@ public sealed class McpConnectionManager : IMcpConnectionManager
             EnvironmentVariables = envVars.Count > 0 ? envVars : null
         });
         return await McpClient.CreateAsync(stdioTransport, cancellationToken: ct);
+    }
+
+    /// <summary>Reads a header from the current inbound HTTP request (portal → API),
+    /// or from HttpContext.Items if set by the controller (e.g. X-Session-Id).</summary>
+    private string? GetInboundHeader(string name)
+    {
+        var ctx = _httpCtx.HttpContext;
+        if (ctx is null) return null;
+        if (ctx.Items.TryGetValue(name, out var item) && item is string s) return s;
+        return ctx.Request.Headers.TryGetValue(name, out var v) ? v.ToString() : null;
     }
 }

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { api, type McpCredential, type CreateCredentialDto, type UpdateCredentialDto } from "@/api";
+import { storageKey } from "@/lib/brand";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,7 +17,10 @@ export function CredentialManager() {
   const [credentials, setCredentials] = useState<McpCredential[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
-  const [form, setForm] = useState<CreateCredentialDto>({ name: "", apiKey: "" });
+  const [form, setForm] = useState<CreateCredentialDto>(() => {
+    const tenantId = parseInt(localStorage.getItem(storageKey("tenant_id")) ?? "1", 10);
+    return { name: "", apiKey: "", tenantId };
+  });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -35,7 +39,8 @@ export function CredentialManager() {
     try {
       await api.createCredential(form);
       toast.success(`Credential "${form.name}" created`);
-      setForm({ name: "", apiKey: "" });
+      const tenantId = parseInt(localStorage.getItem(storageKey("tenant_id")) ?? "1", 10);
+      setForm({ name: "", apiKey: "", tenantId });
       setShowCreate(false);
       load();
     } catch { toast.error("Failed to create credential"); }

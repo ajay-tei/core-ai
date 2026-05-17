@@ -29,8 +29,18 @@ using Diva.TenantAdmin.Prompts;
 using Diva.TenantAdmin.Services;
 using Diva.TenantAdmin.Services.Enrichers;
 using Diva.Infrastructure.Optimization;
+using Diva.Rag;
+using Diva.Rag.Abstractions;
+using Diva.Rag.Chunking;
+using Diva.Rag.Connectors;
+using Diva.Rag.Embeddings;
+using Diva.Rag.Ingestion;
+using Diva.Rag.Retrieval;
+using Diva.Rag.Services;
+using Diva.Rag.VectorStore;
 using Diva.Tools.Core;
 using Diva.Tools.FileSystem;
+using Diva.Tools.Knowledge;
 using Diva.Tools.Optimization;
 using Diva.Tools.FileSystem.Abstractions;
 using Diva.Tools.FileSystem.Readers;
@@ -69,6 +79,7 @@ builder.Services.Configure<LocalAuthOptions>(builder.Configuration.GetSection(Lo
 builder.Services.Configure<A2AOptions>(builder.Configuration.GetSection(A2AOptions.SectionName));
 builder.Services.Configure<CredentialOptions>(builder.Configuration.GetSection(CredentialOptions.SectionName));
 builder.Services.Configure<AppBrandingOptions>(builder.Configuration.GetSection(AppBrandingOptions.SectionName));
+builder.Services.Configure<RagOptions>(builder.Configuration.GetSection(RagOptions.SectionName));
 
 // ── Credential Vault & Platform API Keys ──────────────────────────────────
 builder.Services.AddSingleton<ICredentialEncryptor, AesCredentialEncryptor>();
@@ -199,7 +210,8 @@ builder.Services
     .AddMcpServer(opts => opts.ServerInfo = new() { Name = "diva-mcp", Version = "1.0" })
     .WithHttpTransport()
     .WithDivaMcpTools<FileSystemMcpTools>()
-    .WithDivaMcpTools<AgentOptimizationMcpTools>();
+    .WithDivaMcpTools<AgentOptimizationMcpTools>()
+    .WithDivaMcpTools<KnowledgeRetrievalMcpTools>();
 // Phase 5 future: .WithDivaMcpTools<AnalyticsMcpTools>()
 
 // ── Agents ─────────────────────────────────────────────────────────────────
@@ -248,6 +260,7 @@ builder.Services.AddSingleton<IAgentDelegationResolver, DelegationAgentResolver>
 
 // Pipeline stages in execution order (all Singleton — no scoped deps)
 builder.Services.AddSingleton<ISupervisorPipelineStage, AgentContextStage>();  // pre-fetch agents
+builder.Services.AddSingleton<ISupervisorPipelineStage, RagContextStage>();     // RAG context retrieval
 builder.Services.AddSingleton<ISupervisorPipelineStage, DecomposeStage>();
 builder.Services.AddSingleton<ISupervisorPipelineStage, CapabilityMatchStage>();
 builder.Services.AddSingleton<ISupervisorPipelineStage, DispatchStage>();
@@ -279,6 +292,35 @@ builder.Services.AddSingleton<IOptimizationLlmAnalyzer, OptimizationLlmAnalyzer>
 builder.Services.AddScoped<OptimizationApplicator>();
 builder.Services.AddSingleton<IAgentOptimizationService, AgentOptimizationService>();
 builder.Services.AddHostedService<OptimizationSchedulerHostedService>();
+
+// ── Phase 26: RAG Pipeline ────────────────────────────────────────────────────────
+builder.Services.AddSingleton<KnowledgeSourceService>();
+builder.Services.AddSingleton<KnowledgeDocumentService>();
+builder.Services.AddSingleton<IDocumentChunker, RecursiveTextChunker>();
+builder.Services.AddSingleton<IDocumentConnector, FileDocumentConnector>();
+builder.Services.AddSingleton<IDocumentConnector, HttpDocumentConnector>();
+builder.Services.AddSingleton<IMetadataEnricher, TaxonomyMetadataEnricher>();
+builder.Services.AddSingleton<EmbeddingServiceFactory>();
+builder.Services.AddSingleton<IEmbeddingService>(sp =>
+{
+    try { return sp.GetRequiredService<EmbeddingServiceFactory>().Create(); }
+    catch (Exception ex)
+    {
+        sp.GetRequiredService<ILoggerFactory>().CreateLogger("RAG")
+          .LogWarning(ex, "Embedding service unavailable — RAG vector features disabled until config is set");
+        return new Diva.Rag.Embeddings.NoOpEmbeddingService();
+    }
+});
+builder.Services.AddSingleton<QdrantCollectionManager>();
+builder.Services.AddSingleton<IVectorRepository, QdrantVectorRepository>();
+builder.Services.AddSingleton<IContextAssembler, ContextAssembler>();
+builder.Services.AddSingleton<IKnowledgeRetriever, KnowledgeRetriever>();
+builder.Services.AddSingleton<IDocumentIngestionPipeline, DocumentIngestionPipeline>();
+builder.Services.AddHttpClient("RagEmbedding");
+builder.Services.AddHttpClient("RagConnector");
+builder.Services.AddScoped<IAgentMemoryService, AgentMemoryService>();
+builder.Services.AddScoped<IUserPreferenceService, UserPreferenceService>();
+builder.Services.AddHostedService<Diva.Rag.Ingestion.MemoryCleanupService>();
 
 // ── OpenTelemetry ──────────────────────────────────────────────────────────
 var otelEndpoint = builder.Configuration["OTel:Endpoint"] ?? "http://localhost:4317";
@@ -345,6 +387,17 @@ var app = builder.Build();
 var tenantGroupSvc = app.Services.GetRequiredService<ITenantGroupService>() as TenantGroupService;
 var overlaySvc = app.Services.GetRequiredService<IGroupAgentOverlayService>();
 tenantGroupSvc?.SetOverlayService(overlaySvc);
+
+// ── Phase 26.2: Wire session-close → memory cleanup hook ──────────────────
+{
+    var sessionSvc = app.Services.GetRequiredService<AgentSessionService>();
+    sessionSvc.OnSessionClosed += async (sessionId, ct) =>
+    {
+        await using var memScope = app.Services.CreateAsyncScope();
+        var memService = memScope.ServiceProvider.GetRequiredService<IAgentMemoryService>();
+        await memService.CleanupSessionAsync(sessionId, ct);
+    };
+}
 
 // ── Auto-migrate on startup ────────────────────────────────────────────────
 using (var scope = app.Services.CreateScope())
@@ -446,6 +499,25 @@ using (var scope = app.Services.CreateScope())
             Log.Information("Updated PlatformLlmConfig from env: provider={Provider} model={Model}", dp.Provider, dp.Model);
         }
     }
+
+    // ── Qdrant collection initialization (idempotent) ────────────────────────
+    var ragOpts = scope.ServiceProvider.GetRequiredService<IOptions<RagOptions>>().Value;
+    if (ragOpts.Enabled || ragOpts.EnableAgentMemory)
+    {
+        try
+        {
+            var qdrant = scope.ServiceProvider.GetRequiredService<QdrantCollectionManager>();
+            if (ragOpts.Enabled)
+                await qdrant.EnsureCollectionAsync(CancellationToken.None);
+            if (ragOpts.EnableAgentMemory)
+                await qdrant.EnsureMemoryCollectionAsync(CancellationToken.None);
+            Log.Information("Qdrant collections verified");
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Qdrant collection init failed — RAG features may not work until Qdrant is available");
+        }
+    }
 }
 
 // ── Middleware Pipeline ────────────────────────────────────────────────────
@@ -464,7 +536,7 @@ app.UseAuthorization();
 // ── Endpoints ─────────────────────────────────────────────────────────────
 app.MapControllers();
 app.MapHub<AgentStreamHub>("/hubs/agent");
-app.MapMcp("/mcp/diva").RequireAuthorization();
+app.MapMcp("/mcp/diva"); // Auth handled by TenantContextMiddleware (X-API-Key / Bearer JWT)
 
 app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions { Predicate = _ => false });
 app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions());

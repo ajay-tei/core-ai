@@ -9,6 +9,9 @@ public sealed class McpServerContext
     public bool IsAuthenticated { get; init; }
     public int TenantId => Tenant.TenantId;
     public string CorrelationId => Tenant.CorrelationId;
+    public string? UserId => string.IsNullOrEmpty(Tenant?.UserId) ? null : Tenant.UserId;
+    public string? AgentId { get; init; }
+    public string? SessionId { get; init; }
 
     public static readonly McpServerContext Anonymous =
         new() { Tenant = TenantContext.System(0), IsAuthenticated = false };
@@ -31,7 +34,11 @@ public sealed class McpServerContext
         return new McpServerContext
         {
             Tenant = tenant ?? TenantContext.System(0),
-            IsAuthenticated = tenant is not null
+            IsAuthenticated = tenant is not null,
+            AgentId = httpCtx.Request.Headers.TryGetValue("X-Agent-Id", out var agentVal)
+                ? agentVal.ToString() : null,
+            SessionId = httpCtx.Request.Headers.TryGetValue("X-Session-Id", out var sessVal)
+                ? sessVal.ToString() : null,
         };
     }
 }

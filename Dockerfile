@@ -6,6 +6,7 @@ WORKDIR /src
 COPY src/Diva.Core/Diva.Core.csproj              src/Diva.Core/
 COPY src/Diva.Sso/Diva.Sso.csproj                src/Diva.Sso/
 COPY src/Diva.Infrastructure/Diva.Infrastructure.csproj src/Diva.Infrastructure/
+COPY src/Diva.Rag/Diva.Rag.csproj                 src/Diva.Rag/
 COPY src/Diva.Tools/Diva.Tools.csproj             src/Diva.Tools/
 COPY src/Diva.TenantAdmin/Diva.TenantAdmin.csproj src/Diva.TenantAdmin/
 COPY src/Diva.Agents/Diva.Agents.csproj           src/Diva.Agents/

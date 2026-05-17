@@ -4,7 +4,7 @@
 
 ---
 
-## Current Platform State (as of 2026-05-06)
+## Current Platform State (as of 2026-05-17)
 
 All implementation phases complete. Phase 5 (domain MCP tool servers) is partially deferred pending real data backends. Phase 19 foundation is complete — remaining work (`OrchestratorAgent`, `ScopedAgentRegistry`, `SubAgentIdsJson`) is an **optional enhancement** for advanced parallel-dispatch scenarios; most coordinator use cases are already served by Phase 14 Agents-as-Tools (`DelegateAgentIdsJson`). The primary execution engine is `AnthropicAgentRunner` — the planned `LlmClientFactory`/`LiteLLMClient` were superseded by the strategy pattern.
 
@@ -25,6 +25,8 @@ All implementation phases complete. Phase 5 (domain MCP tool servers) is partial
 - Instruction flow: `AgentRequest.Instructions` → supervisor pipeline → system prompt
 - `effectiveMaxOutputTokens = definition.MaxOutputTokens ?? _agentOpts.MaxOutputTokens` — passed to both provider strategies
 - **Semantic tool pre-filter (2026-05-06):** `IToolSelectionStrategy?` optional dep. When registered (`LlmToolSelector`), fires one lightweight LLM call after `ApplyExecutionModeFilter` to narrow the tool set before the ReAct loop. Only fires when `allMcpTools.Count > AgentOptions.SemanticToolFilterThreshold` (default 8). Keeps at most `SemanticToolFilterMaxTools` (default 6). Multi-agent: each worker independently filters against its own sub-task description. Safe fallback to full list on any error.
+- **Agent memory auto-recall (2026-05-17):** When `enableMemory + memoryAutoRecall` are set in `KnowledgeProfileJson`, the runner resolves `IAgentMemoryService` via reflection at `InvokeStreamAsync` time and injects recalled memories into the system prompt before the ReAct loop. Uses composite scoring (`cosine × TypeWeight`) and `TopK = maxResults * 2` candidates for reranking. Reflection call param order: `tenantId, agentId, query, memoryType, sessionId, userId, currentSessionOnly, maxResults, ct`.
+- **Auto-checkpoint (2026-05-17):** When `enableMemory + saveTaskCheckpoint` are both true in `KnowledgeProfileJson`, a fire-and-forget `Task.Run` saves an episodic memory at the end of each successful `ExecuteReActLoopAsync` call — tagged `["checkpoint","task-state"]`. Combined with auto-recall this provides cross-session continuity. Never blocks the SSE stream. Works for both Anthropic and OpenAI-compatible providers.
 
 **Credential forwarding (2026-04-16):**
  - MCP tool calls now use only the resolved `CredentialRef` for outbound authentication. The inbound Diva platform API key (`X-API-Key`) is never forwarded to MCP servers. This fixes a prior security bug where the inbound API key could be leaked to external tool servers.

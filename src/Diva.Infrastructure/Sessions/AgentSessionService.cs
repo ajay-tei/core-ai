@@ -11,6 +11,9 @@ public sealed class AgentSessionService
     private readonly IDatabaseProviderFactory _db;
     private readonly ILogger<AgentSessionService> _logger;
 
+    /// <summary>Invoked when a session is closed — subscribers can clean up session-scoped resources.</summary>
+    public event Func<string, CancellationToken, Task>? OnSessionClosed;
+
     public AgentSessionService(IDatabaseProviderFactory db, ILogger<AgentSessionService> logger)
     {
         _db = db;
@@ -93,6 +96,34 @@ public sealed class AgentSessionService
         await db.SaveChangesAsync(ct);
         _logger.LogDebug("Saved turn {TurnNumber} for session {SessionId}", turnNumber, sessionId);
         return turnNumber;
+    }
+
+    /// <summary>
+    /// Closes a session and notifies subscribers (e.g. memory cleanup) via OnSessionClosed event.
+    /// </summary>
+    public async Task CloseSessionAsync(string sessionId, CancellationToken ct)
+    {
+        using var db = _db.CreateDbContext();
+        var session = await db.Sessions.FindAsync([sessionId], ct);
+        if (session is not null && session.Status == "active")
+        {
+            session.Status = "closed";
+            session.LastActivityAt = DateTime.UtcNow;
+            await db.SaveChangesAsync(ct);
+            _logger.LogDebug("Closed session {SessionId}", sessionId);
+        }
+
+        if (OnSessionClosed is not null)
+        {
+            try
+            {
+                await OnSessionClosed.Invoke(sessionId, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "OnSessionClosed handler failed for session {SessionId}", sessionId);
+            }
+        }
     }
 }
 

@@ -2,6 +2,7 @@ using Diva.Agents.Registry;
 using Diva.Agents.Workers;
 using Diva.Core.Models;
 using Diva.Infrastructure.Sessions;
+using Diva.Rag.Abstractions;
 
 namespace Diva.Agents.Supervisor;
 
@@ -63,6 +64,12 @@ public sealed class SupervisorState
 
     /// <summary>Instructions from the caller/API to propagate to all sub-tasks and worker agents.</summary>
     public string? SupervisorInstructions { get; set; }
+
+    // ── Phase 26: RAG Context ────────────────────────────────────────────
+    /// <summary>Assembled context from vector search, injected into decompose/dispatch.</summary>
+    public string? RetrievedContext { get; set; }
+    /// <summary>Raw retrieved chunks for grounding and citation.</summary>
+    public IReadOnlyList<RetrievedChunk>? RetrievedChunks { get; set; }
 }
 
 /// <summary>A unit of work to dispatch to a single worker agent.</summary>

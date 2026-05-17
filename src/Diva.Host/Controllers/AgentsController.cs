@@ -161,6 +161,7 @@ public class AgentsController : ControllerBase
         existing.ExecutionMode = dto.ExecutionMode;
         existing.ModelSwitchingJson = dto.ModelSwitchingJson;
         existing.DelegateAgentIdsJson = dto.DelegateAgentIdsJson;
+        existing.KnowledgeProfileJson = dto.KnowledgeProfileJson;
         existing.IsEnabled = dto.IsEnabled;
         existing.Status = dto.Status;
         if (dto.Status == "Published") existing.PublishedAt = DateTime.UtcNow;
@@ -246,7 +247,10 @@ public class AgentsController : ControllerBase
 
         var request = new AgentRequest { Query = req.Query, SessionId = req.SessionId, ModelId = req.ModelId, LlmConfigId = req.LlmConfigId, ForwardSsoToMcp = req.ForwardSsoToMcp, Attachments = req.Attachments ?? [] };
 
-        // If the resolved agent is an IStreamableWorkerAgent (e.g. RemoteA2AAgent, DynamicReActAgent),
+        // Expose session ID in HttpContext.Items so MCP header factory can inject X-Session-Id
+        // into outbound tool calls (needed by agent memory save_memory / recall_memory tools).
+        if (!string.IsNullOrEmpty(req.SessionId))
+            HttpContext.Items["X-Session-Id"] = req.SessionId;
         // delegate streaming directly to the worker instead of going through the runner.
         var worker = await _registry.GetByIdAsync(agent.Id, tenant.TenantId, ct);
         if (worker is IStreamableWorkerAgent streamable)

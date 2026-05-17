@@ -336,6 +336,89 @@ public sealed class AnthropicAgentRunner : IAgentRunner
             history = compactedHistoryS;
         }
 
+        // ── Agent Memory auto-recall (Phase 26.2) ────────────────────────────
+        // If the agent's KnowledgeProfile has memoryAutoRecall enabled, pre-fetch
+        // past memories and inject as a system prompt block before the first LLM call.
+        // Uses dynamic service resolution to avoid Diva.Infrastructure → Diva.Rag dependency.
+        if (_scopeFactory is not null && !string.IsNullOrEmpty(definition.KnowledgeProfileJson))
+        {
+            try
+            {
+                using var kpDoc = System.Text.Json.JsonDocument.Parse(definition.KnowledgeProfileJson);
+                var kpRoot = kpDoc.RootElement;
+                bool memEnabled = kpRoot.TryGetProperty("enableMemory", out var emProp) && emProp.GetBoolean();
+                bool autoRecall = kpRoot.TryGetProperty("memoryAutoRecall", out var arProp) && arProp.GetBoolean();
+
+                if (memEnabled && autoRecall)
+                {
+                    int maxRecall = kpRoot.TryGetProperty("memoryMaxRecallResults", out var mrProp) ? mrProp.GetInt32() : 3;
+                    var recallTypes = new List<string>();
+                    if (kpRoot.TryGetProperty("memoryAutoRecallTypes", out var rtProp) && rtProp.ValueKind == System.Text.Json.JsonValueKind.Array)
+                    {
+                        foreach (var item in rtProp.EnumerateArray())
+                            if (item.GetString() is { } s) recallTypes.Add(s);
+                    }
+                    if (recallTypes.Count == 0) recallTypes.AddRange(["episodic", "semantic"]);
+
+                    await using var memScope = _scopeFactory.CreateAsyncScope();
+                    // Resolve IAgentMemoryService dynamically — type lives in Diva.Rag
+                    var memServiceType = AppDomain.CurrentDomain.GetAssemblies()
+                        .SelectMany(a => { try { return a.GetTypes(); } catch { return []; } })
+                        .FirstOrDefault(t => t.FullName == "Diva.Rag.Services.IAgentMemoryService");
+                    var memService = memServiceType is not null
+                        ? memScope.ServiceProvider.GetService(memServiceType)
+                        : null;
+
+                    if (memService is not null)
+                    {
+                        var allRecalled = new List<string>();
+                        var recallMethod = memServiceType!.GetMethod("RecallMemoryAsync");
+                        if (recallMethod is not null)
+                        {
+                            foreach (var memType in recallTypes)
+                            {
+                                // Params: tenantId, agentId, query, memoryType, sessionId, userId, currentSessionOnly, maxResults, ct
+                                var task = recallMethod.Invoke(memService, [tenant.TenantId, definition.Id, request.Query,
+                                    memType, (string?)null, (string?)null, false, maxRecall, ct]) as Task;
+                                if (task is not null)
+                                {
+                                    await task;
+                                    // Get result via reflection
+                                    var resultProp = task.GetType().GetProperty("Result");
+                                    if (resultProp?.GetValue(task) is System.Collections.IEnumerable results)
+                                    {
+                                        foreach (var item in results)
+                                        {
+                                            var contentProp = item.GetType().GetProperty("Content");
+                                            var typeProp = item.GetType().GetProperty("MemoryType");
+                                            var content = contentProp?.GetValue(item)?.ToString() ?? "";
+                                            var mType = typeProp?.GetValue(item)?.ToString() ?? "unknown";
+                                            allRecalled.Add($"[{mType}] {content}");
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (allRecalled.Count > 0)
+                        {
+                            var memoryBlock = "\n\n## Agent Memory\nRelevant memories from past experience:\n"
+                                + string.Join("\n", allRecalled.Select(m => $"- {m}"));
+                            if (useAnthropicEarly && enableHistoryCaching)
+                                dynamicSystemPrompt += memoryBlock;
+                            else
+                                staticSystemPrompt += memoryBlock;
+                            systemPrompt += memoryBlock;
+                            _logger.LogDebug("Auto-recalled {Count} memories for agent {Agent}", allRecalled.Count, definition.Name);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Agent memory auto-recall failed for {Agent} — continuing without memories", definition.Name);
+            }
+        }
+
         {
             // Build merged tool lookup + raw tool list in a single parallel pass.
             // If a cached MCP session has expired on the server side ("Session ID not found"),
@@ -1025,6 +1108,83 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                         _logger.LogWarning(ex, "Background rule extraction failed (session={SessionId})", capturedSessionId);
                     }
                 }, CancellationToken.None);
+
+                // ── Auto-checkpoint save (Phase 26.2) ──────────────────────────────────
+                // Fire-and-forget episodic memory so the agent can resume state on the
+                // next invocation when memoryAutoRecall is also enabled. Works for both
+                // Anthropic and OpenAI-compatible providers — all paths converge here.
+                // Requires enableMemory + saveTaskCheckpoint both true in KnowledgeProfileJson.
+                if (_scopeFactory is not null && !string.IsNullOrEmpty(definition.KnowledgeProfileJson))
+                {
+                    bool doCheckpoint = false;
+                    Exception? kpParseEx = null;
+                    try
+                    {
+                        using var kpDoc = System.Text.Json.JsonDocument.Parse(definition.KnowledgeProfileJson);
+                        var kpRoot = kpDoc.RootElement;
+                        bool memOn = kpRoot.TryGetProperty("enableMemory",       out var emP) && emP.GetBoolean();
+                        bool cpOn  = kpRoot.TryGetProperty("saveTaskCheckpoint", out var cpP) && cpP.GetBoolean();
+                        doCheckpoint = memOn && cpOn;
+                    }
+                    catch (Exception ex) { kpParseEx = ex; }
+                    if (kpParseEx is not null)
+                        _logger.LogWarning(kpParseEx, "Checkpoint: KnowledgeProfileJson parse error (agent={Agent})", definition.Name);
+
+                    if (doCheckpoint)
+                    {
+                        var cpAgentId  = definition.Id;
+                        var cpTenantId = tenant.TenantId;
+                        var cpSession  = sessionId;
+                        var cpQuery    = userQuery;
+                        var cpTools    = toolsUsed.Distinct().ToList();
+                        var cpAnswer   = finalResponse.Length > 400 ? finalResponse[..400] + "\u2026" : finalResponse;
+                        var cpFactory  = _scopeFactory;
+                        var cpLogger   = _logger;
+
+                        _ = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var checkpointContent =
+                                    $"Task: {cpQuery}\n"
+                                    + (cpTools.Count > 0 ? $"Tools used: {string.Join(", ", cpTools)}\n" : "")
+                                    + $"Answer: {cpAnswer}";
+
+                                await using var scope = cpFactory.CreateAsyncScope();
+                                var memServiceType = AppDomain.CurrentDomain.GetAssemblies()
+                                    .SelectMany(a => { try { return a.GetTypes(); } catch { return []; } })
+                                    .FirstOrDefault(t => t.FullName == "Diva.Rag.Services.IAgentMemoryService");
+                                var memService = memServiceType is not null
+                                    ? scope.ServiceProvider.GetService(memServiceType)
+                                    : null;
+
+                                if (memService is not null)
+                                {
+                                    var saveMethod = memServiceType!.GetMethod("SaveMemoryAsync");
+                                    if (saveMethod is not null)
+                                    {
+                                        // Params: tenantId, agentId, content, memoryType, sessionId, userId, tags, expiresInMinutes, ct
+                                        var saveTask = saveMethod.Invoke(memService,
+                                        [
+                                            cpTenantId, cpAgentId, checkpointContent, "episodic",
+                                            cpSession, (string?)null,
+                                            new string[] { "checkpoint", "task-state" }, (int?)null,
+                                            CancellationToken.None,
+                                        ]) as Task;
+                                        if (saveTask is not null)
+                                            await saveTask;
+                                        cpLogger.LogDebug("Checkpoint saved for agent {AgentId} session {SessionId}",
+                                            cpAgentId, cpSession);
+                                    }
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                cpLogger.LogWarning(ex, "Background checkpoint save failed (agent={AgentId})", cpAgentId);
+                            }
+                        }, CancellationToken.None);
+                    }
+                }
             }
         }
 

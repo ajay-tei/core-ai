@@ -79,6 +79,7 @@ export interface AgentDefinition
   executionMode?: string;          // "Full" | "ChatOnly" | "ReadOnly" | "Supervised"
   modelSwitchingJson?: string;     // JSON per-iteration model switching config
   delegateAgentIdsJson?: string;   // JSON array of agent IDs for peer delegation
+  knowledgeProfileJson?: string;   // JSON AgentKnowledgeProfile (RAG + memory config)
   isEnabled: boolean;
   status: string;
   version?: number;
@@ -2148,6 +2149,53 @@ export async function markTurnAsExample(
     method: "POST",
     headers: { ...authHeaders(), "Content-Type": "application/json" },
     body: JSON.stringify({ description })
+  });
+  if (!r.ok) throw await r.json().catch(() => ({ error: r.statusText }));
+  return r.json();
+}
+
+// ── Agent Memory (Phase 26.2) ─────────────────────────────────────────────────
+
+export interface AgentMemoryItem
+{
+  id: string;
+  agentId: string;
+  memoryType: string;
+  content: string;
+  sessionId?: string;
+  tags: string[];
+  expiresAt?: string;
+  createdAt: string;
+}
+
+export async function listAgentMemories(
+  agentId?: string, memoryType?: string, skip = 0, take = 50
+): Promise<AgentMemoryItem[]>
+{
+  const params = new URLSearchParams();
+  if (agentId) params.set("agentId", agentId);
+  if (memoryType) params.set("memoryType", memoryType);
+  params.set("skip", String(skip));
+  params.set("take", String(take));
+  const r = await fetch(`${ BASE }/api/rag/memory?${ params }`, { headers: authHeaders() });
+  if (!r.ok) throw await r.json().catch(() => ({ error: r.statusText }));
+  return r.json();
+}
+
+export async function deleteAgentMemory(memoryId: string): Promise<void>
+{
+  const r = await fetch(`${ BASE }/api/rag/memory/${ memoryId }`, {
+    method: "DELETE", headers: authHeaders()
+  });
+  if (!r.ok) throw await r.json().catch(() => ({ error: r.statusText }));
+}
+
+export async function clearAgentMemoryType(
+  agentId: string, memoryType: string
+): Promise<{ deleted: number; }>
+{
+  const r = await fetch(`${ BASE }/api/rag/memory/agent/${ agentId }/type/${ memoryType }`, {
+    method: "DELETE", headers: authHeaders()
   });
   if (!r.ok) throw await r.json().catch(() => ({ error: r.statusText }));
   return r.json();

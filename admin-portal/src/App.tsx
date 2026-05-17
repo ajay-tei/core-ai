@@ -27,6 +27,7 @@ import { CredentialManager } from "@/components/CredentialManager";
 import { ApiKeyManager } from "@/components/ApiKeyManager";
 import { A2ASettings } from "@/components/A2ASettings";
 import { WidgetManager } from "@/components/WidgetManager";
+import { AgentMemory } from "@/components/AgentMemory";
 import SessionBrowser from "@/components/SessionBrowser";
 import SessionDetail from "@/components/SessionDetail";
 import AgentOptimizer from "@/components/AgentOptimizer";
@@ -92,6 +93,7 @@ export default function App() {
           <Route path="settings/api-keys" element={<ApiKeyManager />} />
           <Route path="settings/a2a" element={<A2ASettings />} />
           <Route path="settings/widgets" element={<WidgetManager />} />
+          <Route path="settings/memory" element={<AgentMemory />} />
 
           {/* Platform-level routes (master admin only) */}
           <Route path="platform/tenants" element={<TenantList />} />

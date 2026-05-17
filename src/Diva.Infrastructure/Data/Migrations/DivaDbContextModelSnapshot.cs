@@ -15,7 +15,7 @@ namespace Diva.Infrastructure.Data.Migrations
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "10.0.7");
+            modelBuilder.HasAnnotation("ProductVersion", "10.0.8");
 
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.AgentDefinitionEntity", b =>
                 {
@@ -80,6 +80,9 @@ namespace Diva.Infrastructure.Data.Migrations
 
                     b.Property<bool>("IsEnabled")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("KnowledgeProfileJson")
+                        .HasColumnType("TEXT");
 
                     b.Property<int?>("LlmConfigId")
                         .HasColumnType("INTEGER");
@@ -146,6 +149,57 @@ namespace Diva.Infrastructure.Data.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("AgentDefinitions");
+                });
+
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.AgentMemoryEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AgentId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MemoryType")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SessionId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TagsJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TenantId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("UserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("VectorId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiresAt");
+
+                    b.HasIndex("TenantId", "SessionId");
+
+                    b.HasIndex("TenantId", "AgentId", "MemoryType");
+
+                    b.ToTable("AgentMemories");
                 });
 
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.AgentOptimizationConfigEntity", b =>
@@ -1042,6 +1096,276 @@ namespace Diva.Infrastructure.Data.Migrations
                     b.ToTable("RulePacks");
                 });
 
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.IngestionJobEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ChunksAdded")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ChunksSkipped")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ChunksUpdated")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DocumentUri")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("DocumentsProcessed")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SourceId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("StartedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TenantId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("TriggerType")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SourceId", "Status");
+
+                    b.ToTable("IngestionJobs");
+                });
+
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.KnowledgeChunkEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ChunkHash")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ChunkIndex")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("DocumentId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("DocumentVersion")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("EntityLinksJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("IndexedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsPinned")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsStale")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("PinPriority")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("TenantId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("TokenCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("VectorId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "DocumentId");
+
+                    b.ToTable("KnowledgeChunks");
+                });
+
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.KnowledgeDocumentEntity", b =>
+                {
+                    b.Property<string>("DocumentId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ContentHash")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("CurrentVersion")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ExternalVersion")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("LastIndexedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LastModifiedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SourceId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TenantId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Uri")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("DocumentId");
+
+                    b.HasIndex("TenantId", "SourceId", "DocumentId")
+                        .IsUnique();
+
+                    b.ToTable("KnowledgeDocuments");
+                });
+
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.KnowledgeDocumentVersionEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ChunksAdded")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ChunksRemoved")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ChunksUpdated")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ContentHash")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DocumentId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ExternalVersion")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TenantId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("VersionNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "DocumentId", "VersionNumber")
+                        .IsUnique();
+
+                    b.ToTable("KnowledgeDocumentVersions");
+                });
+
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.KnowledgeSourceEntity", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AgentId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ChunkCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ConfigJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("DocumentCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("GroupId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastIngestedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ScheduleCron")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("ScheduleEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ScopeType")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SourceType")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TaxonomyJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TenantId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("WebhookSecretHash")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ScopeType", "GroupId");
+
+                    b.HasIndex("ScopeType", "TenantId");
+
+                    b.ToTable("KnowledgeSources");
+                });
+
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.LearnedRuleEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -1917,6 +2241,47 @@ namespace Diva.Infrastructure.Data.Migrations
                     b.HasIndex("TenantId", "Issuer");
 
                     b.ToTable("SsoConfigs");
+                });
+
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.UserPreferenceEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TenantId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "UserId");
+
+                    b.HasIndex("TenantId", "UserId", "Category", "Key")
+                        .IsUnique();
+
+                    b.ToTable("UserPreferences");
                 });
 
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.UserProfileEntity", b =>

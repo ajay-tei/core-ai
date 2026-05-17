@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Diva.Core\Diva.Core.csproj" />
     <ProjectReference Include="..\Diva.Infrastructure\Diva.Infrastructure.csproj" />
+    <ProjectReference Include="..\Diva.Rag\Diva.Rag.csproj" />
     <ProjectReference Include="..\Diva.TenantAdmin\Diva.TenantAdmin.csproj" />
     <ProjectReference Include="..\Diva.Tools\Diva.Tools.csproj" />
   </ItemGroup>

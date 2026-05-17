@@ -4,6 +4,211 @@
 
 ---
 
+## [2026-05-15] Phase 26.1 — RAG Foundation
+
+### Overview
+
+New `Diva.Rag` project delivering the full ingestion + retrieval pipeline: File and HTTP document
+connectors, recursive text and code chunkers, OpenAI/Ollama embedding services, Qdrant vector
+store, 4-stage retrieval funnel (embed → metadata filter → vector search → LLM rerank), a
+`search_knowledge` MCP tool available to all agents, and a `RagContextStage` supervisor stage for
+pre-fetching context. Also includes agent memory infrastructure (save/recall/forget/cleanup via
+Qdrant) used by Phase 26.2, 7 enterprise connector stubs (Confluence, Jira, GitLab, SQL Server,
+SharePoint), entity linking, and multi-hop retrieval.
+
+### New Project — `src/Diva.Rag/`
+
+**Dependency chain:** `Core → Infrastructure → Rag → Tools → TenantAdmin → Agents → Host`
+
+| Path | Purpose |
+|------|---------|
+| `Abstractions/IDocumentConnector.cs` | `ConnectAsync` → `IAsyncEnumerable<RawDocument>` |
+| `Abstractions/IDocumentChunker.cs` | `ChunkAsync` → `IReadOnlyList<DocumentChunk>` |
+| `Abstractions/IEmbeddingService.cs` | `EmbedAsync` / `EmbedBatchAsync`; Dimensions |
+| `Abstractions/IVectorRepository.cs` | `UpsertMemoryAsync`, `SearchAsync`, `MarkStaleAsync`, `DeleteByDocumentAsync` |
+| `Abstractions/IKnowledgeRetriever.cs` | `RetrieveAsync(query, tenantId, filter?, groupIds?)` → `RetrievalResult` |
+| `Abstractions/IDocumentIngestionPipeline.cs` | `IngestAsync(sourceId, tenantId, documentUri?, ct)` |
+| `Abstractions/AgentKnowledgeProfile.cs` | Per-agent JSON config: `EnableMemory`, `MemoryAutoRecall`, `MemoryAutoRecallTypes`, `MemoryMaxRecallResults` |
+| `Abstractions/MemoryVector.cs` | Vector model for agent memories (VectorId, Content, MemoryType, Tags, ExpiresAt, …) |
+| `Connectors/FileDocumentConnector.cs` | Walks allowed paths; reuses `IPdfReader`/`IOfficeReader` |
+| `Connectors/HttpDocumentConnector.cs` | GET + HtmlAgilityPack; ETag as ExternalVersion |
+| `Connectors/ConfluenceDocumentConnector.cs` | Atlassian REST API v2; space traversal; label→tag mapping |
+| `Connectors/JiraDocumentConnector.cs` | Jira REST API v3; JQL search; issue+comments; `updated` as ExternalVersion |
+| `Connectors/GitLabDocumentConnector.cs` | GitLab REST API v4; commit-incremental diff; MR descriptions |
+| `Connectors/SqlServerSchemaConnector.cs` | `INFORMATION_SCHEMA` + `sys.objects`; FK→entity links; Windows Auth |
+| `Connectors/DocumentStoreConnector.cs` | SharePoint REST + UNC shares; delegates to `IOfficeReader`/`IPdfReader` |
+| `Chunking/RecursiveTextChunker.cs` | 512-token chunks, 50-token overlap; splits at `##` boundaries first |
+| `Chunking/CodeChunker.cs` | 768-token chunks; splits at class/method boundaries; symbol name metadata |
+| `Embeddings/OpenAiEmbeddingService.cs` | POST `/v1/embeddings`; batch ≤100; token-bucket rate limiter |
+| `Embeddings/OllamaEmbeddingService.cs` | Local endpoint for air-gapped deployments |
+| `Embeddings/EmbeddingServiceFactory.cs` | Selects provider from `RagOptions.EmbeddingProvider` |
+| `Embeddings/NoOpEmbeddingService.cs` | Zero-cost fallback when no embedding provider configured |
+| `VectorStore/QdrantVectorRepository.cs` | Qdrant gRPC wrapper: upsert / search / markStale / delete |
+| `VectorStore/QdrantCollectionManager.cs` | `EnsureCollectionAsync` + payload index creation (idempotent) |
+| `Retrieval/KnowledgeRetriever.cs` | embed → metadata filter → Qdrant search → LLM rerank → assemble |
+| `Retrieval/MetadataFilterBuilder.cs` | Builds Qdrant `must`/`should` filter from `KnowledgeFilter` + scope |
+| `Retrieval/ContextAssembler.cs` | `"Source: {title}\n{text}\n---"` per chunk |
+| `Linking/EntityLinkExtractor.cs` | Regex pipeline: Jira keys, Confluence IDs, GitLab MR refs, table names |
+| `Linking/MultiHopRetriever.cs` | Follow `EntityLinksJson` N hops; merge secondary chunks |
+| `Ingestion/DocumentIngestionPipeline.cs` | Orchestrates: connect → chunk → enrich → scrub → 3-tier diff → embed → upsert |
+| `Ingestion/IngestionWorkerService.cs` | `IHostedService`; polls `IngestionJobEntity`; `SemaphoreSlim` concurrency |
+| `Ingestion/TaxonomyMetadataEnricher.cs` | Applies `MetadataTaxonomy` org-structure tags to chunks |
+| `Ingestion/MemoryCleanupService.cs` | TTL-based expired memory purge |
+| `Services/KnowledgeSourceService.cs` | CRUD for `KnowledgeSourceEntity`; cache invalidation; cost estimation |
+| `Services/KnowledgeDocumentService.cs` | Manages `KnowledgeDocumentEntity` versions; hash-diff; stale marking |
+| `Services/AgentMemoryService.cs` | `IAgentMemoryService`: save / recall / forget / cleanup / list |
+| `Services/UserPreferenceService.cs` | `IUserPreferenceService`: per-user key-value preferences |
+| `RagOptions.cs` | `Rag:` config section: `EmbeddingProvider`, `QdrantEndpoint`, `CollectionName`, etc. |
+
+### New DB Entities + Migration
+
+| Entity | Key fields |
+|--------|-----------|
+| `KnowledgeSourceEntity` | `ScopeType`, `SourceType`, `ConfigJson`, `TaxonomyJson`, `ScheduleCron`, `WebhookSecretHash` |
+| `KnowledgeDocumentEntity` | `SourceId`, `DocumentUri`, `ExternalVersion`, `ContentHash`, `ChunkCount`, `IsStale` |
+| `KnowledgeChunkEntity` | `DocumentId`, `ChunkIndex`, `VectorId`, `ChunkHash`, `EntityLinksJson`, `IsPinned` |
+| `IngestionJobEntity` | `SourceId`, `Status`, `Phase`, `DocumentsProcessed`, `ChunksAdded`, `ErrorMessage` |
+| `AgentMemoryEntity` | `TenantId`, `AgentId`, `SessionId`, `VectorId`, `MemoryType`, `ExpiresAt` |
+| `UserPreferenceEntity` | `TenantId`, `UserId`, `Key`, `Value` |
+
+**Migration:** `20260515035359_AddRagPipeline` + `20260515035906_AddAgentMemory` + `20260515060000_AddUserPreferencesAndMemoryUserId`
+
+### New `Diva.Tools` — `KnowledgeRetrievalMcpTools.cs`
+
+Exposes three MCP tools available to all agents via the embedded MCP server:
+
+| Tool | Description |
+|------|-------------|
+| `search_knowledge` | Semantic search over the knowledge base with optional metadata filters |
+| `save_memory` | Save agent memory (semantic / episodic / working) with optional TTL and tags |
+| `recall_memory` | Recall agent memories by semantic query with type filter |
+| `forget_memory` | Delete a specific memory by ID |
+| `summarize_and_archive` | Summarize current session memories and archive as episodic memory |
+
+### New `Diva.Agents` — `RagContextStage.cs`
+
+`ISupervisorPipelineStage` that fires before `DecomposeStage` — pre-fetches relevant knowledge
+chunks for the user query and injects them into the supervisor context. Skips gracefully if
+`IKnowledgeRetriever` is not registered.
+
+### New `Diva.Host` — `RagController.cs`
+
+REST endpoints under `/api/rag/`:
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /sources` | List knowledge sources |
+| `POST /sources` | Create source |
+| `PUT /sources/{id}` | Update source |
+| `DELETE /sources/{id}` | Delete source |
+| `POST /sources/{id}/ingest` | Trigger manual ingestion job |
+| `GET /sources/{id}/jobs` | List ingestion jobs |
+| `GET /documents` | List indexed documents |
+| `DELETE /documents/{id}` | Remove document + chunks |
+| `POST /webhooks/confluence` | Confluence webhook (HMAC-SHA256 validation) |
+| `POST /webhooks/gitlab` | GitLab webhook (HMAC-SHA256 validation) |
+| `POST /webhooks/jira` | Jira webhook (HMAC-SHA256 validation) |
+
+### Infrastructure changes
+
+| File | Change |
+|------|--------|
+| `Diva.slnx` | Added `Diva.Rag` project reference |
+| `docker-compose.yml` | Added Qdrant v1.14.1 service (`qdrant/qdrant`) on ports `6333-6334`, bind-mount `./data/qdrant` |
+| `src/Diva.Host/Program.cs` | `AddRagPipeline(config)`, `RagController`, `IngestionWorkerService` registration |
+| `src/Diva.Host/appsettings.json` | New `Rag:` section |
+| `admin-portal/src/components/AgentMemory.tsx` | New page — list / create / delete agent memories per agent |
+| `admin-portal/src/components/layout/app-sidebar.tsx` | Knowledge Base nav section added |
+
+---
+
+## [2026-05-17] Phase 26.2 — Agent Memory Hardening + Auto-Checkpoint
+
+### Overview
+
+Six memory system bugs fixed and a new **auto-checkpoint** feature added that allows agents to
+resume state across sessions. All changes are provider-agnostic — both Anthropic and
+OpenAI-compatible paths converge in `ExecuteReActLoopAsync`.
+
+### Bug Fixes
+
+#### 1. `TenantAwarePromptBuilder` — removed broken Recalled Memory block
+
+A `## Recalled Memory` section had been added to `BuildAsync` that referenced a non-existent
+`_serviceProvider` field and called `RecallMemoryAsync` with `query: ""` (producing a meaningless
+embedding). Removed entirely — auto-recall lives in `AnthropicAgentRunner`, not the prompt builder.
+
+#### 2. `AgentMemoryService` — removed dead `SummarizeAndArchiveAsync`
+
+The method referenced `_opts.TenantId`/`AgentId`/`SessionId` (no such fields on `RagOptions`)
+and called `_embedding.SummarizeAsync` (not on `IEmbeddingService`). Not in the interface, not
+called anywhere. Removed.
+
+#### 3. `AgentMemoryService.RecallMemoryAsync` — three fixes
+
+- **Empty-query guard**: if `string.IsNullOrWhiteSpace(query)`, skip Qdrant and call
+  `FallbackRecallAsync` directly — `EmbedAsync("")` produces an undefined vector.
+- **Composite scoring**: cosine similarity now dominates; type priority is a tiebreaker only.
+  `compositeScore = r.Score * TypeWeight(type)` where `semantic=1.0f, episodic=0.92f, working=0.85f`;
+  fetches `TopK = maxResults * 2` candidates for reranking.
+- **No SQLite round-trip on hot path**: `text`, `memory_type`, `tags`, `created_at`, `memory_id`,
+  `user_id` are read directly from Qdrant payload — the redundant EF lookup is removed.
+
+#### 4. `QdrantVectorRepository.UpsertMemoryAsync` — added `memory_id` to payload
+
+`memory_id` is now stored as the first payload field so `RecallMemoryAsync` can reconstruct the
+`Guid` from the Qdrant response without a SQLite lookup.
+
+#### 5. `DivaDbContext` — fixed `AgentMemoryEntity` indexes
+
+The index definition referenced `.Scope` (not a property on `AgentMemoryEntity`). Replaced with the
+correct three indexes per Phase 26 spec:
+- `(TenantId, AgentId, MemoryType)` — primary recall filter
+- `(TenantId, SessionId)` — session cleanup queries
+- `(ExpiresAt)` — TTL cleanup
+
+#### 6. `AnthropicAgentRunner.InvokeStreamAsync` — fixed auto-recall reflection arg list
+
+The `RecallMemoryAsync` reflection call was passing 8 args for a 9-parameter method — the `userId`
+parameter was missing, causing `false` → `userId`, `maxRecall` → `currentSessionOnly`,
+`ct` → `maxResults`, and the actual `CancellationToken` was dropped entirely. Fixed by inserting the
+missing `(string?)null` for `userId`.
+
+### New Feature — Auto-Checkpoint (cross-session continuity)
+
+When `enableMemory: true` and `saveTaskCheckpoint: true` are set in an agent's `KnowledgeProfileJson`,
+the runner saves an episodic memory at the end of each successful execution:
+
+```
+Task: <user query>
+Tools used: <tool names>
+Answer: <first 400 chars of response>
+```
+
+Tagged `["checkpoint", "task-state"]` and stored as `episodic` memory. When combined with
+`memoryAutoRecall`, this lets the agent pick up where it left off on the next invocation. The save
+runs as a fire-and-forget `Task.Run` (same pattern as background rule extraction) and never blocks
+the SSE stream.
+
+### New EF Migration
+
+`Phase26_AgentMemoryIndexes` — adds the three corrected indexes for `AgentMemories` table.
+
+### Modified files
+
+| File | Change |
+|------|--------|
+| `src/Diva.TenantAdmin/Prompts/TenantAwarePromptBuilder.cs` | Removed broken `## Recalled Memory` block from `BuildAsync` |
+| `src/Diva.Rag/Services/AgentMemoryService.cs` | Empty-query guard, composite scoring, no SQLite round-trip, removed dead `SummarizeAndArchiveAsync` |
+| `src/Diva.Rag/VectorStore/QdrantVectorRepository.cs` | Added `memory_id` as first payload field in `UpsertMemoryAsync` |
+| `src/Diva.Infrastructure/Data/DivaDbContext.cs` | Fixed `AgentMemoryEntity` indexes (removed `.Scope` ref, added 3 correct indexes) |
+| `src/Diva.Infrastructure/LiteLLM/AnthropicAgentRunner.cs` | Fixed auto-recall reflection arg list (added missing `userId`); added auto-checkpoint `Task.Run` block in `ExecuteReActLoopAsync` |
+| `src/Diva.Rag/Abstractions/AgentKnowledgeProfile.cs` | Added `SaveTaskCheckpoint` property (`[JsonPropertyName("saveTaskCheckpoint")]`) |
+| `admin-portal/src/components/AgentBuilder.tsx` | Added `saveTaskCheckpoint?: boolean` to `KnowledgeProfile` interface; added cleanup on `!enableMemory`; added "Save task checkpoint" `Switch` toggle in `AgentMemoryConfigPanel` |
+| `src/Diva.Infrastructure/Data/Migrations/` | New `Phase26_AgentMemoryIndexes` migration + snapshot |
+
+---
+
 ## [2026-05-14] Agent Export / Import
 
 Full round-trip portable agent configuration — export an agent (definition + linked business rules)

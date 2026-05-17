@@ -27,6 +27,8 @@ public class DivaDbContext : DbContext
     public DbSet<TenantSsoConfigEntity> SsoConfigs => Set<TenantSsoConfigEntity>();
     public DbSet<UserProfileEntity> UserProfiles => Set<UserProfileEntity>();
     public DbSet<LocalUserEntity> LocalUsers => Set<LocalUserEntity>();
+    public DbSet<AgentMemoryEntity> AgentMemories { get; set; }
+    public DbSet<UserPreferenceEntity> UserPreferences { get; set; }
 
     // ── Tenant Groups ─────────────────────────────────────────────────────────
     public DbSet<TenantGroupEntity> TenantGroups => Set<TenantGroupEntity>();
@@ -67,6 +69,13 @@ public class DivaDbContext : DbContext
     public DbSet<AgentOptimizationSuggestionEntity> OptimizationSuggestions => Set<AgentOptimizationSuggestionEntity>();
     public DbSet<AgentOptimizationConfigEntity> OptimizationConfigs => Set<AgentOptimizationConfigEntity>();
     public DbSet<FewShotExampleEntity> FewShotExamples => Set<FewShotExampleEntity>();
+
+    // ── Phase 26: RAG Pipeline ────────────────────────────────────────────────
+    public DbSet<KnowledgeSourceEntity> KnowledgeSources => Set<KnowledgeSourceEntity>();
+    public DbSet<KnowledgeDocumentEntity> KnowledgeDocuments => Set<KnowledgeDocumentEntity>();
+    public DbSet<KnowledgeDocumentVersionEntity> KnowledgeDocumentVersions => Set<KnowledgeDocumentVersionEntity>();
+    public DbSet<KnowledgeChunkEntity> KnowledgeChunks => Set<KnowledgeChunkEntity>();
+    public DbSet<IngestionJobEntity> IngestionJobs => Set<IngestionJobEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -381,6 +390,55 @@ public class DivaDbContext : DbContext
             .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
         modelBuilder.Entity<FewShotExampleEntity>()
             .HasIndex(e => new { e.TenantId, e.AgentId, e.SortOrder });
+
+        // ── Phase 26: RAG Pipeline ────────────────────────────
+        modelBuilder.Entity<KnowledgeSourceEntity>()
+            .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
+        modelBuilder.Entity<KnowledgeSourceEntity>()
+            .HasIndex(e => new { e.ScopeType, e.TenantId });
+        modelBuilder.Entity<KnowledgeSourceEntity>()
+            .HasIndex(e => new { e.ScopeType, e.GroupId });
+
+        modelBuilder.Entity<KnowledgeDocumentEntity>()
+            .HasKey(e => e.DocumentId);
+        modelBuilder.Entity<KnowledgeDocumentEntity>()
+            .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
+        modelBuilder.Entity<KnowledgeDocumentEntity>()
+            .HasIndex(e => new { e.TenantId, e.SourceId, e.DocumentId }).IsUnique();
+
+        modelBuilder.Entity<KnowledgeDocumentVersionEntity>()
+            .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
+        modelBuilder.Entity<KnowledgeDocumentVersionEntity>()
+            .HasIndex(e => new { e.TenantId, e.DocumentId, e.VersionNumber }).IsUnique();
+
+        modelBuilder.Entity<KnowledgeChunkEntity>()
+            .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
+        modelBuilder.Entity<KnowledgeChunkEntity>()
+            .HasIndex(e => new { e.TenantId, e.DocumentId });
+
+        modelBuilder.Entity<IngestionJobEntity>()
+            .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
+        modelBuilder.Entity<IngestionJobEntity>()
+            .HasIndex(e => new { e.SourceId, e.Status });
+
+        // ── Agent Memory ──────────────────────────────────────
+        modelBuilder.Entity<AgentMemoryEntity>()
+            .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
+        modelBuilder.Entity<AgentMemoryEntity>()
+            .HasIndex(e => new { e.TenantId, e.AgentId, e.MemoryType });
+        modelBuilder.Entity<AgentMemoryEntity>()
+            .HasIndex(e => new { e.TenantId, e.SessionId });
+        modelBuilder.Entity<AgentMemoryEntity>()
+            .HasIndex(e => e.ExpiresAt);
+
+        // ── User Preferences ──────────────────────────────────
+        modelBuilder.Entity<UserPreferenceEntity>()
+            .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
+        modelBuilder.Entity<UserPreferenceEntity>()
+            .HasIndex(e => new { e.TenantId, e.UserId, e.Category, e.Key })
+            .IsUnique();
+        modelBuilder.Entity<UserPreferenceEntity>()
+            .HasIndex(e => new { e.TenantId, e.UserId });
     }
 
     public override Task<int> SaveChangesAsync(CancellationToken ct = default)
@@ -409,6 +467,8 @@ public class DivaDbContext : DbContext
             if (entry.State == EntityState.Modified) entry.Entity.UpdatedAt = DateTime.UtcNow;
         foreach (var entry in ChangeTracker.Entries<HookRulePackEntity>())
             if (entry.State == EntityState.Modified) entry.Entity.ModifiedAt = DateTime.UtcNow;
+        foreach (var entry in ChangeTracker.Entries<UserPreferenceEntity>())
+            if (entry.State == EntityState.Modified) entry.Entity.UpdatedAt = DateTime.UtcNow;
 
         // Auto-touch session LastActivityAt
         foreach (var entry in ChangeTracker.Entries<AgentSessionEntity>())

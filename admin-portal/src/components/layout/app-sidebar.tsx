@@ -18,6 +18,7 @@ import {
   Users,
   Zap,
   Code2,
+  BookMarked,
 } from "lucide-react";
 import { Link, useLocation } from "react-router";
 import {
@@ -73,6 +74,7 @@ const tenantNavGroups = [
       { title: "API Keys", url: "/settings/api-keys", icon: Zap },
       { title: "A2A Protocol", url: "/settings/a2a", icon: Network },
       { title: "Chat Widgets", url: "/settings/widgets", icon: Code2 },
+      { title: "Agent Memory", url: "/settings/memory", icon: BookMarked },
     ],
   },
 ];

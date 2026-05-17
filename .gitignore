@@ -29,6 +29,9 @@ data/*.db-shm
 data/*.db-wal
 data/*.db-journal
 
+# Qdrant vector store runtime data (bind-mounted in Docker / local dev)
+data/qdrant/
+
 # Config overrides with secrets (use appsettings.Development.example.json as template)
 appsettings.Development.json
 !appsettings.Development.example.json
