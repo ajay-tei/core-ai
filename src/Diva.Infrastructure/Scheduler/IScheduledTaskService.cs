@@ -26,7 +26,8 @@ public interface IScheduledTaskService
     Task<ScheduledTaskRunEntity?> ActivateOldestPendingRunAsync(string taskId, CancellationToken ct);
 
     /// <summary>Finalises a run record after agent execution. Called by the hosted worker.</summary>
-    Task CompleteRunAsync(string runId, bool success, string? responseText, string? errorMessage, string? sessionId, long durationMs, CancellationToken ct);
+    Task CompleteRunAsync(string runId, bool success, string? responseText, string? errorMessage, string? sessionId, long durationMs,
+        int? inputTokens, int? outputTokens, int? iterationCount, CancellationToken ct);
 
     // ── Group task scheduler support ──────────────────────────────────────────
 
@@ -40,7 +41,8 @@ public interface IScheduledTaskService
     Task<GroupScheduledTaskRunEntity> BeginGroupRunAsync(string groupTaskId, int tenantId, int groupId, DateTime scheduledForUtc, CancellationToken ct);
 
     /// <summary>Finalises a group task run record after execution.</summary>
-    Task CompleteGroupRunAsync(string runId, bool success, string? responseText, string? errorMessage, string? sessionId, long durationMs, CancellationToken ct);
+    Task CompleteGroupRunAsync(string runId, bool success, string? responseText, string? errorMessage, string? sessionId, long durationMs,
+        int? inputTokens, int? outputTokens, int? iterationCount, CancellationToken ct);
 
     /// <summary>Advances NextRunUtc (and disables if once) after all members have been dispatched.</summary>
     Task AdvanceGroupTaskNextRunAsync(string groupTaskId, CancellationToken ct);
@@ -59,6 +61,14 @@ public interface IScheduledTaskService
     /// genuinely hung runs. Returns the number of runs recovered.
     /// </summary>
     Task<int> RecoverStuckRunsAsync(DateTime cutoffUtc, CancellationToken ct);
+
+    // ── Notification settings ───────────────────────────────────────────────
+
+    Task<TenantNotificationSettingsEntity?> GetNotificationSettingsAsync(int tenantId, CancellationToken ct);
+    Task UpsertNotificationSettingsAsync(int tenantId, string? globalNotifyEmails, string? globalNotifyOn, CancellationToken ct);
+    // ── Dashboard stats ───────────────────────────────────────────────
+
+    Task<SchedulerStatsDto> GetStatsAsync(int tenantId, CancellationToken ct);
 }
 
 public sealed record CreateScheduledTaskRequest(
@@ -73,7 +83,10 @@ public sealed record CreateScheduledTaskRequest(
     string PayloadType,
     string PromptText,
     string? ParametersJson,
-    bool IsEnabled);
+    bool IsEnabled,
+    string? NotifyEmails = null,
+    string? NotifyOn = null,
+    string? SuccessKeywords = null);
 
 public sealed record UpdateScheduledTaskRequest(
     string? AgentId,
@@ -87,4 +100,24 @@ public sealed record UpdateScheduledTaskRequest(
     string? PayloadType,
     string? PromptText,
     string? ParametersJson,
-    bool? IsEnabled);
+    bool? IsEnabled,
+    string? NotifyEmails = null,
+    string? NotifyOn = null,
+    string? SuccessKeywords = null);
+
+/// <summary>Aggregate scheduler stats for the dashboard.</summary>
+public sealed record SchedulerStatsDto(
+    int TotalTasks,
+    int EnabledTasks,
+    int TodayRuns,
+    int TodaySucceeded,
+    int TodayFailed,
+    int TodaySkipped,
+    List<SchedulerRecentFailureDto> RecentFailures);
+
+public sealed record SchedulerRecentFailureDto(
+    string TaskId,
+    string TaskName,
+    DateTime ScheduledForUtc,
+    string Status,
+    string? ErrorMessage);

@@ -33,9 +33,9 @@ public class SchedulerTests : IAsyncDisposable
         db.Database.EnsureCreated();
 
         var factory = new TestDbFactory(_dbOptions);
-        var opts    = Options.Create(new TaskSchedulerOptions
+        var opts = Options.Create(new TaskSchedulerOptions
         {
-            MaxQueuedRunsPerTask    = 3,
+            MaxQueuedRunsPerTask = 3,
             MaxResponseStorageChars = 100
         });
         _service = new ScheduledTaskService(factory, opts, NullLogger<ScheduledTaskService>.Instance);
@@ -49,7 +49,7 @@ public class SchedulerTests : IAsyncDisposable
     public void ComputeNextRunUtc_Once_FutureTime_ReturnsSameTime()
     {
         var future = DateTime.UtcNow.AddHours(2);
-        var task   = OneTimeTask(future);
+        var task = OneTimeTask(future);
         var result = ScheduledTaskService.ComputeNextRunUtc(task, DateTime.UtcNow);
         Assert.Equal(future, result);
     }
@@ -70,10 +70,10 @@ public class SchedulerTests : IAsyncDisposable
         var task = new ScheduledTaskEntity
         {
             ScheduleType = "daily",
-            RunAtTime    = "23:59",
-            TimeZoneId   = "UTC"
+            RunAtTime = "23:59",
+            TimeZoneId = "UTC"
         };
-        var from   = new DateTime(2026, 3, 23, 0, 0, 0, DateTimeKind.Utc);
+        var from = new DateTime(2026, 3, 23, 0, 0, 0, DateTimeKind.Utc);
         var result = ScheduledTaskService.ComputeNextRunUtc(task, from);
         Assert.NotNull(result);
         Assert.Equal(23, result!.Value.Hour);
@@ -86,11 +86,11 @@ public class SchedulerTests : IAsyncDisposable
         var task = new ScheduledTaskEntity
         {
             ScheduleType = "daily",
-            RunAtTime    = "08:00",
-            TimeZoneId   = "UTC"
+            RunAtTime = "08:00",
+            TimeZoneId = "UTC"
         };
         // Current time is 09:00 — already past 08:00 today
-        var from   = new DateTime(2026, 3, 23, 9, 0, 0, DateTimeKind.Utc);
+        var from = new DateTime(2026, 3, 23, 9, 0, 0, DateTimeKind.Utc);
         var result = ScheduledTaskService.ComputeNextRunUtc(task, from);
         Assert.NotNull(result);
         Assert.Equal(2026, result!.Value.Year);
@@ -107,11 +107,11 @@ public class SchedulerTests : IAsyncDisposable
         var task = new ScheduledTaskEntity
         {
             ScheduleType = "weekly",
-            RunAtTime    = "12:00",
-            DayOfWeek    = (int)DayOfWeek.Friday,
-            TimeZoneId   = "UTC"
+            RunAtTime = "12:00",
+            DayOfWeek = (int)DayOfWeek.Friday,
+            TimeZoneId = "UTC"
         };
-        var from   = new DateTime(2026, 3, 23, 0, 0, 0, DateTimeKind.Utc);
+        var from = new DateTime(2026, 3, 23, 0, 0, 0, DateTimeKind.Utc);
         var result = ScheduledTaskService.ComputeNextRunUtc(task, from);
         Assert.NotNull(result);
         Assert.Equal(DayOfWeek.Friday, result!.Value.DayOfWeek);
@@ -121,7 +121,7 @@ public class SchedulerTests : IAsyncDisposable
     public void ComputeNextRunUtc_Hourly_ReturnsOneHourFromNow()
     {
         var task = new ScheduledTaskEntity { ScheduleType = "hourly", TimeZoneId = "UTC" };
-        var from   = new DateTime(2026, 3, 24, 10, 0, 0, DateTimeKind.Utc);
+        var from = new DateTime(2026, 3, 24, 10, 0, 0, DateTimeKind.Utc);
         var result = ScheduledTaskService.ComputeNextRunUtc(task, from);
         Assert.Equal(from.AddHours(1), result);
     }
@@ -131,7 +131,7 @@ public class SchedulerTests : IAsyncDisposable
     {
         bool ok = ScheduledTaskService.TryParseRunAtTime("09:30", out var ts);
         Assert.True(ok);
-        Assert.Equal(9,  ts.Hours);
+        Assert.Equal(9, ts.Hours);
         Assert.Equal(30, ts.Minutes);
     }
 
@@ -152,7 +152,7 @@ public class SchedulerTests : IAsyncDisposable
     {
         using var db = new DivaDbContext(_dbOptions);
         db.AgentDefinitions.Add(new AgentDefinitionEntity
-            { Id = "a1", Name = "Agent", DisplayName = "Test", TenantId = 1 });
+        { Id = "a1", Name = "Agent", DisplayName = "Test", TenantId = 1 });
         await db.SaveChangesAsync();
 
         var result = await _service.CreateAsync(1, new CreateScheduledTaskRequest(
@@ -182,8 +182,8 @@ public class SchedulerTests : IAsyncDisposable
     [Fact]
     public async Task ListAsync_TenantIsolation_ReturnsOnlyOwnTenant()
     {
-        await _service.CreateAsync(1, DailyReq("Job T1"),  CancellationToken.None);
-        await _service.CreateAsync(2, DailyReq("Job T2"),  CancellationToken.None);
+        await _service.CreateAsync(1, DailyReq("Job T1"), CancellationToken.None);
+        await _service.CreateAsync(2, DailyReq("Job T2"), CancellationToken.None);
 
         var t1 = await _service.ListAsync(1, CancellationToken.None);
         var t2 = await _service.ListAsync(2, CancellationToken.None);
@@ -220,7 +220,7 @@ public class SchedulerTests : IAsyncDisposable
     public async Task BeginRunAsync_CreatesRunningRecord_WhenNoOtherRunActive()
     {
         var task = await _service.CreateAsync(1, DailyReq("BeginRun Job"), CancellationToken.None);
-        var run  = await _service.BeginRunAsync(task.Id, DateTime.UtcNow, CancellationToken.None);
+        var run = await _service.BeginRunAsync(task.Id, DateTime.UtcNow, CancellationToken.None);
 
         Assert.Equal("running", run.Status);
         Assert.NotNull(run.StartedAtUtc);
@@ -229,9 +229,9 @@ public class SchedulerTests : IAsyncDisposable
     [Fact]
     public async Task BeginRunAsync_CreatesPendingRecord_WhenRunAlreadyActive()
     {
-        var task  = await _service.CreateAsync(1, DailyReq("Overlap Job"), CancellationToken.None);
-        var run1  = await _service.BeginRunAsync(task.Id, DateTime.UtcNow, CancellationToken.None);
-        var run2  = await _service.BeginRunAsync(task.Id, DateTime.UtcNow, CancellationToken.None);
+        var task = await _service.CreateAsync(1, DailyReq("Overlap Job"), CancellationToken.None);
+        var run1 = await _service.BeginRunAsync(task.Id, DateTime.UtcNow, CancellationToken.None);
+        var run2 = await _service.BeginRunAsync(task.Id, DateTime.UtcNow, CancellationToken.None);
 
         Assert.Equal("running", run1.Status);
         Assert.Equal("pending", run2.Status);
@@ -242,26 +242,26 @@ public class SchedulerTests : IAsyncDisposable
     public async Task CompleteRunAsync_MarksSuccess_AndRecordsResponse()
     {
         var task = await _service.CreateAsync(1, DailyReq("Complete Job"), CancellationToken.None);
-        var run  = await _service.BeginRunAsync(task.Id, DateTime.UtcNow, CancellationToken.None);
+        var run = await _service.BeginRunAsync(task.Id, DateTime.UtcNow, CancellationToken.None);
 
-        await _service.CompleteRunAsync(run.Id, true, "All done.", null, "sess-1", 500, CancellationToken.None);
+        await _service.CompleteRunAsync(run.Id, true, "All done.", null, "sess-1", 500, null, null, null, CancellationToken.None);
 
         var history = await _service.GetRunHistoryAsync(1, task.Id, 10, CancellationToken.None);
-        var saved   = history.Single(r => r.Id == run.Id);
+        var saved = history.Single(r => r.Id == run.Id);
 
         Assert.Equal("success", saved.Status);
         Assert.Equal("All done.", saved.ResponseText);
-        Assert.Equal("sess-1",   saved.SessionId);
+        Assert.Equal("sess-1", saved.SessionId);
     }
 
     [Fact]
     public async Task CompleteRunAsync_TruncatesLongResponse()
     {
         var task = await _service.CreateAsync(1, DailyReq("Truncate Job"), CancellationToken.None);
-        var run  = await _service.BeginRunAsync(task.Id, DateTime.UtcNow, CancellationToken.None);
+        var run = await _service.BeginRunAsync(task.Id, DateTime.UtcNow, CancellationToken.None);
 
         var longText = new string('x', 200);   // > MaxResponseStorageChars (100)
-        await _service.CompleteRunAsync(run.Id, true, longText, null, null, 1, CancellationToken.None);
+        await _service.CompleteRunAsync(run.Id, true, longText, null, null, 1, null, null, null, CancellationToken.None);
 
         var history = await _service.GetRunHistoryAsync(1, task.Id, 10, CancellationToken.None);
         Assert.Equal(100, history.Single(r => r.Id == run.Id).ResponseText!.Length);
@@ -270,19 +270,19 @@ public class SchedulerTests : IAsyncDisposable
     [Fact]
     public async Task ActivateOldestPendingRunAsync_PromotesPendingToRunning()
     {
-        var task  = await _service.CreateAsync(1, DailyReq("Queue Test"), CancellationToken.None);
-        var run1  = await _service.BeginRunAsync(task.Id, DateTime.UtcNow, CancellationToken.None);
-        var run2  = await _service.BeginRunAsync(task.Id, DateTime.UtcNow, CancellationToken.None);
+        var task = await _service.CreateAsync(1, DailyReq("Queue Test"), CancellationToken.None);
+        var run1 = await _service.BeginRunAsync(task.Id, DateTime.UtcNow, CancellationToken.None);
+        var run2 = await _service.BeginRunAsync(task.Id, DateTime.UtcNow, CancellationToken.None);
 
         Assert.Equal("running", run1.Status);
         Assert.Equal("pending", run2.Status);
 
         // Complete run1 — then activate oldest pending
-        await _service.CompleteRunAsync(run1.Id, true, null, null, null, 100, CancellationToken.None);
+        await _service.CompleteRunAsync(run1.Id, true, null, null, null, 100, null, null, null, CancellationToken.None);
         var promoted = await _service.ActivateOldestPendingRunAsync(task.Id, CancellationToken.None);
 
         Assert.NotNull(promoted);
-        Assert.Equal(run2.Id,   promoted!.Id);
+        Assert.Equal(run2.Id, promoted!.Id);
         Assert.Equal("running", promoted.Status);
         Assert.NotNull(promoted.StartedAtUtc);
     }
@@ -290,21 +290,31 @@ public class SchedulerTests : IAsyncDisposable
     [Fact]
     public async Task GetDueTasksAsync_ReturnsOnlyDueTasks()
     {
-        var pastRun  = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var pastRun = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
         var futureRun = DateTime.UtcNow.AddHours(1);
 
         // Insert directly to control NextRunUtc precisely
         using var db = new DivaDbContext(_dbOptions);
         db.ScheduledTasks.Add(new ScheduledTaskEntity
         {
-            Id = "due", TenantId = 1, AgentId = "a", Name = "Due Task",
-            ScheduleType = "daily", IsEnabled = true, PromptText = "x",
+            Id = "due",
+            TenantId = 1,
+            AgentId = "a",
+            Name = "Due Task",
+            ScheduleType = "daily",
+            IsEnabled = true,
+            PromptText = "x",
             NextRunUtc = pastRun
         });
         db.ScheduledTasks.Add(new ScheduledTaskEntity
         {
-            Id = "notdue", TenantId = 1, AgentId = "a", Name = "Future Task",
-            ScheduleType = "daily", IsEnabled = true, PromptText = "x",
+            Id = "notdue",
+            TenantId = 1,
+            AgentId = "a",
+            Name = "Future Task",
+            ScheduleType = "daily",
+            IsEnabled = true,
+            PromptText = "x",
             NextRunUtc = futureRun
         });
         await db.SaveChangesAsync();
@@ -329,8 +339,11 @@ public class SchedulerTests : IAsyncDisposable
         {
             db.ScheduledTaskRuns.Add(new ScheduledTaskRunEntity
             {
-                Id = "stuck-1", TenantId = 1, ScheduledTaskId = task.Id,
-                Status = "running", ScheduledForUtc = DateTime.UtcNow.AddHours(-2),
+                Id = "stuck-1",
+                TenantId = 1,
+                ScheduledTaskId = task.Id,
+                Status = "running",
+                ScheduledForUtc = DateTime.UtcNow.AddHours(-2),
                 StartedAtUtc = DateTime.UtcNow.AddHours(-2)
             });
             await db.SaveChangesAsync();
@@ -360,8 +373,11 @@ public class SchedulerTests : IAsyncDisposable
         {
             db.ScheduledTaskRuns.Add(new ScheduledTaskRunEntity
             {
-                Id = "recent-1", TenantId = 1, ScheduledTaskId = task.Id,
-                Status = "running", ScheduledForUtc = DateTime.UtcNow.AddMinutes(-5),
+                Id = "recent-1",
+                TenantId = 1,
+                ScheduledTaskId = task.Id,
+                Status = "running",
+                ScheduledForUtc = DateTime.UtcNow.AddMinutes(-5),
                 StartedAtUtc = DateTime.UtcNow.AddMinutes(-5)
             });
             await db.SaveChangesAsync();
@@ -389,8 +405,11 @@ public class SchedulerTests : IAsyncDisposable
         {
             db.ScheduledTaskRuns.Add(new ScheduledTaskRunEntity
             {
-                Id = "null-start-1", TenantId = 1, ScheduledTaskId = task.Id,
-                Status = "running", ScheduledForUtc = DateTime.UtcNow.AddHours(-1),
+                Id = "null-start-1",
+                TenantId = 1,
+                ScheduledTaskId = task.Id,
+                Status = "running",
+                ScheduledForUtc = DateTime.UtcNow.AddHours(-1),
                 StartedAtUtc = null  // never got a start time
             });
             await db.SaveChangesAsync();
@@ -419,16 +438,22 @@ public class SchedulerTests : IAsyncDisposable
             {
                 db.ScheduledTaskRuns.Add(new ScheduledTaskRunEntity
                 {
-                    Id = $"stuck-count-{i}", TenantId = 1, ScheduledTaskId = task.Id,
-                    Status = "running", ScheduledForUtc = DateTime.UtcNow.AddHours(-2),
+                    Id = $"stuck-count-{i}",
+                    TenantId = 1,
+                    ScheduledTaskId = task.Id,
+                    Status = "running",
+                    ScheduledForUtc = DateTime.UtcNow.AddHours(-2),
                     StartedAtUtc = DateTime.UtcNow.AddHours(-2)
                 });
             }
             // One recent run — must NOT be counted
             db.ScheduledTaskRuns.Add(new ScheduledTaskRunEntity
             {
-                Id = "recent-ok", TenantId = 1, ScheduledTaskId = task.Id,
-                Status = "running", ScheduledForUtc = DateTime.UtcNow.AddMinutes(-1),
+                Id = "recent-ok",
+                TenantId = 1,
+                ScheduledTaskId = task.Id,
+                Status = "running",
+                ScheduledForUtc = DateTime.UtcNow.AddMinutes(-1),
                 StartedAtUtc = DateTime.UtcNow.AddMinutes(-1)
             });
             await db.SaveChangesAsync();
@@ -438,6 +463,24 @@ public class SchedulerTests : IAsyncDisposable
 
         Assert.Equal(3, recovered);
     }
+
+    // ── ShouldNotify — 3-state outcome tests ─────────────────────────────────
+
+    [Theory]
+    [InlineData("always", "success", true)]
+    [InlineData("always", "failure", true)]
+    [InlineData("always", "skipped", true)]
+    [InlineData("success", "success", true)]
+    [InlineData("success", "failure", false)]
+    [InlineData("success", "skipped", false)]
+    [InlineData("failure", "success", false)]
+    [InlineData("failure", "failure", true)]
+    [InlineData("failure", "skipped", true)]   // skipped is as actionable as a failure
+    [InlineData("never", "success", false)]
+    [InlineData("never", "failure", false)]
+    [InlineData(null, "success", false)]
+    public void ShouldNotify_ReturnsExpected(string? notifyOn, string outcome, bool expected)
+        => Assert.Equal(expected, SchedulerHostedService.ShouldNotify(notifyOn, outcome));
 
     // ── BuildPrompt tests (instance method) ──────────────────────────────────
 
@@ -449,6 +492,7 @@ public class SchedulerTests : IAsyncDisposable
             factory,
             null!,  // runner not needed for prompt building
             Options.Create(new TaskSchedulerOptions()),
+            Options.Create(new AppBrandingOptions()),
             NullLogger<SchedulerHostedService>.Instance);
     }
 
@@ -465,8 +509,8 @@ public class SchedulerTests : IAsyncDisposable
     {
         var task = new ScheduledTaskEntity
         {
-            PayloadType    = "template",
-            PromptText     = "Hello {{name}}, today is {{day}}.",
+            PayloadType = "template",
+            PromptText = "Hello {{name}}, today is {{day}}.",
             ParametersJson = """{"name":"Alice","day":"Monday"}"""
         };
         var result = CreateHostedService().BuildPrompt(task, "run-1");
@@ -478,8 +522,8 @@ public class SchedulerTests : IAsyncDisposable
     {
         var task = new ScheduledTaskEntity
         {
-            PayloadType    = "template",
-            PromptText     = "Hello {{name}}.",
+            PayloadType = "template",
+            PromptText = "Hello {{name}}.",
             ParametersJson = """{"other":"value"}"""
         };
         var result = CreateHostedService().BuildPrompt(task, "run-1");
@@ -491,8 +535,8 @@ public class SchedulerTests : IAsyncDisposable
     {
         var task = new ScheduledTaskEntity
         {
-            PayloadType    = "template",
-            PromptText     = "Hello {{name}}.",
+            PayloadType = "template",
+            PromptText = "Hello {{name}}.",
             ParametersJson = "not-json"
         };
         var result = CreateHostedService().BuildPrompt(task, "run-1");
@@ -503,9 +547,9 @@ public class SchedulerTests : IAsyncDisposable
 
     private static ScheduledTaskEntity OneTimeTask(DateTime at) => new()
     {
-        ScheduleType   = "once",
+        ScheduleType = "once",
         ScheduledAtUtc = at,
-        TimeZoneId     = "UTC"
+        TimeZoneId = "UTC"
     };
 
     private static CreateScheduledTaskRequest DailyReq(string name) =>
@@ -523,5 +567,64 @@ public class SchedulerTests : IAsyncDisposable
         public DivaDbContext CreateDbContext(Diva.Core.Models.TenantContext? tenant = null)
             => new(_opts, tenant?.TenantId ?? 0);
         public Task ApplyMigrationsAsync() => Task.CompletedTask;
+    }
+
+    // ── ShouldNotify — 3-state outcome tests ─────────────────────────────────
+
+    [Theory]
+    [InlineData("always", "success", true)]
+    [InlineData("always", "failure", true)]
+    [InlineData("always", "skipped", true)]
+    [InlineData("success", "success", true)]
+    [InlineData("success", "failure", false)]
+    [InlineData("success", "skipped", false)]
+    [InlineData("failure", "failure", true)]
+    [InlineData("failure", "skipped", true)]   // skipped fires on "failure" policy
+    [InlineData("failure", "success", false)]
+    [InlineData("never", "success", false)]
+    [InlineData("never", "failure", false)]
+    [InlineData(null, "success", false)]
+    public void ShouldNotify_ReturnsExpectedResult(string? notifyOn, string outcome, bool expected)
+    {
+        Assert.Equal(expected, SchedulerHostedService.ShouldNotify(notifyOn, outcome));
+    }
+
+    [Fact]
+    public async Task CompleteRunAsync_SetsLastRunStatusOnParentTask()
+    {
+        // Arrange
+        var task = await _service.CreateAsync(1, DailyReq("statusTask"), CancellationToken.None);
+        var run = await _service.BeginRunAsync(task.Id, DateTime.UtcNow, CancellationToken.None);
+        if (run.Status != "running")
+            run = (await _service.ActivateOldestPendingRunAsync(task.Id, CancellationToken.None))!;
+
+        // Act
+        await _service.CompleteRunAsync(run.Id, success: true,
+            responseText: "done", errorMessage: null,
+            sessionId: null, durationMs: 100,
+            inputTokens: null, outputTokens: null, iterationCount: null,
+            CancellationToken.None);
+
+        // Assert
+        var updated = await _service.GetAsync(1, task.Id, CancellationToken.None);
+        Assert.Equal("success", updated!.LastRunStatus);
+    }
+
+    [Fact]
+    public async Task BeginRunAsync_WhenQueueFull_SetsLastRunStatusSkipped()
+    {
+        // Arrange — fill the queue to MaxQueuedRunsPerTask (3)
+        var task = await _service.CreateAsync(1, DailyReq("skipTask"), CancellationToken.None);
+        // Create 3 runs to saturate queue
+        for (int i = 0; i < 3; i++)
+            await _service.TriggerNowAsync(1, task.Id, CancellationToken.None);
+
+        // Act — one more begin should produce "skipped"
+        var skippedRun = await _service.BeginRunAsync(task.Id, DateTime.UtcNow, CancellationToken.None);
+
+        // Assert
+        Assert.Equal("skipped", skippedRun.Status);
+        var updated = await _service.GetAsync(1, task.Id, CancellationToken.None);
+        Assert.Equal("skipped", updated!.LastRunStatus);
     }
 }

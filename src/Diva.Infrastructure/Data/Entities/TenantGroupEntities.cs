@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations.Schema;
+
 namespace Diva.Infrastructure.Data.Entities;
 
 /// <summary>Root group entity — owned by master admin, groups multiple tenants together.</summary>
@@ -94,14 +96,14 @@ public class GroupBusinessRuleEntity
     public DateTime? UpdatedAt { get; set; }
 
     // ── Hook pipeline fields (mirror TenantBusinessRuleEntity) ────────────────
-    public string HookPoint       { get; set; } = "OnInit";
-    public string HookRuleType    { get; set; } = "inject_prompt";
-    public string? Pattern        { get; set; }
-    public string? Replacement    { get; set; }
-    public string? ToolName       { get; set; }
-    public int    OrderInPack     { get; set; } = 0;
-    public bool   StopOnMatch     { get; set; } = false;
-    public int    MaxEvaluationMs { get; set; } = 100;
+    public string HookPoint { get; set; } = "OnInit";
+    public string HookRuleType { get; set; } = "inject_prompt";
+    public string? Pattern { get; set; }
+    public string? Replacement { get; set; }
+    public string? ToolName { get; set; }
+    public int OrderInPack { get; set; } = 0;
+    public bool StopOnMatch { get; set; } = false;
+    public int MaxEvaluationMs { get; set; } = 100;
 
     /// <summary>When true, this rule is offered as an opt-in template to member tenants rather than being auto-injected into all tenant prompts.</summary>
     public bool IsTemplate { get; set; } = false;
@@ -156,6 +158,12 @@ public class GroupScheduledTaskEntity
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
 
+    // ── Notification config ───────────────────────────────────────────────────
+    public string? NotifyEmails { get; set; }
+    public string? NotifyOn { get; set; }
+    [Column("FailureKeywords")]
+    public string? SuccessKeywords { get; set; }
+
     public TenantGroupEntity Group { get; set; } = null!;
 }
 
@@ -174,6 +182,9 @@ public class GroupScheduledTaskRunEntity
     public string? ResponseText { get; set; }
     public string? ErrorMessage { get; set; }
     public string? SessionId { get; set; }
+    public int? InputTokens { get; set; }
+    public int? OutputTokens { get; set; }
+    public int? IterationCount { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public GroupScheduledTaskEntity GroupTask { get; set; } = null!;

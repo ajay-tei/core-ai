@@ -20,6 +20,7 @@ using Diva.Infrastructure.Learning;
 using Diva.Infrastructure.Context;
 using Diva.Infrastructure.LiteLLM;
 using Diva.Infrastructure.Scheduler;
+using Diva.Infrastructure.Notifications;
 using Diva.Infrastructure.Sessions;
 using Diva.Infrastructure.Synthesis;
 using Diva.Infrastructure.Verification;
@@ -32,6 +33,8 @@ using Diva.Infrastructure.Optimization;
 using Diva.Tools.Core;
 using Diva.Tools.FileSystem;
 using Diva.Tools.Optimization;
+using Diva.Tools.Scheduler;
+using Diva.Tools.Email;
 using Diva.Tools.FileSystem.Abstractions;
 using Diva.Tools.FileSystem.Readers;
 using Diva.Tools.FileSystem.Writers;
@@ -199,7 +202,9 @@ builder.Services
     .AddMcpServer(opts => opts.ServerInfo = new() { Name = "diva-mcp", Version = "1.0" })
     .WithHttpTransport()
     .WithDivaMcpTools<FileSystemMcpTools>()
-    .WithDivaMcpTools<AgentOptimizationMcpTools>();
+    .WithDivaMcpTools<AgentOptimizationMcpTools>()
+    .WithDivaMcpTools<SchedulerMcpTools>()
+    .WithDivaMcpTools<EmailMcpTools>();
 // Phase 5 future: .WithDivaMcpTools<AnalyticsMcpTools>()
 
 // ── Agents ─────────────────────────────────────────────────────────────────
@@ -258,7 +263,9 @@ builder.Services.AddSingleton<ISupervisorPipelineStage, DeliverStage>();
 
 builder.Services.AddSingleton<ISupervisorAgent, SupervisorAgent>();
 
-// ── Task Scheduler (Phase 15) ─────────────────────────────────────────────────────────
+// ── Task Scheduler (Phase 15) ────────────────────────────────────────────────
+builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOptions.SectionName));
+builder.Services.AddSingleton<IEmailNotifier, SmtpEmailNotifier>();
 builder.Services.AddSingleton<IScheduledTaskService, ScheduledTaskService>();
 builder.Services.AddHostedService<SchedulerHostedService>();
 builder.Services.AddHostedService<AgentTaskCleanupService>();
@@ -351,6 +358,52 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<DivaDbContext>();
     await db.Database.MigrateAsync();
+
+    // ── Idempotent column additions for migrations that ran as no-ops ─────────
+    // AddLastRunStatus migration was generated empty due to a corrupted model snapshot.
+    // Apply the column directly if it doesn't exist yet.
+    {
+        var mainConn = db.Database.GetDbConnection();
+        if (mainConn.State != System.Data.ConnectionState.Open)
+            await mainConn.OpenAsync();
+        await using var checkCol = mainConn.CreateCommand();
+        checkCol.CommandText = "SELECT COUNT(*) FROM pragma_table_info('ScheduledTasks') WHERE name='LastRunStatus'";
+        var colExists = await checkCol.ExecuteScalarAsync();
+        if (colExists is long colCount && colCount == 0)
+        {
+            await using var alterCmd = mainConn.CreateCommand();
+            alterCmd.CommandText = "ALTER TABLE ScheduledTasks ADD COLUMN LastRunStatus TEXT";
+            await alterCmd.ExecuteNonQueryAsync();
+            Log.Information("Idempotent fix: added LastRunStatus column to ScheduledTasks");
+        }
+        // SuccessKeywords column (fallback for environments that missed migration updates)
+        await using var checkSuccess = mainConn.CreateCommand();
+        checkSuccess.CommandText = "SELECT COUNT(*) FROM pragma_table_info('ScheduledTasks') WHERE name='SuccessKeywords'";
+        var successExists = await checkSuccess.ExecuteScalarAsync();
+        if (successExists is long successCount && successCount == 0)
+        {
+            await using var alterSuccess = mainConn.CreateCommand();
+            alterSuccess.CommandText = "ALTER TABLE ScheduledTasks ADD COLUMN SuccessKeywords TEXT";
+            await alterSuccess.ExecuteNonQueryAsync();
+            Log.Information("Idempotent fix: added SuccessKeywords column to ScheduledTasks");
+        }
+
+        // One-time copy from legacy FailureKeywords column if both columns exist.
+        await using var checkLegacy = mainConn.CreateCommand();
+        checkLegacy.CommandText = "SELECT COUNT(*) FROM pragma_table_info('ScheduledTasks') WHERE name='FailureKeywords'";
+        var legacyExists = await checkLegacy.ExecuteScalarAsync();
+        if (legacyExists is long legacyCount && legacyCount > 0)
+        {
+            await using var copyLegacy = mainConn.CreateCommand();
+            copyLegacy.CommandText = "UPDATE ScheduledTasks SET SuccessKeywords = COALESCE(SuccessKeywords, FailureKeywords) WHERE FailureKeywords IS NOT NULL";
+            var copied = await copyLegacy.ExecuteNonQueryAsync();
+            if (copied > 0)
+                Log.Information("Idempotent fix: copied {Count} legacy FailureKeywords value(s) to SuccessKeywords", copied);
+        }
+
+        if (mainConn.State == System.Data.ConnectionState.Open)
+            await mainConn.CloseAsync();
+    }
 
     var traceDb = scope.ServiceProvider.GetRequiredService<SessionTraceDbContext>();
     // EnsureCreated creates tables if the DB is new; if the file already exists but

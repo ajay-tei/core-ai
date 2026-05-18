@@ -17,6 +17,15 @@ public sealed class AgentResponse
 
     /// <summary>Concatenated raw text of all MCP tool results used during this response (evidence trail).</summary>
     public string ToolEvidence { get; init; } = string.Empty;
+
+    /// <summary>Total LLM input tokens consumed across all ReAct iterations.</summary>
+    public int InputTokens { get; init; }
+
+    /// <summary>Total LLM output tokens produced across all ReAct iterations.</summary>
+    public int OutputTokens { get; init; }
+
+    /// <summary>Number of ReAct iterations executed (continuation windows included).</summary>
+    public int IterationCount { get; init; }
 }
 
 public sealed class FollowUpQuestion

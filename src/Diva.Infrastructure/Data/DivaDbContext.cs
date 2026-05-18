@@ -36,6 +36,7 @@ public class DivaDbContext : DbContext
     public DbSet<GroupPromptOverrideEntity> GroupPromptOverrides => Set<GroupPromptOverrideEntity>();
     public DbSet<GroupScheduledTaskEntity> GroupScheduledTasks => Set<GroupScheduledTaskEntity>();
     public DbSet<GroupScheduledTaskRunEntity> GroupScheduledTaskRuns => Set<GroupScheduledTaskRunEntity>();
+    public DbSet<TenantNotificationSettingsEntity> TenantNotificationSettings => Set<TenantNotificationSettingsEntity>();
     public DbSet<GroupLlmConfigEntity> GroupLlmConfigs => Set<GroupLlmConfigEntity>();
     public DbSet<TenantGroupAgentOverlayEntity> GroupAgentOverlays => Set<TenantGroupAgentOverlayEntity>();
 
@@ -234,6 +235,9 @@ public class DivaDbContext : DbContext
             .OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<GroupScheduledTaskRunEntity>()
             .HasIndex(e => new { e.GroupTaskId, e.TenantId, e.Status });
+
+        modelBuilder.Entity<TenantNotificationSettingsEntity>()
+            .HasKey(e => e.TenantId);
 
         // GroupLlmConfig: 1:many per group; optional FK reference to PlatformLlmConfigs
         modelBuilder.Entity<GroupLlmConfigEntity>()

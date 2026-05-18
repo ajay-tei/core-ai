@@ -3,6 +3,7 @@ using System;
 using Diva.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Diva.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(DivaDbContext))]
-    partial class DivaDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260516204503_AddSchedulerNotifications")]
+    partial class AddSchedulerNotifications
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.8");
@@ -820,9 +823,6 @@ namespace Diva.Infrastructure.Data.Migrations
                     b.Property<string>("Description")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("FailureKeywords")
-                        .HasColumnType("TEXT");
-
                     b.Property<int>("GroupId")
                         .HasColumnType("INTEGER");
 
@@ -1400,16 +1400,10 @@ namespace Diva.Infrastructure.Data.Migrations
                     b.Property<string>("Description")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("FailureKeywords")
-                        .HasColumnType("TEXT");
-
                     b.Property<bool>("IsEnabled")
                         .HasColumnType("INTEGER");
 
                     b.Property<DateTime?>("LastRunAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("LastRunStatus")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Name")

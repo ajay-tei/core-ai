@@ -105,30 +105,30 @@ public sealed class AnthropicAgentRunner : IAgentRunner
         IServiceScopeFactory? scopeFactory = null,
         IToolSelectionStrategy? toolSelector = null)
     {
-        _llmOptions        = llmOptions.Value;
-        _agentOpts         = agentOptions.Value;
-        _ruleLearningOpts  = agentOptions.Value.RuleLearning;
-        _verificationOpts  = verificationOptions.Value;
-        _sessions          = sessions;
-        _verifier          = verifier;
-        _ruleLearner       = ruleLearner;
-        _mcpCache          = mcpCache;
-        _anthropic         = anthropic;
-        _openAi            = openAi;
-        _ctx               = ctx;
-        _resolver          = resolver;
-        _toolExecutor      = toolExecutor;
-        _promptBuilder     = promptBuilder;
-        _hookPipeline      = hookPipeline;
-        _hookCoordinator        = hookCoordinator ?? (hookPipeline is not null ? new ReActHookCoordinator(hookPipeline, NullLogger<ReActHookCoordinator>.Instance) : null);
+        _llmOptions = llmOptions.Value;
+        _agentOpts = agentOptions.Value;
+        _ruleLearningOpts = agentOptions.Value.RuleLearning;
+        _verificationOpts = verificationOptions.Value;
+        _sessions = sessions;
+        _verifier = verifier;
+        _ruleLearner = ruleLearner;
+        _mcpCache = mcpCache;
+        _anthropic = anthropic;
+        _openAi = openAi;
+        _ctx = ctx;
+        _resolver = resolver;
+        _toolExecutor = toolExecutor;
+        _promptBuilder = promptBuilder;
+        _hookPipeline = hookPipeline;
+        _hookCoordinator = hookCoordinator ?? (hookPipeline is not null ? new ReActHookCoordinator(hookPipeline, NullLogger<ReActHookCoordinator>.Instance) : null);
         _modelSwitchCoordinator = new ModelSwitchCoordinator(anthropic, openAi, ctx, resolver, logger);
-        _archetypeRegistry      = archetypeRegistry;
-        _mcpConnector           = mcpConnector ?? new McpConnectionManager(httpCtx, credentialResolver, NullLogger<McpConnectionManager>.Instance);
-        _agentToolProvider      = agentToolProvider;
-        _agentToolExecutor      = agentToolExecutor;
-        _logger                 = logger;
-        _scopeFactory           = scopeFactory;
-        _toolSelector           = toolSelector;
+        _archetypeRegistry = archetypeRegistry;
+        _mcpConnector = mcpConnector ?? new McpConnectionManager(httpCtx, credentialResolver, NullLogger<McpConnectionManager>.Instance);
+        _agentToolProvider = agentToolProvider;
+        _agentToolExecutor = agentToolExecutor;
+        _logger = logger;
+        _scopeFactory = scopeFactory;
+        _toolSelector = toolSelector;
     }
 
     public async Task<AgentResponse> RunAsync(
@@ -149,6 +149,9 @@ public sealed class AnthropicAgentRunner : IAgentRunner
         VerificationResult? verification = null;
         var evidenceParts = new List<string>();
         bool success = true;
+        int totalInputTokens = 0;
+        int totalOutputTokens = 0;
+        int iterationCount = 0;
 
         await foreach (var chunk in InvokeStreamAsync(definition, request, tenant, ct))
         {
@@ -176,21 +179,32 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                 case "done":
                     sessionId = chunk.SessionId ?? sessionId;
                     break;
+                case "token_usage":
+                    totalInputTokens = chunk.TotalInputTokens ?? totalInputTokens;
+                    totalOutputTokens = chunk.TotalOutputTokens ?? totalOutputTokens;
+                    break;
+                case "iteration_start":
+                    if (chunk.Iteration.HasValue && chunk.Iteration.Value > iterationCount)
+                        iterationCount = chunk.Iteration.Value;
+                    break;
             }
         }
 
         sw.Stop();
         return new AgentResponse
         {
-            Success       = success,
-            Content       = content,
-            ErrorMessage  = errorMessage,
-            AgentName     = definition.Name,
-            SessionId     = sessionId,
-            ToolsUsed     = toolsUsed.Distinct().ToList(),
+            Success = success,
+            Content = content,
+            ErrorMessage = errorMessage,
+            AgentName = definition.Name,
+            SessionId = sessionId,
+            ToolsUsed = toolsUsed.Distinct().ToList(),
             ExecutionTime = sw.Elapsed,
-            ToolEvidence  = string.Join("\n\n", evidenceParts),
-            Verification  = verification,
+            ToolEvidence = string.Join("\n\n", evidenceParts),
+            Verification = verification,
+            InputTokens = totalInputTokens,
+            OutputTokens = totalOutputTokens,
+            IterationCount = iterationCount,
         };
     }
 
@@ -276,21 +290,21 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                 _logger.LogWarning(resolveEx, "LlmConfigResolver failed for tenant {TenantId} — using appsettings fallback.", tenant.TenantId);
         }
 
-        var opts           = _llmOptions.DirectProvider;
-        var resolvedProvider  = resolved?.Provider  ?? opts.Provider;
-        var resolvedApiKey    = resolved?.ApiKey    ?? opts.ApiKey;
+        var opts = _llmOptions.DirectProvider;
+        var resolvedProvider = resolved?.Provider ?? opts.Provider;
+        var resolvedApiKey = resolved?.ApiKey ?? opts.ApiKey;
         // When a named config is resolved, use its endpoint exactly (null = provider's native endpoint,
         // which the Overlay already cleared when the provider changed). Fall back to opts only when
         // there is no resolved config at all (e.g. TenantId=0 or resolver not registered).
-        var resolvedEndpoint  = resolved is not null ? resolved.Endpoint : opts.Endpoint;
-        var effectiveModel    = !string.IsNullOrWhiteSpace(request.ModelId) ? request.ModelId
+        var resolvedEndpoint = resolved is not null ? resolved.Endpoint : opts.Endpoint;
+        var effectiveModel = !string.IsNullOrWhiteSpace(request.ModelId) ? request.ModelId
                               : resolved?.Model ?? (!string.IsNullOrWhiteSpace(definition.ModelId) ? definition.ModelId : opts.Model);
 
         // ── Connect to MCP servers (cached) ──────────────────────────────────────
         // ForwardSsoToMcp: override all HTTP/SSE MCP bindings to forward auth for this request.
         // Does not require tenant.AccessToken to be set — the McpConnectionManager handler reads
         // the Authorization header directly from the HttpContext per tool call.
-        bool forwardSso      = request.ForwardSsoToMcp;
+        bool forwardSso = request.ForwardSsoToMcp;
         string? sslCacheSuffix = forwardSso ? ":sso" : null;
         var mcpClients = await _mcpCache.GetOrConnectAsync(
             definition, ct2 => _mcpConnector.ConnectAsync(definition, ct2, tenant, forwardSso), ct, sslCacheSuffix);
@@ -301,7 +315,7 @@ public sealed class AnthropicAgentRunner : IAgentRunner
             && !staticSystemPrompt.Contains("## Tool use", StringComparison.OrdinalIgnoreCase))
         {
             staticSystemPrompt += ToolStrategyBlock;  // tool strategy is static (same per agent config)
-            systemPrompt       += ToolStrategyBlock;
+            systemPrompt += ToolStrategyBlock;
             _logger.LogDebug("ToolStrategyBlock injected (agent={Agent})", definition.Name);
         }
         else if (_agentOpts.InjectToolStrategy && mcpClients.Count > 0)
@@ -317,7 +331,7 @@ public sealed class AnthropicAgentRunner : IAgentRunner
             && !staticSystemPrompt.Contains("## Multi-item tasks", StringComparison.OrdinalIgnoreCase))
         {
             staticSystemPrompt += MultiItemTaskBlock;
-            systemPrompt       += MultiItemTaskBlock;
+            systemPrompt += MultiItemTaskBlock;
             _logger.LogDebug("MultiItemTaskBlock injected (agent={Agent})", definition.Name);
         }
 
@@ -376,7 +390,7 @@ public sealed class AnthropicAgentRunner : IAgentRunner
 
             yield return new AgentStreamChunk
             {
-                Type      = "tools_available",
+                Type = "tools_available",
                 ToolCount = toolClientMap.Count,
                 ToolNames = toolClientMap.Count > 0 ? [.. toolClientMap.Keys] : null,
             };
@@ -394,8 +408,8 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                     apiKeyOverride: resolvedApiKey != opts.ApiKey ? resolvedApiKey : null)
                 : new OpenAiProviderStrategy(_openAi, _ctx, effectiveModel,
                     (call, retCt) => CallWithRetryAsync(call, retCt),
-                    maxOutputTokens:  effectiveMaxOutputTokens,
-                    apiKeyOverride:   resolvedApiKey    != opts.ApiKey ? resolvedApiKey : null,
+                    maxOutputTokens: effectiveMaxOutputTokens,
+                    apiKeyOverride: resolvedApiKey != opts.ApiKey ? resolvedApiKey : null,
                     endpointOverride: resolvedEndpoint);  // null = provider native; set = custom URL
 
             // OpenAI strategy receives the combined prompt; Anthropic strategy uses constructor fields.
@@ -469,7 +483,7 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                     // Compute what the hook appended so we only update the dynamic block,
                     // preserving BP1 (static block cache key stays stable).
                     var preCombined = systemPrompt;
-                    systemPrompt    = initResult.UpdatedSystemPrompt;
+                    systemPrompt = initResult.UpdatedSystemPrompt;
                     if (useAnthropic && enableHistoryCaching)
                     {
                         dynamicSystemPrompt = systemPrompt.StartsWith(staticSystemPrompt, StringComparison.Ordinal)
@@ -540,18 +554,18 @@ public sealed class AnthropicAgentRunner : IAgentRunner
         ResolvedLlmConfig? resolvedLlmConfig,
         [EnumeratorCancellation] CancellationToken ct)
     {
-        var toolsUsed    = new List<string>();
+        var toolsUsed = new List<string>();
         var toolEvidence = new List<string>();
         string finalResponse = string.Empty;
         bool streamError = false;
 
-        int totalInputTokens   = 0;
-        int totalOutputTokens  = 0;
-        int totalCacheRead     = 0;
+        int totalInputTokens = 0;
+        int totalOutputTokens = 0;
+        int totalCacheRead = 0;
         int totalCacheCreation = 0;
 
-        int maxIterations     = definition.MaxIterations > 0 ? definition.MaxIterations : _agentOpts.MaxIterations;
-        int maxContinuations  = definition.MaxContinuations ?? _agentOpts.MaxContinuations;
+        int maxIterations = definition.MaxIterations > 0 ? definition.MaxIterations : _agentOpts.MaxIterations;
+        int maxContinuations = definition.MaxContinuations ?? _agentOpts.MaxContinuations;
         bool enableHistoryCaching = definition.EnableHistoryCaching ?? _agentOpts.EnableHistoryCaching;
         bool completedNaturally = false;
         int iterationBase = 0;
@@ -566,7 +580,7 @@ public sealed class AnthropicAgentRunner : IAgentRunner
         int verificationRetries = _verificationOpts.MaxVerificationRetries;
 
         // ── Model switching state ─────────────────────────────────────────────
-        string currentModel    = effectiveModel;
+        string currentModel = effectiveModel;
         string currentProvider = resolvedProvider;
         string currentEndpoint = resolvedEndpoint;
 
@@ -574,8 +588,11 @@ public sealed class AnthropicAgentRunner : IAgentRunner
         if (hookCtx.Variables.TryGetValue("__model_switching_json", out var msoJson) &&
             !string.IsNullOrWhiteSpace(msoJson))
         {
-            try { modelSwitchingOpts = JsonSerializer.Deserialize<ModelSwitchingOptions>(
-                msoJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }); }
+            try
+            {
+                modelSwitchingOpts = JsonSerializer.Deserialize<ModelSwitchingOptions>(
+                msoJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
             catch (Exception msoEx)
             {
                 _logger.LogWarning(msoEx,
@@ -586,7 +603,7 @@ public sealed class AnthropicAgentRunner : IAgentRunner
         bool fallbackToOriginalOnError = modelSwitchingOpts?.FallbackToOriginalOnError ?? true;
 
         // Fallback reference — updated on successful model switch, reset per continuation window
-        string fallbackModel    = currentModel;
+        string fallbackModel = currentModel;
         string fallbackProvider = currentProvider;
         string fallbackEndpoint = currentEndpoint;
 
@@ -600,14 +617,14 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                     window + 1, definition.Name, sessionId);
                 yield return new AgentStreamChunk { Type = "continuation_start", ContinuationWindow = window + 1 };
 
-                iterationBase      += maxIterations;
-                consecutiveFailures        = 0;
-                hadToolErrors              = false;
-                maxTokensNudgeRetries      = 1;
+                iterationBase += maxIterations;
+                consecutiveFailures = 0;
+                hadToolErrors = false;
+                maxTokensNudgeRetries = 1;
                 executionLog.Clear();
-                planEmitted                = false;
-                verificationRetries        = _verificationOpts.MaxVerificationRetries;
-                fallbackModel    = currentModel;
+                planEmitted = false;
+                verificationRetries = _verificationOpts.MaxVerificationRetries;
+                fallbackModel = currentModel;
                 fallbackProvider = currentProvider;
                 fallbackEndpoint = currentEndpoint;
             }
@@ -618,7 +635,7 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                 _logger.LogInformation("Iteration {Iter} started (agent={Agent}, session={Session})",
                     iterationBase + i + 1, definition.Name, sessionId);
                 yield return new AgentStreamChunk { Type = "iteration_start", Iteration = iterationBase + i + 1 };
-                hookCtx.IsFinalIteration  = false;
+                hookCtx.IsFinalIteration = false;
                 hookCtx.LastHadToolCalls = false;
 
                 // ── OnBeforeIteration hooks ──────────────────────────────────
@@ -660,12 +677,12 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                 if (_modelSwitchCoordinator is not null
                     && (hookCtx.LlmConfigIdOverride.HasValue || !string.IsNullOrEmpty(hookCtx.ModelOverride)))
                 {
-                    var fromModel    = currentModel;
+                    var fromModel = currentModel;
                     var fromProvider = currentProvider;
                     var switchParams = new ModelSwitchParameters(
-                        AnthropicRetry:       (call, retCt) => CallWithRetryAsync(call, retCt),
-                        OpenAiRetry:          (call, retCt) => CallWithRetryAsync(call, retCt),
-                        MaxOutputTokens:      definition.MaxOutputTokens ?? _agentOpts.MaxOutputTokens,
+                        AnthropicRetry: (call, retCt) => CallWithRetryAsync(call, retCt),
+                        OpenAiRetry: (call, retCt) => CallWithRetryAsync(call, retCt),
+                        MaxOutputTokens: definition.MaxOutputTokens ?? _agentOpts.MaxOutputTokens,
                         EnableHistoryCaching: enableHistoryCaching);
 
                     ModelSwitchResult? switchResult = null;
@@ -684,11 +701,11 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                         _logger.LogWarning(switchEx, "ModelSwitchCoordinator failed — keeping {Model}", currentModel);
                     else if (switchResult is not null)
                     {
-                        strategy         = switchResult.NewStrategy;
-                        currentModel     = switchResult.CurrentModel;
-                        currentProvider  = switchResult.CurrentProvider;
-                        currentEndpoint  = switchResult.CurrentEndpoint;
-                        fallbackModel    = switchResult.FallbackModel;
+                        strategy = switchResult.NewStrategy;
+                        currentModel = switchResult.CurrentModel;
+                        currentProvider = switchResult.CurrentProvider;
+                        currentEndpoint = switchResult.CurrentEndpoint;
+                        fallbackModel = switchResult.FallbackModel;
                         fallbackProvider = switchResult.FallbackProvider;
                         fallbackEndpoint = switchResult.FallbackEndpoint;
 
@@ -696,13 +713,13 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                         {
                             yield return new AgentStreamChunk
                             {
-                                Type         = "model_switch",
-                                Iteration    = iterationBase + i + 1,
-                                FromModel    = fromModel,
-                                ToModel      = switchResult.SwitchedToModel,
+                                Type = "model_switch",
+                                Iteration = iterationBase + i + 1,
+                                FromModel = fromModel,
+                                ToModel = switchResult.SwitchedToModel,
                                 FromProvider = fromProvider,
-                                ToProvider   = switchResult.SwitchedToProvider,
-                                Reason       = switchResult.SwitchReason,
+                                ToProvider = switchResult.SwitchedToProvider,
+                                Reason = switchResult.SwitchReason,
                             };
                         }
                     }
@@ -765,10 +782,10 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                             "Model switch: API failure on {New} — falling back to {Original} (iter={Iter}, agent={Agent})",
                             currentModel, fallbackModel, iterationBase + i + 1, definition.Name);
                         strategy.SetModel(fallbackModel);
-                        currentModel    = fallbackModel;
+                        currentModel = fallbackModel;
                         currentProvider = fallbackProvider;
                         currentEndpoint = fallbackEndpoint;
-                        fallbackModel   = currentModel; // prevent repeated fallback loop
+                        fallbackModel = currentModel; // prevent repeated fallback loop
                     }
 
                     if (continueAfterError)
@@ -806,25 +823,25 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                 _logger.LogInformation(
                     "Iteration {Iteration} tokens: input={Input} output={Output} cacheRead={CacheRead} cacheCreate={CacheCreate} (agent={Agent})",
                     iterationBase + i + 1, u.Input, u.Output, u.CacheRead, u.CacheCreation, definition.Name);
-                totalInputTokens   += u.Input;
-                totalOutputTokens  += u.Output;
-                totalCacheRead     += u.CacheRead;
+                totalInputTokens += u.Input;
+                totalOutputTokens += u.Output;
+                totalCacheRead += u.CacheRead;
                 totalCacheCreation += u.CacheCreation;
 
                 // Always emit token_usage — replaces the old conditional cache_stats event.
                 // IterationInputTokens/OutputTokens are 0 for OpenAI streaming (ME.AI SDK limitation).
                 yield return new AgentStreamChunk
                 {
-                    Type                    = "token_usage",
-                    Iteration               = iterationBase + i + 1,
-                    IterationInputTokens    = u.Input,
-                    IterationOutputTokens   = u.Output,
-                    IterationCacheRead      = u.CacheRead,
-                    IterationCacheCreation  = u.CacheCreation,
-                    TotalInputTokens        = totalInputTokens,
-                    TotalOutputTokens       = totalOutputTokens,
-                    TotalCacheRead          = totalCacheRead,
-                    TotalCacheCreation      = totalCacheCreation,
+                    Type = "token_usage",
+                    Iteration = iterationBase + i + 1,
+                    IterationInputTokens = u.Input,
+                    IterationOutputTokens = u.Output,
+                    IterationCacheRead = u.CacheRead,
+                    IterationCacheCreation = u.CacheCreation,
+                    TotalInputTokens = totalInputTokens,
+                    TotalOutputTokens = totalOutputTokens,
+                    TotalCacheRead = totalCacheRead,
+                    TotalCacheCreation = totalCacheCreation,
                 };
 
                 // ── Text extraction + plan detection ───────────────────────────
@@ -858,10 +875,10 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                     foreach (var chunk in pipelineResult.Chunks)
                         yield return chunk;
                     if (pipelineResult.StreamError) { streamError = true; break; }
-                    consecutiveFailures       = pipelineResult.ConsecutiveFailures;
-                    hadToolErrors             = pipelineResult.HadToolErrors;
-                    lastToolBreakdown         = pipelineResult.ToolResultBreakdown;
-                    hookCtx.LastHadToolCalls      = true;
+                    consecutiveFailures = pipelineResult.ConsecutiveFailures;
+                    hadToolErrors = pipelineResult.HadToolErrors;
+                    lastToolBreakdown = pipelineResult.ToolResultBreakdown;
+                    hookCtx.LastHadToolCalls = true;
                     hookCtx.LastIterationResponse = finalResponse;
                 }
                 else
@@ -957,7 +974,7 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                     yield return chunk;
             }
 
-            var evidence     = string.Join("\n\n", toolEvidence);
+            var evidence = string.Join("\n\n", toolEvidence);
             var verification = lastVerification
                 ?? await _verifier.VerifyAsync(finalResponse, toolsUsed, evidence, ct, currentModel, definition.VerificationMode);
 
@@ -1006,14 +1023,14 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                 if (saveEx is not null)
                     yield return new AgentStreamChunk
                     {
-                        Type         = "session_save_error",
+                        Type = "session_save_error",
                         ErrorMessage = "Your response was delivered but could not be saved to history. Reload if you need to continue this conversation.",
-                        SessionId    = sessionId,
+                        SessionId = sessionId,
                     };
 
-                var transcript          = $"User: {userQuery}\nAgent: {finalResponse}";
-                var capturedSessionId   = sessionId;
-                var capturedLlmConfig   = resolvedLlmConfig;
+                var transcript = $"User: {userQuery}\nAgent: {finalResponse}";
+                var capturedSessionId = sessionId;
+                var capturedLlmConfig = resolvedLlmConfig;
                 _ = Task.Run(async () =>
                 {
                     try
@@ -1124,7 +1141,7 @@ public sealed class AnthropicAgentRunner : IAgentRunner
             try
             {
                 streamEnumerator = strategy.StreamLlmAsync(streamToken).GetAsyncEnumerator(streamToken);
-                hasMoreDeltas    = await streamEnumerator.MoveNextAsync();
+                hasMoreDeltas = await streamEnumerator.MoveNextAsync();
                 streamCts?.CancelAfter(TimeSpan.FromSeconds(idleTimeoutSec)); // reset after first chunk
             }
             catch (Exception ex) { startEx = ex; streamEnumerator = null; }
@@ -1146,9 +1163,9 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                     if (delta.TextDelta is not null)
                         textDeltas.Add(new AgentStreamChunk
                         {
-                            Type      = "text_delta",
+                            Type = "text_delta",
                             Iteration = iteration,
-                            Content   = delta.TextDelta,
+                            Content = delta.TextDelta,
                         });
                     Exception? iterEx = null;
                     try
@@ -1261,9 +1278,9 @@ public sealed class AnthropicAgentRunner : IAgentRunner
         foreach (var tc in plannedToolCalls)
             chunks.Add(new AgentStreamChunk
             {
-                Type      = "tool_call",
+                Type = "tool_call",
                 Iteration = iteration,
-                ToolName  = tc.Name,
+                ToolName = tc.Name,
                 ToolInput = tc.InputJson,
             });
 
@@ -1384,9 +1401,9 @@ public sealed class AnthropicAgentRunner : IAgentRunner
             toolEvidence.Add($"[Tool: {tc.Name}]\n{finalToolOutput}");
             chunks.Add(new AgentStreamChunk
             {
-                Type       = "tool_result",
-                Iteration  = iteration,
-                ToolName   = tc.Name,
+                Type = "tool_result",
+                Iteration = iteration,
+                ToolName = tc.Name,
                 ToolOutput = finalToolOutput,
             });
 
@@ -1499,8 +1516,8 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                     2, iteration, definition.Name);
                 chunks.Add(new AgentStreamChunk
                 {
-                    Type      = "plan_revised",
-                    PlanText  = revisedText,
+                    Type = "plan_revised",
+                    PlanText = revisedText,
                     PlanSteps = ReActPlanParser.ParsePlanSteps(revisedText),
                 });
                 strategy.AddAssistantThenUser(revisedText, "Good revised plan. Continue executing it.");

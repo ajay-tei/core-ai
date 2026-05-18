@@ -34,6 +34,13 @@ services:
       # credentials become unrecoverable after restart.
       # Generate with: openssl rand -base64 32
       Credentials__MasterKey: "${CREDENTIALS_MASTER_KEY}"
+      Smtp__Host: "${SMTP_HOST}"
+      Smtp__Port: "${SMTP_PORT:-587}"
+      Smtp__UseSsl: "${SMTP_USE_SSL:-true}"
+      Smtp__Username: "${SMTP_USERNAME}"
+      Smtp__Password: "${SMTP_PASSWORD}"
+      Smtp__DefaultFromAddress: "${SMTP_FROM_ADDRESS:-noreply@tei.local}"
+      Smtp__DefaultFromName: "${SMTP_FROM_NAME:-TEI AI}"
       A2A__Enabled: "true"
       # Auth — set OAuth__Enabled=true to enforce JWT auth and enable user profile creation
       OAuth__Enabled: "${OAUTH_ENABLED:-false}"

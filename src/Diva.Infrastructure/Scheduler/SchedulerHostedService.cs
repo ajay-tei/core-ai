@@ -5,6 +5,7 @@ using Diva.Core.Prompts;
 using Diva.Infrastructure.Data;
 using Diva.Infrastructure.Data.Entities;
 using Diva.Infrastructure.LiteLLM;
+using Diva.Infrastructure.Notifications;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -25,7 +26,9 @@ public sealed class SchedulerHostedService : BackgroundService
     private readonly IDatabaseProviderFactory _db;
     private readonly AnthropicAgentRunner _runner;
     private readonly IOptions<TaskSchedulerOptions> _opts;
+    private readonly IOptions<AppBrandingOptions> _branding;
     private readonly ILogger<SchedulerHostedService> _logger;
+    private readonly IEmailNotifier? _notifier;
 
     // taskId → runId: which scheduled tasks are currently executing
     private readonly ConcurrentDictionary<string, string> _runningTasks = new();
@@ -38,13 +41,17 @@ public sealed class SchedulerHostedService : BackgroundService
         IDatabaseProviderFactory db,
         AnthropicAgentRunner runner,
         IOptions<TaskSchedulerOptions> opts,
-        ILogger<SchedulerHostedService> logger)
+        IOptions<AppBrandingOptions> branding,
+        ILogger<SchedulerHostedService> logger,
+        IEmailNotifier? notifier = null)
     {
         _service = service;
-        _db      = db;
-        _runner  = runner;
-        _opts    = opts;
-        _logger  = logger;
+        _db = db;
+        _runner = runner;
+        _opts = opts;
+        _branding = branding;
+        _logger = logger;
+        _notifier = notifier;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -114,7 +121,7 @@ public sealed class SchedulerHostedService : BackgroundService
 
     private async Task PollAndDispatchAsync(CancellationToken ct)
     {
-        var now     = DateTime.UtcNow;
+        var now = DateTime.UtcNow;
         var timeout = _opts.Value.StuckRunTimeoutMinutes;
 
         // Per-poll timeout recovery: catch runs that are hung in-process (not a restart).
@@ -132,7 +139,7 @@ public sealed class SchedulerHostedService : BackgroundService
                 _logger.LogWarning("Timeout recovery: marked {Count} run(s) stuck for >{Timeout}min as failed.", recovered, timeout);
         }
 
-        var dueTasks      = await _service.GetDueTasksAsync(now, ct);
+        var dueTasks = await _service.GetDueTasksAsync(now, ct);
         var dueGroupTasks = await _service.GetDueGroupTasksAsync(now, ct);
 
         if (dueTasks.Count > 0 || dueGroupTasks.Count > 0)
@@ -189,6 +196,11 @@ public sealed class SchedulerHostedService : BackgroundService
         if (run!.Status == "skipped")
         {
             _logger.LogWarning("Task '{Id}' run skipped — queue is full.", scheduledTask.Id);
+            await TrySendNotificationAsync(
+                scheduledTask.Name, scheduledTask.NotifyEmails, scheduledTask.NotifyOn,
+                scheduledTask.TenantId, "skipped",
+                "Run skipped — previous run still active and queue is full.",
+                null, run.ScheduledForUtc, 0, 0, null, null, ct);
             return;
         }
 
@@ -258,10 +270,11 @@ public sealed class SchedulerHostedService : BackgroundService
             "Executing scheduled run '{RunId}' — task '{TaskName}' (tenant {TenantId}).",
             run.Id, scheduledTask.Name, scheduledTask.TenantId);
 
-        string? result  = null;
-        string? error   = null;
+        string? result = null;
+        string? error = null;
         string? session = null;
-        bool    success = false;
+        bool success = false;
+        int inTokens = 0, outTokens = 0, iterations = 0;
 
         try
         {
@@ -277,28 +290,53 @@ public sealed class SchedulerHostedService : BackgroundService
                 return;
             }
 
-            var prompt  = BuildPrompt(scheduledTask, run.Id);
-            var tenant  = TenantContext.System(scheduledTask.TenantId);
+            var prompt = BuildPrompt(scheduledTask, run.Id);
+            var tenant = TenantContext.System(scheduledTask.TenantId);
             var request = new AgentRequest
             {
-                Query       = prompt,
+                Query = prompt,
                 TriggerType = "scheduled",
-                Metadata    = new Dictionary<string, object?>
+                Metadata = new Dictionary<string, object?>
                 {
-                    ["schedule_id"]       = scheduledTask.Id,
-                    ["schedule_name"]     = scheduledTask.Name,
-                    ["run_id"]            = run.Id,
+                    ["schedule_id"] = scheduledTask.Id,
+                    ["schedule_name"] = scheduledTask.Name,
+                    ["run_id"] = run.Id,
                     ["scheduled_for_utc"] = run.ScheduledForUtc.ToString("O")
                 }
             };
 
             var response = await _runner.RunAsync(agent, request, tenant, appCt);
             session = response.SessionId;
-            result  = response.Content;
-            success = true;
+            result = response.Content;
+            inTokens = response.InputTokens;
+            outTokens = response.OutputTokens;
+            iterations = response.IterationCount;
+
+            // Use the runner's own Success flag (false on stream error)
+            success = response.Success;
+            if (!success)
+                error = response.ErrorMessage ?? "Agent reported failure.";
+
+            // Success keyword confirmation against the final (last-iteration) response only.
+            var lastIterationResponse = response.Content ?? string.Empty;
+            if (success && !string.IsNullOrWhiteSpace(scheduledTask.SuccessKeywords))
+            {
+                var keywords = scheduledTask.SuccessKeywords
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                var matched = keywords.FirstOrDefault(k =>
+                    lastIterationResponse.Contains(k, StringComparison.OrdinalIgnoreCase));
+                if (matched is null)
+                {
+                    success = false;
+                    error = "Final response did not contain any expected success keyword.";
+                    _logger.LogWarning(
+                        "Run '{RunId}': no success keyword found in final response (keywords={Keywords})",
+                        run.Id, scheduledTask.SuccessKeywords);
+                }
+            }
 
             _logger.LogInformation(
-                "Run '{RunId}' completed in {Ms}ms.", run.Id, sw.ElapsedMilliseconds);
+                "Run '{RunId}' completed in {Ms}ms (success={Success}).", run.Id, sw.ElapsedMilliseconds, success);
         }
         catch (OperationCanceledException) when (appCt.IsCancellationRequested)
         {
@@ -317,12 +355,23 @@ public sealed class SchedulerHostedService : BackgroundService
             {
                 await _service.CompleteRunAsync(
                     run.Id, success, result, error, session,
-                    sw.ElapsedMilliseconds, CancellationToken.None);
+                    sw.ElapsedMilliseconds,
+                    inTokens > 0 ? inTokens : null,
+                    outTokens > 0 ? outTokens : null,
+                    iterations > 0 ? iterations : null,
+                    CancellationToken.None);
             }
             catch (Exception e) { ex = e; }
 
             if (ex is not null)
                 _logger.LogError(ex, "CompleteRunAsync failed for run '{RunId}'.", run.Id);
+
+            await TrySendNotificationAsync(scheduledTask.Name, scheduledTask.NotifyEmails, scheduledTask.NotifyOn,
+                scheduledTask.TenantId, success ? "success" : "failure", error, session,
+                run.ScheduledForUtc, sw.ElapsedMilliseconds, iterations,
+                inTokens > 0 ? inTokens : null,
+                outTokens > 0 ? outTokens : null,
+                CancellationToken.None);
         }
     }
 
@@ -411,35 +460,61 @@ public sealed class SchedulerHostedService : BackgroundService
             "Executing group run '{RunId}' — task '{TaskName}' for tenant {TenantId}.",
             run.Id, groupTask.Name, run.TenantId);
 
-        string? result  = null;
-        string? error   = null;
+        string? result = null;
+        string? error = null;
         string? session = null;
-        bool    success = false;
+        bool success = false;
+        int inTokens = 0, outTokens = 0, iterations = 0;
 
         try
         {
-            var prompt  = BuildGroupPrompt(groupTask, run.Id);
-            var tenant  = TenantContext.System(run.TenantId);
+            var prompt = BuildGroupPrompt(groupTask, run.Id);
+            var tenant = TenantContext.System(run.TenantId);
             var request = new AgentRequest
             {
-                Query       = prompt,
+                Query = prompt,
                 TriggerType = "group_scheduled",
-                Metadata    = new Dictionary<string, object?>
+                Metadata = new Dictionary<string, object?>
                 {
-                    ["group_task_id"]     = groupTask.Id,
-                    ["group_task_name"]   = groupTask.Name,
-                    ["group_id"]          = groupTask.GroupId,
-                    ["run_id"]            = run.Id,
+                    ["group_task_id"] = groupTask.Id,
+                    ["group_task_name"] = groupTask.Name,
+                    ["group_id"] = groupTask.GroupId,
+                    ["run_id"] = run.Id,
                     ["scheduled_for_utc"] = run.ScheduledForUtc.ToString("O")
                 }
             };
 
             var response = await _runner.RunAsync(agent, request, tenant, appCt);
             session = response.SessionId;
-            result  = response.Content;
-            success = true;
+            result = response.Content;
+            inTokens = response.InputTokens;
+            outTokens = response.OutputTokens;
+            iterations = response.IterationCount;
 
-            _logger.LogInformation("Group run '{RunId}' completed in {Ms}ms.", run.Id, sw.ElapsedMilliseconds);
+            success = response.Success;
+            if (!success)
+                error = response.ErrorMessage ?? "Agent reported failure.";
+
+            // Success keyword confirmation against the final (last-iteration) response only.
+            var lastIterationResponse = response.Content ?? string.Empty;
+            if (success && !string.IsNullOrWhiteSpace(groupTask.SuccessKeywords))
+            {
+                var keywords = groupTask.SuccessKeywords
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                var matched = keywords.FirstOrDefault(k =>
+                    lastIterationResponse.Contains(k, StringComparison.OrdinalIgnoreCase));
+                if (matched is null)
+                {
+                    success = false;
+                    error = "Final response did not contain any expected success keyword.";
+                    _logger.LogWarning(
+                        "Run '{RunId}': no success keyword found in final response (keywords={Keywords})",
+                        run.Id, groupTask.SuccessKeywords);
+                }
+            }
+
+            _logger.LogInformation(
+                "Group run '{RunId}' completed in {Ms}ms (success={Success}).", run.Id, sw.ElapsedMilliseconds, success);
         }
         catch (OperationCanceledException) when (appCt.IsCancellationRequested)
         {
@@ -458,12 +533,23 @@ public sealed class SchedulerHostedService : BackgroundService
             {
                 await _service.CompleteGroupRunAsync(
                     run.Id, success, result, error, session,
-                    sw.ElapsedMilliseconds, CancellationToken.None);
+                    sw.ElapsedMilliseconds,
+                    inTokens > 0 ? inTokens : null,
+                    outTokens > 0 ? outTokens : null,
+                    iterations > 0 ? iterations : null,
+                    CancellationToken.None);
             }
             catch (Exception e) { ex = e; }
 
             if (ex is not null)
                 _logger.LogError(ex, "CompleteGroupRunAsync failed for run '{RunId}'.", run.Id);
+
+            await TrySendNotificationAsync(groupTask.Name, groupTask.NotifyEmails, groupTask.NotifyOn,
+                run.TenantId, success ? "success" : "failure", error, session,
+                run.ScheduledForUtc, sw.ElapsedMilliseconds, iterations,
+                inTokens > 0 ? inTokens : null,
+                outTokens > 0 ? outTokens : null,
+                CancellationToken.None);
         }
     }
 
@@ -507,5 +593,104 @@ public sealed class SchedulerHostedService : BackgroundService
         _logger.LogDebug("Run '{RunId}': resolved prompt — {Preview}",
             runId, resolved.Length > 200 ? resolved[..200] + "…" : resolved);
         return resolved;
+    }
+
+    // ── Notification helpers ──────────────────────────────────────────────────
+
+    private async Task TrySendNotificationAsync(
+        string taskName, string? notifyEmails, string? notifyOn,
+        int tenantId, string outcome, string? error,
+        string? sessionId, DateTime scheduledForUtc, long durationMs,
+        int iterationCount, int? inputTokens, int? outputTokens, CancellationToken ct)
+    {
+        if (_notifier is null) return;
+
+        // Merge per-job emails with tenant-level global override
+        var perJob = (notifyEmails ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var perJobOn = notifyOn ?? "never";
+
+        TenantNotificationSettingsEntity? globalSettings = null;
+        Exception? settingsEx = null;
+        try { globalSettings = await _service.GetNotificationSettingsAsync(tenantId, ct); }
+        catch (Exception e) { settingsEx = e; }
+        if (settingsEx is not null) _logger.LogWarning(settingsEx, "Could not load tenant notification settings.");
+
+        var globalEmails = (globalSettings?.GlobalNotifyEmails ?? "")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var globalOn = globalSettings?.GlobalNotifyOn ?? "never";
+
+        var perJobRecipients = perJob.Where(_ => ShouldNotify(perJobOn, outcome)).ToArray();
+        var globalRecipients = globalEmails.Where(_ => ShouldNotify(globalOn, outcome)).ToArray();
+        var allRecipients = perJobRecipients.Union(globalRecipients).Distinct().ToList();
+
+        _logger.LogInformation(
+            "Notification check: task='{TaskName}' outcome={Outcome} perJobOn={PerJobOn} globalOn={GlobalOn} perJobEmails={PerJobEmails} globalEmails={GlobalEmails} recipients={Count}",
+            taskName, outcome, perJobOn, globalOn, perJob.Length, globalEmails.Length, allRecipients.Count);
+
+        if (allRecipients.Count == 0) return;
+
+        var productName = _branding.Value.ProductName?.Trim();
+        if (string.IsNullOrWhiteSpace(productName)) productName = "Diva AI";
+
+        var statusIcon = outcome switch { "success" => "✅", "skipped" => "⏭", _ => "❌" };
+        var statusLabel = outcome switch { "success" => "Success", "skipped" => "Skipped", _ => "Failed" };
+        var subject = $"[{productName} Scheduler] {statusIcon} {statusLabel}: {taskName}";
+        var body = BuildNotificationBody(taskName, outcome, error, sessionId,
+            scheduledForUtc, durationMs, iterationCount, inputTokens, outputTokens);
+
+        Exception? sendEx = null;
+        try { await _notifier.SendAsync(allRecipients, subject, body, ct); }
+        catch (Exception e) { sendEx = e; }
+        if (sendEx is not null)
+            _logger.LogWarning(sendEx, "Notification send failed for task '{TaskName}'.", taskName);
+        else
+            _logger.LogInformation("Notification sent for task '{TaskName}' ({Outcome}) to {Count} recipient(s).", taskName, outcome, allRecipients.Count);
+    }
+
+    /// <summary>
+    /// Returns true when <paramref name="outcome"/> warrants a notification given the
+    /// configured <paramref name="notifyOn"/> policy.
+    /// "failure" policy also fires for "skipped" — a skipped run is as actionable as a failure.
+    /// </summary>
+    internal static bool ShouldNotify(string? notifyOn, string outcome) => notifyOn switch
+    {
+        "always" => true,
+        "success" => outcome == "success",
+        "failure" => outcome is "failure" or "skipped",
+        _ => false
+    };
+
+    private static string BuildNotificationBody(
+        string taskName, string outcome, string? error,
+        string? sessionId, DateTime scheduledForUtc, long durationMs, int iterationCount,
+        int? inputTokens, int? outputTokens)
+    {
+        var statusLabel = outcome switch { "success" => "SUCCESS", "skipped" => "SKIPPED", _ => "FAILED" };
+        var durationSec = (durationMs / 1000.0).ToString("F1");
+        var totalTokens = (inputTokens ?? 0) + (outputTokens ?? 0);
+
+        static string Cell(string value) => System.Web.HttpUtility.HtmlEncode(value);
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("<html><body style='font-family:Segoe UI,Arial,sans-serif;font-size:14px;color:#111827'>");
+        sb.AppendLine($"<h2 style='margin:0 0 12px 0'>Scheduled Task: {Cell(taskName)}</h2>");
+        sb.AppendLine("<table role='presentation' cellpadding='0' cellspacing='0' style='border-collapse:collapse;min-width:640px;border:1px solid #e5e7eb'>");
+        sb.AppendLine("<thead><tr style='background:#f3f4f6'>");
+        sb.AppendLine("<th align='left' style='padding:8px 10px;border:1px solid #e5e7eb'>Field</th>");
+        sb.AppendLine("<th align='left' style='padding:8px 10px;border:1px solid #e5e7eb'>Value</th>");
+        sb.AppendLine("</tr></thead><tbody>");
+        sb.AppendLine($"<tr><td style='padding:8px 10px;border:1px solid #e5e7eb'><strong>Status</strong></td><td style='padding:8px 10px;border:1px solid #e5e7eb'>{Cell(statusLabel)}</td></tr>");
+        sb.AppendLine($"<tr><td style='padding:8px 10px;border:1px solid #e5e7eb'><strong>Scheduled for (UTC)</strong></td><td style='padding:8px 10px;border:1px solid #e5e7eb'>{Cell(scheduledForUtc.ToString("O"))}</td></tr>");
+        sb.AppendLine($"<tr><td style='padding:8px 10px;border:1px solid #e5e7eb'><strong>Duration</strong></td><td style='padding:8px 10px;border:1px solid #e5e7eb'>{Cell(durationSec)}s</td></tr>");
+        sb.AppendLine($"<tr><td style='padding:8px 10px;border:1px solid #e5e7eb'><strong>Iterations</strong></td><td style='padding:8px 10px;border:1px solid #e5e7eb'>{iterationCount}</td></tr>");
+        sb.AppendLine($"<tr><td style='padding:8px 10px;border:1px solid #e5e7eb'><strong>Input tokens</strong></td><td style='padding:8px 10px;border:1px solid #e5e7eb'>{(inputTokens?.ToString() ?? "0")}</td></tr>");
+        sb.AppendLine($"<tr><td style='padding:8px 10px;border:1px solid #e5e7eb'><strong>Output tokens</strong></td><td style='padding:8px 10px;border:1px solid #e5e7eb'>{(outputTokens?.ToString() ?? "0")}</td></tr>");
+        sb.AppendLine($"<tr><td style='padding:8px 10px;border:1px solid #e5e7eb'><strong>Total tokens</strong></td><td style='padding:8px 10px;border:1px solid #e5e7eb'>{totalTokens}</td></tr>");
+        sb.AppendLine($"<tr><td style='padding:8px 10px;border:1px solid #e5e7eb'><strong>Session ID</strong></td><td style='padding:8px 10px;border:1px solid #e5e7eb'>{Cell(string.IsNullOrWhiteSpace(sessionId) ? "N/A" : sessionId)}</td></tr>");
+        if (outcome != "success")
+            sb.AppendLine($"<tr><td style='padding:8px 10px;border:1px solid #e5e7eb'><strong>Reason</strong></td><td style='padding:8px 10px;border:1px solid #e5e7eb'>{Cell(string.IsNullOrWhiteSpace(error) ? "N/A" : error)}</td></tr>");
+        sb.AppendLine("</tbody></table>");
+        sb.AppendLine("</body></html>");
+        return sb.ToString();
     }
 }

@@ -28,6 +28,10 @@ public class ScheduledTaskRunEntity : ITenantEntity
 
     public int AttemptNumber { get; set; } = 1;
 
+    public int? InputTokens { get; set; }
+    public int? OutputTokens { get; set; }
+    public int? IterationCount { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public ScheduledTaskEntity ScheduledTask { get; set; } = null!;

@@ -290,7 +290,18 @@ export function ScheduledTasks() {
               {tasks.map(task => (
                 <TableRow key={task.id}>
                   <TableCell>
-                    <div className="font-medium text-sm">{task.name}</div>
+                    <div className="flex items-center gap-2">
+                      <div className="font-medium text-sm">{task.name}</div>
+                      {task.lastRunStatus === "success" && (
+                        <Badge variant="outline" className="text-[10px] px-1 py-0 border-emerald-500 text-emerald-600">ok</Badge>
+                      )}
+                      {task.lastRunStatus === "failed" && (
+                        <Badge variant="outline" className="text-[10px] px-1 py-0 border-red-500 text-red-600">failed</Badge>
+                      )}
+                      {task.lastRunStatus === "skipped" && (
+                        <Badge variant="outline" className="text-[10px] px-1 py-0 border-yellow-500 text-yellow-600">skipped</Badge>
+                      )}
+                    </div>
                     {task.description && (
                       <div className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
                         {task.description}
@@ -488,6 +499,9 @@ function TaskDialog({ open, onOpenChange, mode, source, agents, onSaved }: TaskD
   const [promptText,    setPromptText]    = useState("");
   const [parametersRaw, setParametersRaw] = useState('{\n  "variable": "value"\n}');
   const [isEnabled,     setIsEnabled]     = useState(true);
+  const [notifyEmails,  setNotifyEmails]  = useState("");
+  const [notifyOn,      setNotifyOn]      = useState<string | undefined>(undefined);
+  const [successKeywords, setSuccessKeywords] = useState("");
   const [saving,        setSaving]        = useState(false);
 
   useEffect(() => {
@@ -514,6 +528,9 @@ function TaskDialog({ open, onOpenChange, mode, source, agents, onSaved }: TaskD
     );
     // Gap 1 fix: clone always starts disabled
     setIsEnabled(isClone ? false : (source?.isEnabled ?? true));
+    setNotifyEmails(source?.notifyEmails ?? "");
+    setNotifyOn(source?.notifyOn ?? undefined);
+    setSuccessKeywords(source?.successKeywords ?? "");
   }, [open, mode, source, agents]);
 
   const save = async () => {
@@ -543,6 +560,9 @@ function TaskDialog({ open, onOpenChange, mode, source, agents, onSaved }: TaskD
         promptText:     promptText.trim(),
         parametersJson: parsedParams,
         isEnabled,
+        notifyEmails: notifyEmails.trim() || undefined,
+        notifyOn:     notifyOn || undefined,
+        successKeywords: successKeywords.trim() || undefined,
       };
       if (mode === "edit") {
         await api.updateSchedule(source!.id, dto, 1);
@@ -696,6 +716,40 @@ function TaskDialog({ open, onOpenChange, mode, source, agents, onSaved }: TaskD
           <div className="flex items-center gap-2">
             <Switch id="task-enabled" checked={isEnabled} onCheckedChange={setIsEnabled} />
             <Label htmlFor="task-enabled">Enabled (run according to schedule)</Label>
+          </div>
+
+          <div className="space-y-3 rounded-md border p-3">
+            <Label className="text-sm font-medium">Notification</Label>
+            <div>
+              <Label className="text-xs text-muted-foreground">Notify emails (comma-separated)</Label>
+              <Input
+                value={notifyEmails}
+                onChange={e => setNotifyEmails(e.target.value)}
+                placeholder="user@example.com, ops@example.com"
+              />
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">Notify when</Label>
+              <select
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
+                value={notifyOn ?? ""}
+                onChange={e => setNotifyOn(e.target.value || undefined)}
+              >
+                <option value="">— disabled —</option>
+                <option value="failure">On failure</option>
+                <option value="success">On success</option>
+                <option value="always">Always</option>
+              </select>
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">Success confirmation keywords (comma-separated)</Label>
+              <Input
+                value={successKeywords}
+                onChange={e => setSuccessKeywords(e.target.value)}
+                placeholder="email sent, sent successfully, completed"
+              />
+              <p className="text-xs text-muted-foreground mt-1">If set, at least one phrase must appear in the final agent response; otherwise the run is marked as failed.</p>
+            </div>
           </div>
         </div>
 

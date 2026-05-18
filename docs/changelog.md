@@ -4,6 +4,76 @@
 
 ---
 
+## [2026-05-18] Scheduler — Email Notifications, Run Status Tracking & SuccessKeywords Validation
+
+Three related features shipped together: (1) HTML email notifications for scheduled task run
+outcomes, (2) last-run status columns on scheduled tasks and groups for at-a-glance dashboard
+visibility, and (3) `SuccessKeywords` response validation — a positive-assertion mechanism that
+marks a run as failed if none of the configured keywords appear in the agent's final response.
+
+### Overview
+
+| Feature | Summary |
+|---------|---------|
+| **Email notifications** | Per-tenant SMTP settings; HTML email with token usage, run duration, agent name, and white-label branding. Sent on run success, failure, or both (configurable). |
+| **Last-run status** | `LastRunStatus` / `LastRunAt` / `LastRunError` columns on `ScheduledTasks` and `TenantGroups` — updated after every run; surfaced in Dashboard widget. |
+| **SuccessKeywords** | Comma-separated phrases that must appear in the agent's final response text to confirm success. If configured and none match, the run is marked failed with a clear error message. Stored in DB as `FailureKeywords` column (backward-compatible via `[Column("FailureKeywords")]`). |
+
+### New files
+
+| File | Purpose |
+|------|---------|
+| `src/Diva.Core/Configuration/SmtpOptions.cs` | `SmtpOptions` config class (`Host`, `Port`, `Username`, `Password`, `FromAddress`, `FromName`, `UseSsl`) |
+| `src/Diva.Infrastructure/Data/Entities/TenantNotificationSettingsEntity.cs` | EF entity for per-tenant notification settings (`SmtpHost`, `NotifyOnSuccess`, `NotifyOnFailure`, `RecipientEmails`, etc.) |
+| `src/Diva.Infrastructure/Notifications/SmtpEmailNotifier.cs` | `IEmailNotifier` + `SmtpEmailNotifier` — builds HTML run-result email; resolves white-label brand name via `ITenantBrandingService`; sends via `System.Net.Mail.SmtpClient` |
+| `src/Diva.Infrastructure/Data/Migrations/20260516204503_AddSchedulerNotifications.*` | EF migration: `TenantNotificationSettings` table + `LastRunStatus` / `LastRunAt` / `LastRunError` columns on `ScheduledTasks` and `TenantGroups` |
+| `src/Diva.Infrastructure/Data/Migrations/20260517011915_AddLastRunStatus.*` | EF migration: additional last-run columns / index |
+| `src/Diva.Infrastructure/Data/Migrations/20260518121520_AddFailureKeywords.*` | EF migration: `FailureKeywords TEXT` column (used as `SuccessKeywords` via EF column attribute) |
+| `src/Diva.Tools/Email/` | MCP Email tool server stub |
+| `src/Diva.Tools/Scheduler/` | MCP Scheduler tool server stub |
+
+### Modified files
+
+| File | Change |
+|------|--------|
+| `src/Diva.Core/Models/AgentResponse.cs` | Added `Content` property (final iteration response text) for keyword matching |
+| `src/Diva.Infrastructure/Data/DivaDbContext.cs` | `TenantNotificationSettings` DbSet; EF query filter for tenant isolation |
+| `src/Diva.Infrastructure/Data/Entities/ScheduledTaskEntity.cs` | `SuccessKeywords` property (mapped to `FailureKeywords` DB column); `LastRunStatus` / `LastRunAt` / `LastRunError` |
+| `src/Diva.Infrastructure/Data/Entities/ScheduledTaskRunEntity.cs` | Additional run result fields |
+| `src/Diva.Infrastructure/Data/Entities/TenantGroupEntities.cs` | `SuccessKeywords` (same column mapping); `LastRunStatus` / `LastRunAt` / `LastRunError` on group entity |
+| `src/Diva.Infrastructure/Data/Migrations/DivaDbContextModelSnapshot.cs` | Updated model snapshot |
+| `src/Diva.Infrastructure/LiteLLM/AnthropicAgentRunner.cs` | Populates `AgentResponse.Content` with final iteration response |
+| `src/Diva.Infrastructure/Scheduler/IScheduledTaskService.cs` | `CreateScheduledTaskRequest` / `UpdateScheduledTaskRequest` records: `SuccessKeywords` field |
+| `src/Diva.Infrastructure/Scheduler/ScheduledTaskService.cs` | CRUD maps `SuccessKeywords`; updates `LastRunStatus` / `LastRunAt` / `LastRunError` after each run |
+| `src/Diva.Infrastructure/Scheduler/SchedulerHostedService.cs` | **SuccessKeywords logic**: captures `lastIterationResponse = response.Content`; after run succeeds, checks each comma-separated keyword (case-insensitive) against the response; marks failed if none match. Same logic in `ExecuteRunAsync` and `ExecuteGroupRunAsync`. Emits `SmtpEmailNotifier` call on run completion. |
+| `src/Diva.Host/Controllers/SchedulerController.cs` | `CreateScheduledTaskDto` / `UpdateScheduledTaskDto` / `ScheduledTaskExport`: `SuccessKeywords` field |
+| `src/Diva.Host/Program.cs` | Registers `IEmailNotifier` / `SmtpEmailNotifier`; idempotent SQL fallback adds `SuccessKeywords` column and copies from legacy `FailureKeywords` if present |
+| `admin-portal/src/api.ts` | `successKeywords?: string` on `ScheduledTask` interface |
+| `admin-portal/src/components/ScheduledTasks.tsx` | `successKeywords` state; "Success confirmation keywords" field with help text |
+| `admin-portal/src/components/Dashboard.tsx` | Last-run status badges on scheduled task and group cards |
+| `docker-compose.yml` | SMTP environment variable pass-through |
+| `.env.example` | SMTP env var documentation |
+| `tests/Diva.Agents.Tests/SchedulerTests.cs` | Tests for SuccessKeywords pass/fail, email dispatch, last-run status update |
+
+### Behaviour details — SuccessKeywords
+
+```
+SuccessKeywords = "email sent, sent successfully, completed"
+
+Agent response contains "email sent" → run marked SUCCESS
+Agent response does not contain any keyword → run marked FAILED
+  error: "Response did not contain any expected success keyword."
+
+SuccessKeywords = ""  (or null) → keyword check is skipped; run outcome
+                                  is determined solely by agent execution result
+```
+
+The DB column remains named `FailureKeywords` for backward compatibility. The EF property is
+`SuccessKeywords` with `[Column("FailureKeywords")]`. No data loss on upgrade — `Program.cs`
+copies any existing `FailureKeywords` values into `SuccessKeywords` via idempotent SQL.
+
+---
+
 ## [2026-05-14] Agent Export / Import
 
 Full round-trip portable agent configuration — export an agent (definition + linked business rules)

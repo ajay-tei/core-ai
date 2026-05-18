@@ -6,11 +6,15 @@ import {
   ArrowRight,
   Bot,
   Brain,
+  Calendar,
+  CheckCircle2,
   Clock,
   MessagesSquare,
   Plus,
   RefreshCw,
   Shield,
+  SkipForward,
+  XCircle,
 } from "lucide-react";
 import {
   AreaChart,
@@ -25,7 +29,7 @@ import {
   Cell,
   Legend,
 } from "recharts";
-import { api, type DashboardStats } from "@/api";
+import { api, type DashboardStats, type SchedulerStats } from "@/api";
 import {
   Card,
   CardContent,
@@ -95,12 +99,18 @@ function StatCard({ label, value, icon: Icon, description, loading, variant = "d
 
 export function Dashboard() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [schedulerStats, setSchedulerStats] = useState<SchedulerStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = async () => {
     setLoading(true);
     try {
-      setStats(await api.getDashboard(1));
+      const [s, ss] = await Promise.all([
+        api.getDashboard(1),
+        api.getSchedulerStats(1).catch(() => null),
+      ]);
+      setStats(s);
+      setSchedulerStats(ss);
     } catch (e: unknown) {
       toast.error("Failed to load dashboard stats", { description: String(e) });
     } finally {
@@ -251,6 +261,68 @@ export function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Quick Actions */}
+      {/* Scheduled Jobs */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between pb-2">
+          <div>
+            <CardTitle className="text-base">Scheduled Jobs</CardTitle>
+            <CardDescription>Today&apos;s run summary</CardDescription>
+          </div>
+          <Button asChild variant="ghost" size="sm" className="text-xs text-muted-foreground">
+            <Link to="/schedules">View all <ArrowRight className="ml-1 size-3" /></Link>
+          </Button>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-4">
+            <div className="flex items-center gap-3 rounded-lg border p-3">
+              <Calendar className="size-5 text-primary shrink-0" />
+              <div>
+                <div className="text-xl font-bold tabular-nums">{schedulerStats?.enabledTasks ?? "—"}</div>
+                <div className="text-xs text-muted-foreground">Active tasks</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 rounded-lg border p-3">
+              <CheckCircle2 className="size-5 text-emerald-500 shrink-0" />
+              <div>
+                <div className="text-xl font-bold tabular-nums text-emerald-600">{schedulerStats?.todaySucceeded ?? "—"}</div>
+                <div className="text-xs text-muted-foreground">Succeeded today</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 rounded-lg border p-3">
+              <XCircle className="size-5 text-red-500 shrink-0" />
+              <div>
+                <div className="text-xl font-bold tabular-nums text-red-600">{schedulerStats?.todayFailed ?? "—"}</div>
+                <div className="text-xs text-muted-foreground">Failed today</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 rounded-lg border p-3">
+              <SkipForward className="size-5 text-yellow-500 shrink-0" />
+              <div>
+                <div className="text-xl font-bold tabular-nums text-yellow-600">{schedulerStats?.todaySkipped ?? "—"}</div>
+                <div className="text-xs text-muted-foreground">Skipped today</div>
+              </div>
+            </div>
+          </div>
+          {schedulerStats && schedulerStats.recentFailures.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-2">Recent failures &amp; skips</p>
+              <div className="space-y-1">
+                {schedulerStats.recentFailures.slice(0, 5).map((f, i) => (
+                  <div key={i} className="flex items-center justify-between text-xs py-1 border-b last:border-0">
+                    <span className="font-medium truncate max-w-[200px]">{f.taskName}</span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className={f.status === "skipped" ? "text-yellow-600" : "text-red-600"}>{f.status}</span>
+                      <span className="text-muted-foreground">{new Date(f.scheduledForUtc).toLocaleString()}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Quick Actions */}
       <Card>

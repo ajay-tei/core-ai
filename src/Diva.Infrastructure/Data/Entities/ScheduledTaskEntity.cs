@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations.Schema;
+
 namespace Diva.Infrastructure.Data.Entities;
 
 /// <summary>Persisted schedule definition — owns the recurrence config and task payload.</summary>
@@ -47,4 +49,23 @@ public class ScheduledTaskEntity : ITenantEntity
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
+
+    // ── Notification config ───────────────────────────────────────────────────
+
+    /// <summary>Comma-separated email addresses to notify after this job runs. Null = per-job notification disabled.</summary>
+    public string? NotifyEmails { get; set; }
+
+    /// <summary>"failure" | "success" | "always" | null (disabled).</summary>
+    public string? NotifyOn { get; set; }
+
+    /// <summary>Outcome of the most recent run: "success" | "failed" | "skipped" | null (never run).</summary>
+    public string? LastRunStatus { get; set; }
+
+    /// <summary>
+    /// Optional comma-separated phrases that confirm the agent task succeeded.
+    /// If set, at least one phrase must appear in the final response content
+    /// (case-insensitive) or the run is marked failed.
+    /// </summary>
+    [Column("FailureKeywords")]
+    public string? SuccessKeywords { get; set; }
 }

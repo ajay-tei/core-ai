@@ -762,6 +762,8 @@ export interface GroupScheduledTask
   nextRunUtc?: string;
   createdAt: string;
   updatedAt?: string;
+  notifyEmails?: string;
+  notifyOn?: string;
 }
 
 export interface GroupLlmConfig
@@ -971,6 +973,10 @@ export interface ScheduledTask
   nextRunUtc?: string;
   createdAt: string;
   updatedAt?: string;
+  notifyEmails?: string;
+  notifyOn?: string;            // "failure" | "success" | "always" | null
+  successKeywords?: string;     // comma-separated phrases that must appear to confirm success
+  lastRunStatus?: string;       // "success" | "failed" | "skipped" | null
 }
 
 export interface ScheduledTaskRun
@@ -988,6 +994,36 @@ export interface ScheduledTaskRun
   sessionId?: string;
   attemptNumber: number;
   createdAt: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  iterationCount?: number;
+}
+
+export interface TenantNotificationSettings
+{
+  tenantId?: number;
+  globalNotifyEmails?: string;
+  globalNotifyOn?: string;
+}
+
+export interface SchedulerRecentFailure
+{
+  taskId: string;
+  taskName: string;
+  scheduledForUtc: string;
+  status: string;
+  errorMessage?: string;
+}
+
+export interface SchedulerStats
+{
+  totalTasks: number;
+  enabledTasks: number;
+  todayRuns: number;
+  todaySucceeded: number;
+  todayFailed: number;
+  todaySkipped: number;
+  recentFailures: SchedulerRecentFailure[];
 }
 
 export type CreateScheduleDto = Omit<ScheduledTask, "id" | "tenantId" | "lastRunAtUtc" | "nextRunUtc" | "createdAt" | "updatedAt">;
@@ -1332,6 +1368,12 @@ export const api = {
     request<ScheduledTaskRun[]>(`/api/schedules/${ id }/runs?tenantId=${ tenantId }&limit=${ limit }`),
   importSchedules: (req: ScheduleImportRequest, tenantId = 1) =>
     request<ScheduleImportResult>(`/api/schedules/import?tenantId=${ tenantId }`, { method: "POST", body: JSON.stringify(req) }),
+  getNotificationSettings: (tenantId = 1) =>
+    request<TenantNotificationSettings>(`/api/schedules/notification-settings?tenantId=${ tenantId }`),
+  upsertNotificationSettings: (dto: TenantNotificationSettings, tenantId = 1) =>
+    request<void>(`/api/schedules/notification-settings?tenantId=${ tenantId }`, { method: "PUT", body: JSON.stringify(dto) }),
+  getSchedulerStats: (tenantId = 1) =>
+    request<SchedulerStats>(`/api/schedules/stats?tenantId=${ tenantId }`),
 
   // Platform LLM Config — backward-compat singleton accessor
   getPlatformLlmConfig: () =>

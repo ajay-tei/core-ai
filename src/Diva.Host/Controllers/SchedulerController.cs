@@ -16,7 +16,7 @@ public class SchedulerController : ControllerBase
         ILogger<SchedulerController> logger)
     {
         _service = service;
-        _logger  = logger;
+        _logger = logger;
     }
 
     private int EffectiveTenantId(int requestedTenantId)
@@ -62,7 +62,8 @@ public class SchedulerController : ControllerBase
                 dto.TimeZoneId ?? "UTC",
                 dto.PayloadType ?? "prompt",
                 dto.PromptText, dto.ParametersJson,
-                dto.IsEnabled), ct);
+                dto.IsEnabled,
+                dto.NotifyEmails, dto.NotifyOn, dto.SuccessKeywords), ct);
         }
         catch (ArgumentException e) { ex = e; }
 
@@ -90,10 +91,10 @@ public class SchedulerController : ControllerBase
                 dto.AgentId, dto.Name, dto.Description,
                 dto.ScheduleType, dto.ScheduledAtUtc, dto.RunAtTime, dto.DayOfWeek,
                 dto.TimeZoneId, dto.PayloadType, dto.PromptText, dto.ParametersJson,
-                dto.IsEnabled), ct);
+                dto.IsEnabled, dto.NotifyEmails, dto.NotifyOn, dto.SuccessKeywords), ct);
         }
         catch (KeyNotFoundException) { return NotFound(); }
-        catch (ArgumentException e)  { ex = e; }
+        catch (ArgumentException e) { ex = e; }
 
         if (ex is ArgumentException argEx)
             return BadRequest(new { error = argEx.Message });
@@ -175,7 +176,7 @@ public class SchedulerController : ControllerBase
     {
         if (dto?.Tasks is null) return BadRequest(new { error = "Request body is required." });
 
-        var tid      = EffectiveTenantId(tenantId);
+        var tid = EffectiveTenantId(tenantId);
         var existing = (await _service.ListAsync(tid, ct))
                            .Select(t => t.Name)
                            .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -198,7 +199,8 @@ public class SchedulerController : ControllerBase
                     task.AgentId, task.Name, task.Description,
                     task.ScheduleType, task.ScheduledAtUtc, task.RunAtTime, task.DayOfWeek,
                     task.TimeZoneId ?? "UTC", task.PayloadType ?? "prompt",
-                    task.PromptText, task.ParametersJson, task.IsEnabled), ct);
+                    task.PromptText, task.ParametersJson, task.IsEnabled,
+                    task.NotifyEmails, task.NotifyOn, task.SuccessKeywords), ct);
                 created++;
             }
             catch (Exception e) { ex = e; }
@@ -208,6 +210,31 @@ public class SchedulerController : ControllerBase
         }
 
         return Ok(new ScheduleImportResult(created, skippedNames.Count, skippedNames));
+    }
+
+    // ── GET /api/schedules/notification-settings ───────────────────────────────
+    [HttpGet("notification-settings")]
+    public async Task<IActionResult> GetNotificationSettings(
+        [FromQuery] int tenantId = 1,
+        CancellationToken ct = default)
+    {
+        var settings = await _service.GetNotificationSettingsAsync(EffectiveTenantId(tenantId), ct);
+        if (settings is null)
+            return Ok(new { globalNotifyEmails = (string?)null, globalNotifyOn = (string?)null });
+        return Ok(settings);
+    }
+
+    // ── PUT /api/schedules/notification-settings ──────────────────────────────
+    [HttpPut("notification-settings")]
+    public async Task<IActionResult> UpsertNotificationSettings(
+        [FromBody] UpsertNotificationSettingsDto dto,
+        [FromQuery] int tenantId = 1,
+        CancellationToken ct = default)
+    {
+        if (dto is null) return BadRequest(new { error = "Request body is required." });
+        await _service.UpsertNotificationSettingsAsync(
+            EffectiveTenantId(tenantId), dto.GlobalNotifyEmails, dto.GlobalNotifyOn, ct);
+        return NoContent();
     }
 }
 
@@ -225,7 +252,10 @@ public sealed record CreateScheduledTaskDto(
     string? PayloadType,
     string PromptText,
     string? ParametersJson,
-    bool IsEnabled = true);
+    bool IsEnabled = true,
+    string? NotifyEmails = null,
+    string? NotifyOn = null,
+    string? SuccessKeywords = null);
 
 public sealed record UpdateScheduledTaskDto(
     string? AgentId,
@@ -239,7 +269,14 @@ public sealed record UpdateScheduledTaskDto(
     string? PayloadType,
     string? PromptText,
     string? ParametersJson,
-    bool? IsEnabled);
+    bool? IsEnabled,
+    string? NotifyEmails = null,
+    string? NotifyOn = null,
+    string? SuccessKeywords = null);
+
+public sealed record UpsertNotificationSettingsDto(
+    string? GlobalNotifyEmails,
+    string? GlobalNotifyOn);
 
 public sealed record SetEnabledDto(bool IsEnabled);
 
@@ -255,7 +292,10 @@ public sealed record ScheduledTaskExport(
     string PayloadType,
     string PromptText,
     string? ParametersJson,
-    bool IsEnabled);
+    bool IsEnabled,
+    string? NotifyEmails = null,
+    string? NotifyOn = null,
+    string? SuccessKeywords = null);
 
 public sealed record ScheduleImportRequest(
     List<ScheduledTaskExport> Tasks,
