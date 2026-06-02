@@ -20,6 +20,9 @@ services:
       LLM__DirectProvider__ApiKey: "${LLM_DIRECT_API_KEY:-no-key}"
       LLM__DirectProvider__Model: "${LLM_DIRECT_MODEL:-claude-sonnet-4-6}"
       LLM__DirectProvider__Endpoint: "${LLM_DIRECT_ENDPOINT}"
+      # Comma-separated list of allowed portal origins (browser-facing URL(s)).
+      # When accessed via a reverse proxy (e.g. https://ai.company.com), add that URL here.
+      # Multiple values: PORTAL_ORIGIN=https://ai.company.com,http://localhost:6010
       AdminPortal__CorsOrigin: "${PORTAL_ORIGIN:-http://localhost:6010}"
       Verification__Mode: LlmVerifier
       Verification__ConfidenceThreshold: "0.5"
@@ -49,6 +52,11 @@ services:
       AppBranding__Slug: "${AppBranding__Slug:-diva}"
       AppBranding__ApiAudience: "${AppBranding__ApiAudience:-diva-api}"
       AppBranding__LocalIssuer: "${AppBranding__LocalIssuer:-diva-local}"
+      # Feedback token HMAC key — MUST be a stable base64-encoded 32-byte key.
+      # If not set, an ephemeral key is generated per startup and emailed feedback links
+      # become invalid after any container restart.
+      # Generate with: openssl rand -base64 32
+      TaskScheduler__FeedbackTokenSecret: "${SCHEDULER_FEEDBACK_TOKEN_SECRET}"
     volumes:
       - ./data:/data
     healthcheck:
@@ -64,6 +72,9 @@ services:
       args:
         VITE_APP_NAME: "${VITE_APP_NAME:-Diva AI}"
         VITE_APP_SLUG: "${VITE_APP_SLUG:-diva}"
+        # Subpath prefix for reverse-proxy deployments (no trailing slash).
+        # Example: VITE_BASE_PATH=/beta/tei-ai in .env
+        VITE_BASE_PATH: "${VITE_BASE_PATH:-}"
     ports:
       - "6010:6010"
     depends_on:

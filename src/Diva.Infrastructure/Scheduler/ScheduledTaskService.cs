@@ -452,6 +452,38 @@ public sealed class ScheduledTaskService : IScheduledTaskService
         await db.SaveChangesAsync(ct);
     }
 
+    // ── Feedback settings ───────────────────────────────────────────────────
+
+    public async Task<TenantFeedbackSettingsEntity?> GetFeedbackSettingsAsync(int tenantId, CancellationToken ct)
+    {
+        using var db = _db.CreateDbContext();
+        return await db.TenantFeedbackSettings.FindAsync([tenantId], ct);
+    }
+
+    public async Task UpsertFeedbackSettingsAsync(
+        int tenantId, bool enableFeedbackLinks, string? feedbackLinkBaseUrl, int expiryDays, CancellationToken ct)
+    {
+        using var db = _db.CreateDbContext();
+        var existing = await db.TenantFeedbackSettings.FindAsync([tenantId], ct);
+        if (existing is null)
+        {
+            db.TenantFeedbackSettings.Add(new TenantFeedbackSettingsEntity
+            {
+                TenantId = tenantId,
+                EnableFeedbackLinks = enableFeedbackLinks,
+                FeedbackLinkBaseUrl = string.IsNullOrWhiteSpace(feedbackLinkBaseUrl) ? null : feedbackLinkBaseUrl.TrimEnd('/'),
+                ExpiryDays = expiryDays > 0 ? expiryDays : 30,
+            });
+        }
+        else
+        {
+            existing.EnableFeedbackLinks = enableFeedbackLinks;
+            existing.FeedbackLinkBaseUrl = string.IsNullOrWhiteSpace(feedbackLinkBaseUrl) ? null : feedbackLinkBaseUrl.TrimEnd('/');
+            existing.ExpiryDays = expiryDays > 0 ? expiryDays : 30;
+        }
+        await db.SaveChangesAsync(ct);
+    }
+
     public async Task<SchedulerStatsDto> GetStatsAsync(int tenantId, CancellationToken ct)
     {
         using var db = _db.CreateDbContext(TenantContext.System(tenantId));

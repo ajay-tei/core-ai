@@ -10,7 +10,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { api, type SsoProvider } from "@/api";
 import { APP_NAME, storageKey } from "@/lib/brand";
 
-const API_BASE  = import.meta.env.VITE_API_URL  ?? "http://localhost:5062";
+const API_BASE  = import.meta.env.VITE_API_URL ?? import.meta.env.BASE_URL.replace(/\/$/, '');
 const TENANT_ID = import.meta.env.VITE_TENANT_ID ?? "";   // non-empty = single-tenant deployment
 
 /**

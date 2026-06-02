@@ -1,6 +1,10 @@
 import { storageKey } from "@/lib/brand";
 
-const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:5000";
+// import.meta.env.BASE_URL is always set by Vite to the configured base path
+// (e.g. '/beta/tei-ai/' for subpath deploys, '/' for root). Strip trailing slash
+// so it can be prepended to '/api/...' paths without a double slash.
+// VITE_API_URL takes precedence (local dev points at localhost:5062).
+const BASE = import.meta.env.VITE_API_URL ?? import.meta.env.BASE_URL.replace(/\/$/, '');
 
 // Fallback tenant ID from env — used when localStorage has no stored tenant yet
 // (e.g. first request after SSO redirect before AuthCallback has run).
@@ -1172,8 +1176,8 @@ export const api = {
   getAgent: (id: string) => request<AgentDefinition>(`/api/agents/${ id }`),
   createAgent: (dto: AgentDefinition) => request<AgentDefinition>("/api/agents", { method: "POST", body: JSON.stringify(dto) }),
   updateAgent: (id: string, dto: AgentDefinition) => request<AgentDefinition>(`/api/agents/${ id }`, { method: "PUT", body: JSON.stringify(dto) }),
-  improvePrompt: (id: string, instruction: string) =>
-    request<{ improvedPrompt: string; }>(`/api/agents/${ id }/prompt/improve`, { method: "POST", body: JSON.stringify({ instruction }) }),
+  improvePrompt: (id: string, instruction: string, currentPrompt?: string) =>
+    request<{ improvedPrompt: string; }>(`/api/agents/${ id }/prompt/improve`, { method: "POST", body: JSON.stringify({ instruction, currentPrompt }) }),
   deleteAgent: (id: string) => request<void>(`/api/agents/${ id }`, { method: "DELETE" }),
   exportAgent: (id: string) => request<AgentExportBundle>(`/api/agents/${ id }/export`),
   importAgent: (bundle: AgentExportBundle, opts?: AgentImportOptions) =>
@@ -1319,6 +1323,8 @@ export const api = {
     request<void>(`/api/auth/local-users/${ id }?tenantId=${ tenantId }`, { method: "DELETE" }),
   resetLocalUserPassword: (id: number, newPassword: string, tenantId: number) =>
     request<void>(`/api/auth/local-users/${ id }/reset-password?tenantId=${ tenantId }`, { method: "POST", body: JSON.stringify({ newPassword }) }),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<void>(`/api/auth/change-password`, { method: "POST", body: JSON.stringify({ currentPassword, newPassword }) }),
 
   // SSO configurations (Phase 2)
   listSsoConfigs: (tenantId = 1) =>
@@ -2193,5 +2199,146 @@ export async function markTurnAsExample(
   });
   if (!r.ok) throw await r.json().catch(() => ({ error: r.statusText }));
   return r.json();
+}
+
+// ── Scheduler Feedback ──────────────────────────────────────────────────────
+
+export interface SchedulerFeedbackContext
+{
+  taskName: string;
+  agentDisplayName?: string;
+  runId: string;
+  taskId: string;
+  sessionId?: string;
+  taskType: string;
+  runCompletedAt?: string;
+  runOutcome?: string;
+  runSummary?: string;
+}
+
+export interface SubmitSchedulerFeedbackRequest
+{
+  token: string;
+  thumbsRating?: number;   // 1 or -1
+  starRating?: number;     // 1–5
+  category?: string;
+  correctionText?: string;
+  submitterName?: string;
+  submitterEmail?: string;
+}
+
+export interface SchedulerFeedbackItem
+{
+  id: string;
+  tenantId: number;
+  runId: string;
+  scheduledTaskId: string;
+  taskType: string;
+  taskName?: string;
+  agentDisplayName?: string;
+  sessionId?: string;
+  thumbsRating?: number;
+  starRating?: number;
+  category?: string;
+  correctionText?: string;
+  submitterName?: string;
+  submitterEmail?: string;
+  status: string;
+  submittedAt: string;
+  reviewedAt?: string;
+  reviewNotes?: string;
+}
+
+/** Load run context from a feedback token (public — no auth required). */
+export async function getSchedulerFeedbackContext(token: string): Promise<SchedulerFeedbackContext>
+{
+  const r = await fetch(`${ BASE }/api/scheduler-feedback/context?token=${ encodeURIComponent(token) }`);
+  if (!r.ok) throw await r.json().catch(() => ({ error: r.statusText }));
+  return r.json();
+}
+
+/** Submit feedback (public — no auth required). */
+export async function submitSchedulerFeedback(req: SubmitSchedulerFeedbackRequest): Promise<void>
+{
+  const r = await fetch(`${ BASE }/api/scheduler-feedback/submit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+  if (!r.ok) throw await r.json().catch(() => ({ error: r.statusText }));
+}
+
+/** List pending feedback items (admin auth required). */
+export async function listSchedulerFeedback(tenantId = 1): Promise<SchedulerFeedbackItem[]>
+{
+  const r = await fetch(`${ BASE }/api/scheduler-feedback?tenantId=${ tenantId }`, {
+    headers: authHeaders(),
+  });
+  if (!r.ok) throw await r.json().catch(() => ({ error: r.statusText }));
+  return r.json();
+}
+
+/** Approve a feedback item (admin auth required). */
+export async function approveSchedulerFeedback(id: string, tenantId = 1): Promise<void>
+{
+  const r = await fetch(`${ BASE }/api/scheduler-feedback/${ id }/approve?tenantId=${ tenantId }`, {
+    method: "PUT", headers: authHeaders(),
+  });
+  if (!r.ok) throw await r.json().catch(() => ({ error: r.statusText }));
+}
+
+/** Generate a signed feedback URL for an existing run (admin auth required). */
+export async function generateSchedulerFeedbackLink(
+  runId: string, taskId: string, tenantId = 1, taskType = "individual"
+): Promise<string>
+{
+  const params = new URLSearchParams({ runId, taskId, tenantId: String(tenantId), taskType });
+  const r = await fetch(`${ BASE }/api/scheduler-feedback/generate-link?${ params }`, {
+    headers: authHeaders(),
+  });
+  if (!r.ok) throw await r.json().catch(() => ({ error: r.statusText }));
+  const data = await r.json() as { url: string; };
+  return data.url;
+}
+
+/** Reject a feedback item with optional notes (admin auth required). */
+export async function rejectSchedulerFeedback(id: string, notes: string, tenantId = 1): Promise<void>
+{
+  const r = await fetch(`${ BASE }/api/scheduler-feedback/${ id }/reject?tenantId=${ tenantId }`, {
+    method: "PUT",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ notes }),
+  });
+  if (!r.ok) throw await r.json().catch(() => ({ error: r.statusText }));
+}
+
+// ── Feedback link settings ────────────────────────────────────────────────────
+
+export interface TenantFeedbackSettings
+{
+  enableFeedbackLinks: boolean;
+  feedbackLinkBaseUrl: string;
+  expiryDays: number;
+}
+
+/** Get per-tenant feedback link configuration. */
+export async function getFeedbackSettings(tenantId = 1): Promise<TenantFeedbackSettings>
+{
+  const r = await fetch(`${ BASE }/api/schedules/feedback-settings?tenantId=${ tenantId }`, {
+    headers: authHeaders(),
+  });
+  if (!r.ok) throw await r.json().catch(() => ({ error: r.statusText }));
+  return r.json();
+}
+
+/** Save per-tenant feedback link configuration. */
+export async function upsertFeedbackSettings(dto: TenantFeedbackSettings, tenantId = 1): Promise<void>
+{
+  const r = await fetch(`${ BASE }/api/schedules/feedback-settings?tenantId=${ tenantId }`, {
+    method: "PUT",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify(dto),
+  });
+  if (!r.ok) throw await r.json().catch(() => ({ error: r.statusText }));
 }
 

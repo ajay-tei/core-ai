@@ -4,6 +4,139 @@
 
 ---
 
+## [2026-06-02] Bug fixes — session_id template variable, logout redirect, reverse-proxy deployment, change password & feedback page branding
+
+Five independent fixes and one new feature shipped together.
+
+### 1. `{{session_id}}` template variable resolved blank
+
+`TenantContext.SessionId` was null at prompt-build time because the session was created *after*
+`TenantAwarePromptBuilder` ran. Fixed by enriching `TenantContext` with the resolved session ID
+immediately after `GetOrCreateAsync` returns.
+
+| File | Change |
+|------|--------|
+| `src/Diva.Core/Models/TenantContext.cs` | Added `WithSession(string? sessionId)` helper — copies all properties and sets `SessionId` |
+| `src/Diva.Infrastructure/LiteLLM/AnthropicAgentRunner.cs` | `tenant = tenant.WithSession(sessionId)` after `GetOrCreateAsync` |
+| `src/Diva.TenantAdmin/Prompts/TenantAwarePromptBuilder.cs` | `BuildRuntimeVariables` includes `["session_id"] = tenant.SessionId ?? ""` |
+| `admin-portal/src/components/AgentBuilder.tsx` | Added `session_id` to the `PROMPT_VARIABLES` help list |
+
+### 2. Prompt Quick Fix — wrong prompt text sent to LLM
+
+`POST /api/agents/{id}/prompt/improve` was ignoring the in-editor prompt and loading
+`agent.SystemPrompt` from the DB. Fixed by adding an optional `CurrentPrompt` field to the
+request body which takes precedence when supplied.
+
+| File | Change |
+|------|--------|
+| `src/Diva.Host/Controllers/AuthController.cs` | `ImprovePromptRequest` record: added optional `CurrentPrompt` field with `[JsonPropertyName("currentPrompt")]` |
+| `src/Diva.Host/Controllers/AgentsController.cs` | Uses `req.CurrentPrompt ?? agent.SystemPrompt` |
+| `admin-portal/src/components/PromptQuickFixDialog.tsx` | Generalised: removed `agentId` prop; added `onImprove: (instruction) => Promise<string>` callback + `currentPrompt` prop |
+| `admin-portal/src/components/AgentBuilder.tsx` | Passes `onImprove` callback with live `form.systemPrompt` |
+| `admin-portal/src/components/ScheduledTasks.tsx` | Added Quick Fix button + `PromptQuickFixDialog` to the Task dialog form |
+| `admin-portal/src/api.ts` | `improvePrompt()` accepts optional `currentPrompt` arg |
+
+### 3. Reverse-proxy / subpath deployment (`VITE_BASE_PATH`)
+
+The portal is served at `https://proxy-internal.totaleintegrated.com/beta/tei-ai/` via a corporate
+reverse proxy. Static assets and API calls were using wrong base URLs.
+
+| File | Change |
+|------|--------|
+| `admin-portal/vite.config.ts` | Reads `VITE_BASE_PATH` env var at build time; sets Vite `base`; all output under `/assets/` |
+| `admin-portal/src/App.tsx` | `BrowserRouter` uses `basename={import.meta.env.BASE_URL}` |
+| `admin-portal/src/api.ts` | `BASE` uses `import.meta.env.VITE_API_URL ?? import.meta.env.BASE_URL.replace(/\/$/, '')` |
+| `admin-portal/src/lib/auth.ts` | Same `API_BASE` pattern |
+| `admin-portal/src/components/LoginPage.tsx` | Same `API_BASE` pattern (was last remaining `localhost:5062` hardcode) |
+| `admin-portal/src/components/WidgetManager.tsx` | Same `BASE_URL` pattern |
+| `admin-portal/nginx.conf` | Added `listen 80;` (reverse proxies default to port 80) |
+| `admin-portal/Dockerfile` | `VITE_BASE_PATH` ARG passed to `npx vite build` |
+| `docker-compose.yml` | `VITE_BASE_PATH` build-arg + comma-separated `PORTAL_ORIGIN` comment |
+| `.env` | `VITE_BASE_PATH=/beta/tei-ai` |
+| `src/Diva.Host/Program.cs` | CORS `CorsOrigin` split on `,` to support multiple allowed origins |
+
+### 4. Logout redirect producing malformed URL
+
+`AdminPortal:CorsOrigin` is a comma-separated list for multi-origin support. `_portalOrigin` was
+used verbatim, producing broken redirect URLs like
+`https://proxy.../beta/tei-ai,http://localhost:6010/login`.
+
+| File | Change |
+|------|--------|
+| `src/Diva.Host/Controllers/AuthController.cs` | `_portalOrigin` now takes `Split(',')[0]` — first origin only for redirect URLs |
+| `admin-portal/src/lib/auth.ts` | Non-SSO logout fallback changed from `"/login"` to `` `${import.meta.env.BASE_URL}login` `` so subpath deployments redirect correctly |
+
+### 5. Change password for local-auth users
+
+Self-service password change for users who log in with a local username/password account (not SSO).
+Admin users can also change their own master-admin password via the same endpoint.
+
+| File | Change |
+|------|--------|
+| `src/Diva.Infrastructure/Auth/LocalAuthService.cs` | Added `ChangePasswordAsync` to `ILocalAuthService` interface and implementation — verifies current password (PBKDF2-SHA256) before updating hash |
+| `src/Diva.Host/Controllers/AuthController.cs` | `ChangePasswordRequest` record; `POST /api/auth/change-password` endpoint — validates `int.TryParse(userId)` to reject SSO users; min 8-char validation |
+| `admin-portal/src/api.ts` | `changePassword(currentPassword, newPassword)` method |
+| `admin-portal/src/components/ChangePasswordDialog.tsx` | **New file** — dialog with current / new / confirm fields; client-side match + min-length validation; `toast.success` on success |
+| `admin-portal/src/components/layout/topbar.tsx` | `KeyRound` icon button — shown **only** for local-auth users (numeric `userId`); wires `ChangePasswordDialog` |
+
+### 6. Scheduler Feedback Page — branded header/footer
+
+The public feedback form (emailed link, no auth required) had no header or footer, making it
+appear unbranded.
+
+| File | Change |
+|------|--------|
+| `admin-portal/src/components/SchedulerFeedbackPage.tsx` | Added `FeedbackShell` layout component: sticky header with `Shield` icon + `APP_NAME`, footer with copyright year; all states (loading, submitted, error, form) wrapped in `FeedbackShell` |
+
+---
+
+## [2026-05-29] Scheduler — Run Feedback Collection
+
+Allows external recipients (from notification emails) to submit feedback on scheduler run results
+via a tokenised public link. Admins can review, approve, or reject submitted feedback in the portal.
+
+### Overview
+
+| Feature | Summary |
+|---------|---------|
+| **Public feedback form** | Tokenised one-time link in notification emails; shows run context; collects thumbs up/down, star rating, category, correction text, and optional submitter identity |
+| **Feedback token service** | HMAC-signed, expiry-bounded tokens; tokens are single-use (marked consumed on submit) |
+| **Admin review panel** | `/schedules/feedback` page; table of pending/reviewed feedback; approve (trigger rule suggestion) or reject; filter by status |
+| **Feedback settings** | Per-tenant opt-in/opt-out; configurable expiry days |
+
+### New files
+
+| File | Purpose |
+|------|---------|
+| `src/Diva.Infrastructure/Scheduler/ISchedulerFeedbackService.cs` | CRUD + approve/reject interface |
+| `src/Diva.Infrastructure/Scheduler/SchedulerFeedbackService.cs` | EF implementation |
+| `src/Diva.Infrastructure/Scheduler/ISchedulerFeedbackTokenService.cs` | Token generate/validate interface |
+| `src/Diva.Infrastructure/Scheduler/SchedulerFeedbackTokenService.cs` | HMAC-SHA256 signed tokens with expiry |
+| `src/Diva.Infrastructure/Data/Entities/SchedulerFeedbackEntity.cs` | `SchedulerFeedbackEntity` EF entity |
+| `src/Diva.Infrastructure/Data/Entities/TenantFeedbackSettingsEntity.cs` | Per-tenant feedback settings entity |
+| `src/Diva.Infrastructure/Data/Migrations/20260529161658_AddSchedulerFeedback.*` | EF migration — `SchedulerFeedback` table |
+| `src/Diva.Infrastructure/Data/Migrations/20260529210822_AddTenantFeedbackSettings.*` | EF migration — `TenantFeedbackSettings` table |
+| `src/Diva.Host/Controllers/SchedulerFeedbackController.cs` | Public submit + admin CRUD endpoints |
+| `admin-portal/src/components/SchedulerFeedbackPage.tsx` | Public tokenised feedback form (no auth) |
+| `admin-portal/src/components/SchedulerFeedbackReview.tsx` | Admin review table with approve/reject dialogs |
+
+### Modified files
+
+| File | Change |
+|------|--------|
+| `src/Diva.Infrastructure/Data/DivaDbContext.cs` | `SchedulerFeedback` + `TenantFeedbackSettings` DbSets; EF query filters |
+| `src/Diva.Infrastructure/Data/Migrations/DivaDbContextModelSnapshot.cs` | Updated model snapshot |
+| `src/Diva.Infrastructure/Scheduler/IScheduledTaskService.cs` | Feedback token injection point |
+| `src/Diva.Infrastructure/Scheduler/ScheduledTaskService.cs` | Generates feedback token; appended to notification email link |
+| `src/Diva.Infrastructure/Scheduler/SchedulerHostedService.cs` | Passes token to notification email on run completion |
+| `src/Diva.Core/Configuration/TaskSchedulerOptions.cs` | `FeedbackLinkBaseUrl` + `FeedbackTokenExpiryDays` options |
+| `src/Diva.Host/appsettings.json` | `TaskScheduler.FeedbackLinkBaseUrl` default |
+| `admin-portal/src/api.ts` | `SchedulerFeedbackContext`, `SchedulerFeedbackItem` interfaces; `getSchedulerFeedbackContext`, `submitSchedulerFeedback`, `listSchedulerFeedback`, `approveSchedulerFeedback`, `rejectSchedulerFeedback` methods |
+| `admin-portal/src/components/layout/app-sidebar.tsx` | Added "Schedule Feedback" nav item (`/schedules/feedback`, `Star` icon) |
+| `admin-portal/src/mocks/handlers.ts` | MSW mock handlers for feedback endpoints |
+
+---
+
 ## [2026-05-18] Scheduler — Email Notifications, Run Status Tracking & SuccessKeywords Validation
 
 Three related features shipped together: (1) HTML email notifications for scheduled task run

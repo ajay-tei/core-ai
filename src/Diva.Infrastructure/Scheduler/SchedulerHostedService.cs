@@ -29,6 +29,7 @@ public sealed class SchedulerHostedService : BackgroundService
     private readonly IOptions<AppBrandingOptions> _branding;
     private readonly ILogger<SchedulerHostedService> _logger;
     private readonly IEmailNotifier? _notifier;
+    private readonly ISchedulerFeedbackTokenService? _feedbackTokenSvc;
 
     // taskId → runId: which scheduled tasks are currently executing
     private readonly ConcurrentDictionary<string, string> _runningTasks = new();
@@ -43,7 +44,8 @@ public sealed class SchedulerHostedService : BackgroundService
         IOptions<TaskSchedulerOptions> opts,
         IOptions<AppBrandingOptions> branding,
         ILogger<SchedulerHostedService> logger,
-        IEmailNotifier? notifier = null)
+        IEmailNotifier? notifier = null,
+        ISchedulerFeedbackTokenService? feedbackTokenSvc = null)
     {
         _service = service;
         _db = db;
@@ -52,6 +54,7 @@ public sealed class SchedulerHostedService : BackgroundService
         _branding = branding;
         _logger = logger;
         _notifier = notifier;
+        _feedbackTokenSvc = feedbackTokenSvc;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -200,7 +203,7 @@ public sealed class SchedulerHostedService : BackgroundService
                 scheduledTask.Name, scheduledTask.NotifyEmails, scheduledTask.NotifyOn,
                 scheduledTask.TenantId, "skipped",
                 "Run skipped — previous run still active and queue is full.",
-                null, run.ScheduledForUtc, 0, 0, null, null, ct);
+                null, run.ScheduledForUtc, 0, 0, null, null, null, ct);
             return;
         }
 
@@ -270,6 +273,9 @@ public sealed class SchedulerHostedService : BackgroundService
             "Executing scheduled run '{RunId}' — task '{TaskName}' (tenant {TenantId}).",
             run.Id, scheduledTask.Name, scheduledTask.TenantId);
 
+        // Generate feedback link once (after run.Id is known, before agent executes)
+        var feedbackUrl = BuildFeedbackUrl(run.Id, scheduledTask.Id, scheduledTask.TenantId, "individual");
+
         string? result = null;
         string? error = null;
         string? session = null;
@@ -290,7 +296,7 @@ public sealed class SchedulerHostedService : BackgroundService
                 return;
             }
 
-            var prompt = BuildPrompt(scheduledTask, run.Id);
+            var prompt = BuildPrompt(scheduledTask, run.Id, feedbackUrl);
             var tenant = TenantContext.System(scheduledTask.TenantId);
             var request = new AgentRequest
             {
@@ -371,6 +377,7 @@ public sealed class SchedulerHostedService : BackgroundService
                 run.ScheduledForUtc, sw.ElapsedMilliseconds, iterations,
                 inTokens > 0 ? inTokens : null,
                 outTokens > 0 ? outTokens : null,
+                feedbackUrl,
                 CancellationToken.None);
         }
     }
@@ -460,6 +467,9 @@ public sealed class SchedulerHostedService : BackgroundService
             "Executing group run '{RunId}' — task '{TaskName}' for tenant {TenantId}.",
             run.Id, groupTask.Name, run.TenantId);
 
+        // Generate feedback link once (after run.Id is known, before agent executes)
+        var feedbackUrl = BuildFeedbackUrl(run.Id, groupTask.Id, run.TenantId, "group");
+
         string? result = null;
         string? error = null;
         string? session = null;
@@ -468,7 +478,7 @@ public sealed class SchedulerHostedService : BackgroundService
 
         try
         {
-            var prompt = BuildGroupPrompt(groupTask, run.Id);
+            var prompt = BuildGroupPrompt(groupTask, run.Id, feedbackUrl);
             var tenant = TenantContext.System(run.TenantId);
             var request = new AgentRequest
             {
@@ -549,11 +559,12 @@ public sealed class SchedulerHostedService : BackgroundService
                 run.ScheduledForUtc, sw.ElapsedMilliseconds, iterations,
                 inTokens > 0 ? inTokens : null,
                 outTokens > 0 ? outTokens : null,
+                feedbackUrl,
                 CancellationToken.None);
         }
     }
 
-    internal string BuildGroupPrompt(GroupScheduledTaskEntity task, string runId)
+    internal string BuildGroupPrompt(GroupScheduledTaskEntity task, string runId, string? feedbackUrl = null)
     {
         _logger.LogDebug(
             "Run '{RunId}': building group prompt. PayloadType={PayloadType} TemplateLength={Len} ParametersJson={Params}",
@@ -567,7 +578,13 @@ public sealed class SchedulerHostedService : BackgroundService
                 runId, customVars?.Count ?? 0);
         }
 
-        var resolved = PromptVariableResolver.Resolve(task.PromptText, customVars, _logger);
+        // Inject feedback_url as a runtime variable so {{feedback_url}} works in templates.
+        // customVars (from ParametersJson) take precedence and can override if explicitly set.
+        IReadOnlyDictionary<string, string>? runtimeVars = feedbackUrl is not null
+            ? new Dictionary<string, string> { ["feedback_url"] = feedbackUrl }
+            : null;
+
+        var resolved = PromptVariableResolver.Resolve(task.PromptText ?? string.Empty, customVars, runtimeVars, _logger);
         _logger.LogDebug("Run '{RunId}': resolved prompt — {Preview}",
             runId, resolved.Length > 200 ? resolved[..200] + "…" : resolved);
         return resolved;
@@ -575,7 +592,7 @@ public sealed class SchedulerHostedService : BackgroundService
 
     // ── Prompt building ───────────────────────────────────────────────────────
 
-    internal string BuildPrompt(ScheduledTaskEntity task, string runId)
+    internal string BuildPrompt(ScheduledTaskEntity task, string runId, string? feedbackUrl = null)
     {
         _logger.LogDebug(
             "Run '{RunId}': building prompt. PayloadType={PayloadType} TemplateLength={Len} ParametersJson={Params}",
@@ -589,7 +606,13 @@ public sealed class SchedulerHostedService : BackgroundService
                 runId, customVars?.Count ?? 0);
         }
 
-        var resolved = PromptVariableResolver.Resolve(task.PromptText, customVars, _logger);
+        // Inject feedback_url as a runtime variable so {{feedback_url}} works in templates.
+        // customVars (from ParametersJson) take precedence and can override if explicitly set.
+        IReadOnlyDictionary<string, string>? runtimeVars = feedbackUrl is not null
+            ? new Dictionary<string, string> { ["feedback_url"] = feedbackUrl }
+            : null;
+
+        var resolved = PromptVariableResolver.Resolve(task.PromptText ?? string.Empty, customVars, runtimeVars, _logger);
         _logger.LogDebug("Run '{RunId}': resolved prompt — {Preview}",
             runId, resolved.Length > 200 ? resolved[..200] + "…" : resolved);
         return resolved;
@@ -601,7 +624,9 @@ public sealed class SchedulerHostedService : BackgroundService
         string taskName, string? notifyEmails, string? notifyOn,
         int tenantId, string outcome, string? error,
         string? sessionId, DateTime scheduledForUtc, long durationMs,
-        int iterationCount, int? inputTokens, int? outputTokens, CancellationToken ct)
+        int iterationCount, int? inputTokens, int? outputTokens,
+        string? feedbackUrl,
+        CancellationToken ct)
     {
         if (_notifier is null) return;
 
@@ -636,7 +661,7 @@ public sealed class SchedulerHostedService : BackgroundService
         var statusLabel = outcome switch { "success" => "Success", "skipped" => "Skipped", _ => "Failed" };
         var subject = $"[{productName} Scheduler] {statusIcon} {statusLabel}: {taskName}";
         var body = BuildNotificationBody(taskName, outcome, error, sessionId,
-            scheduledForUtc, durationMs, iterationCount, inputTokens, outputTokens);
+            scheduledForUtc, durationMs, iterationCount, inputTokens, outputTokens, feedbackUrl);
 
         Exception? sendEx = null;
         try { await _notifier.SendAsync(allRecipients, subject, body, ct); }
@@ -663,7 +688,7 @@ public sealed class SchedulerHostedService : BackgroundService
     private static string BuildNotificationBody(
         string taskName, string outcome, string? error,
         string? sessionId, DateTime scheduledForUtc, long durationMs, int iterationCount,
-        int? inputTokens, int? outputTokens)
+        int? inputTokens, int? outputTokens, string? feedbackUrl = null)
     {
         var statusLabel = outcome switch { "success" => "SUCCESS", "skipped" => "SKIPPED", _ => "FAILED" };
         var durationSec = (durationMs / 1000.0).ToString("F1");
@@ -690,7 +715,35 @@ public sealed class SchedulerHostedService : BackgroundService
         if (outcome != "success")
             sb.AppendLine($"<tr><td style='padding:8px 10px;border:1px solid #e5e7eb'><strong>Reason</strong></td><td style='padding:8px 10px;border:1px solid #e5e7eb'>{Cell(string.IsNullOrWhiteSpace(error) ? "N/A" : error)}</td></tr>");
         sb.AppendLine("</tbody></table>");
+        if (!string.IsNullOrWhiteSpace(feedbackUrl))
+        {
+            var encodedUrl = System.Web.HttpUtility.HtmlAttributeEncode(feedbackUrl);
+            sb.AppendLine("<div style='margin-top:20px;padding:12px;background:#f9fafb;border-radius:6px;border:1px solid #e5e7eb'>");
+            sb.AppendLine("<p style='margin:0 0 6px 0;font-weight:600'>Was this briefing helpful?</p>");
+            sb.AppendLine($"<a href='{encodedUrl}' style='display:inline-block;padding:8px 16px;background:#2563eb;color:#fff;text-decoration:none;border-radius:4px;font-size:13px'>&#128221; Submit Feedback</a>");
+            sb.AppendLine("</div>");
+        }
         sb.AppendLine("</body></html>");
         return sb.ToString();
+    }
+
+    // ── Feedback URL helper ───────────────────────────────────────────────────
+
+    private string? BuildFeedbackUrl(string runId, string taskId, int tenantId, string taskType)
+    {
+        if (_feedbackTokenSvc is null) return null;
+
+        // DB settings take precedence; fall back to appsettings
+        var dbSettings = _service.GetFeedbackSettingsAsync(tenantId, CancellationToken.None).GetAwaiter().GetResult();
+        var enabled = dbSettings?.EnableFeedbackLinks ?? _opts.Value.EnableFeedbackLinks;
+        var baseUrl = (!string.IsNullOrWhiteSpace(dbSettings?.FeedbackLinkBaseUrl)
+                            ? dbSettings.FeedbackLinkBaseUrl
+                            : _opts.Value.FeedbackLinkBaseUrl) ?? "";
+
+        if (!enabled || string.IsNullOrWhiteSpace(baseUrl))
+            return null;
+
+        var token = _feedbackTokenSvc.Generate(runId, taskId, tenantId, taskType);
+        return $"{baseUrl.TrimEnd('/')}/scheduler-feedback?token={Uri.EscapeDataString(token)}";
     }
 }

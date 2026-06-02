@@ -69,6 +69,10 @@ public class DivaDbContext : DbContext
     public DbSet<AgentOptimizationConfigEntity> OptimizationConfigs => Set<AgentOptimizationConfigEntity>();
     public DbSet<FewShotExampleEntity> FewShotExamples => Set<FewShotExampleEntity>();
 
+    // ── Scheduler Feedback ────────────────────────────────────────────────────
+    public DbSet<SchedulerFeedbackEntity> SchedulerFeedbacks => Set<SchedulerFeedbackEntity>();
+    public DbSet<TenantFeedbackSettingsEntity> TenantFeedbackSettings => Set<TenantFeedbackSettingsEntity>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -239,6 +243,9 @@ public class DivaDbContext : DbContext
         modelBuilder.Entity<TenantNotificationSettingsEntity>()
             .HasKey(e => e.TenantId);
 
+        modelBuilder.Entity<TenantFeedbackSettingsEntity>()
+            .HasKey(e => e.TenantId);
+
         // GroupLlmConfig: 1:many per group; optional FK reference to PlatformLlmConfigs
         modelBuilder.Entity<GroupLlmConfigEntity>()
             .HasOne(c => c.Group).WithMany(g => g.LlmConfigs)
@@ -385,6 +392,14 @@ public class DivaDbContext : DbContext
             .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
         modelBuilder.Entity<FewShotExampleEntity>()
             .HasIndex(e => new { e.TenantId, e.AgentId, e.SortOrder });
+
+        // ── Scheduler Feedback ────────────────────────────────
+        modelBuilder.Entity<SchedulerFeedbackEntity>()
+            .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
+        modelBuilder.Entity<SchedulerFeedbackEntity>()
+            .HasIndex(e => new { e.TenantId, e.Status, e.SubmittedAt });
+        modelBuilder.Entity<SchedulerFeedbackEntity>()
+            .HasIndex(e => e.RunId);
     }
 
     public override Task<int> SaveChangesAsync(CancellationToken ct = default)

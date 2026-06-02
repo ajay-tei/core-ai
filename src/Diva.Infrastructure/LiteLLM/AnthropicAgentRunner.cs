@@ -222,6 +222,9 @@ public sealed class AnthropicAgentRunner : IAgentRunner
         var (sessionId, history) = await _sessions.GetOrCreateAsync(
             request.SessionId, definition.Id, tenant, ct);
 
+        // Enrich tenant context with the resolved session ID so {{session_id}} resolves correctly.
+        tenant = tenant.WithSession(sessionId);
+
         // ── Session trace setup (separate sessions-trace.db) ─────────────────
         await using var traceScope = _scopeFactory?.CreateAsyncScope();
         var traceWriter = traceScope?.ServiceProvider.GetService<SessionTraceWriter>();

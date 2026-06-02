@@ -9,7 +9,8 @@ import { toast } from "sonner";
 import { WidgetEditor } from "@/components/WidgetEditor";
 import { storageKey } from "@/lib/brand";
 
-const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:5000";
+const BASE_URL = import.meta.env.VITE_API_URL ?? import.meta.env.BASE_URL.replace(/\/$/, '');
+
 const TENANT_ID = Number(localStorage.getItem(storageKey("tenant_id")) ?? "1");
 
 export function WidgetManager() {

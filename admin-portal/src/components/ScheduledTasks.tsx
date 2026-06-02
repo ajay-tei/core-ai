@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import {
-  api, type AgentSummary, type ScheduledTask, type ScheduledTaskRun, type CreateScheduleDto,
-  type ScheduledTaskExport, type ScheduleExportEnvelope,
+  api, generateSchedulerFeedbackLink, getFeedbackSettings, upsertFeedbackSettings,
+  type AgentSummary, type ScheduledTask, type ScheduledTaskRun, type CreateScheduleDto,
+  type ScheduledTaskExport, type ScheduleExportEnvelope, type TenantFeedbackSettings,
 } from "@/api";
 import { toast } from "sonner";
 import {
@@ -35,8 +36,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   MoreHorizontal, Plus, CalendarClock, Pencil, Trash2,
-  Play, History, RefreshCw, ChevronDown, ChevronRight, Copy, Download, Upload,
+  Play, History, RefreshCw, ChevronDown, ChevronRight, Copy, Download, Upload, Sparkles,
 } from "lucide-react";
+import { PromptQuickFixDialog } from "@/components/PromptQuickFixDialog";
 
 const TIMEZONES = [
   "UTC", "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
@@ -471,6 +473,118 @@ export function ScheduledTasks() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ── Feedback link settings ──────────────────────────────────────── */}
+      <FeedbackSettingsPanel />
+    </div>
+  );
+}
+
+// ── Feedback settings panel ───────────────────────────────────────────────────
+
+function FeedbackSettingsPanel() {
+  const [expanded, setExpanded] = useState(false);
+  const [settings, setSettings] = useState<TenantFeedbackSettings>({
+    enableFeedbackLinks: true,
+    feedbackLinkBaseUrl: "",
+    expiryDays: 30,
+  });
+  const [loading, setLoading]   = useState(false);
+  const [saving,  setSaving]    = useState(false);
+
+  useEffect(() => {
+    if (!expanded) return;
+    setLoading(true);
+    getFeedbackSettings(1)
+      .then(setSettings)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [expanded]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await upsertFeedbackSettings(settings, 1);
+      toast.success("Feedback settings saved.");
+    } catch (e: unknown) {
+      toast.error(String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="rounded-md border">
+      <button
+        type="button"
+        className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium hover:bg-muted/40 transition-colors"
+        onClick={() => setExpanded(v => !v)}
+      >
+        <span>Feedback Link Settings</span>
+        {expanded ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+      </button>
+
+      {expanded && (
+        <div className="border-t px-4 py-4 space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Feedback links let email recipients rate and correct scheduler run outputs.
+            The portal base URL is embedded in notification emails — it must be reachable by recipients.
+          </p>
+
+          {loading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-5 w-48" />
+              <Skeleton className="h-9 w-full" />
+              <Skeleton className="h-9 w-32" />
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-3">
+                <Switch
+                  id="feedback-enabled"
+                  checked={settings.enableFeedbackLinks}
+                  onCheckedChange={v => setSettings(s => ({ ...s, enableFeedbackLinks: v }))}
+                />
+                <Label htmlFor="feedback-enabled">Enable feedback links in notification emails</Label>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="feedback-base-url">Portal Base URL</Label>
+                <Input
+                  id="feedback-base-url"
+                  value={settings.feedbackLinkBaseUrl}
+                  onChange={e => setSettings(s => ({ ...s, feedbackLinkBaseUrl: e.target.value }))}
+                  placeholder="https://app.example.com"
+                  disabled={!settings.enableFeedbackLinks}
+                />
+                <p className="text-xs text-muted-foreground">
+                  The public URL of this portal, e.g. <code>https://app.example.com</code>.
+                  Used to build the <code>&#123;&#123;feedback_url&#125;&#125;</code> link inserted in emails.
+                </p>
+              </div>
+
+              <div className="space-y-1.5 w-40">
+                <Label htmlFor="feedback-expiry">Link Expiry (days)</Label>
+                <Input
+                  id="feedback-expiry"
+                  type="number"
+                  min={1}
+                  max={365}
+                  value={settings.expiryDays}
+                  onChange={e => setSettings(s => ({ ...s, expiryDays: Number(e.target.value) }))}
+                  disabled={!settings.enableFeedbackLinks}
+                />
+              </div>
+
+              <div className="flex justify-end">
+                <Button size="sm" onClick={save} disabled={saving}>
+                  {saving ? "Saving…" : "Save"}
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -503,6 +617,7 @@ function TaskDialog({ open, onOpenChange, mode, source, agents, onSaved }: TaskD
   const [notifyOn,      setNotifyOn]      = useState<string | undefined>(undefined);
   const [successKeywords, setSuccessKeywords] = useState("");
   const [saving,        setSaving]        = useState(false);
+  const [quickFixOpen,  setQuickFixOpen]  = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -682,11 +797,25 @@ function TaskDialog({ open, onOpenChange, mode, source, agents, onSaved }: TaskD
           </div>
 
           <div className="space-y-1.5">
-            <Label>
-              {payloadType === "template"
-                ? "Prompt Template * (use {{variable}} for substitutions)"
-                : "Prompt Text *"}
-            </Label>
+            <div className="flex items-center justify-between">
+              <Label>
+                {payloadType === "template"
+                  ? "Prompt Template * (use {{variable}} for substitutions)"
+                  : "Prompt Text *"}
+              </Label>
+              {agentId && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setQuickFixOpen(true)}
+                  className="gap-1.5 h-7 text-xs"
+                >
+                  <Sparkles className="size-3 text-amber-500" />
+                  Quick Fix
+                </Button>
+              )}
+            </div>
             <Textarea
               value={promptText}
               onChange={e => setPromptText(e.target.value)}
@@ -699,6 +828,16 @@ function TaskDialog({ open, onOpenChange, mode, source, agents, onSaved }: TaskD
               }
             />
           </div>
+
+          <PromptQuickFixDialog
+            onImprove={(instruction) =>
+              api.improvePrompt(agentId, instruction, promptText).then((r) => r.improvedPrompt)
+            }
+            currentPrompt={promptText}
+            open={quickFixOpen}
+            onOpenChange={setQuickFixOpen}
+            onAccept={(improved) => setPromptText(improved)}
+          />
 
           {payloadType === "template" && (
             <div className="space-y-1.5">
@@ -776,6 +915,7 @@ interface RunHistorySheetProps {
 
 function RunHistorySheet({ task, agentName, onClose }: RunHistorySheetProps) {
   const [runs, setRuns]       = useState<ScheduledTaskRun[]>([]);
+  const [copyingLink, setCopyingLink] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -864,6 +1004,30 @@ function RunHistorySheet({ task, agentName, onClose }: RunHistorySheetProps) {
                         <pre className="rounded bg-muted px-3 py-2 text-xs whitespace-pre-wrap break-words text-foreground">
                           {run.responseText}
                         </pre>
+                      )}
+                      {run.status === "success" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-xs h-7"
+                          disabled={copyingLink === run.id}
+                          onClick={async () => {
+                            setCopyingLink(run.id);
+                            try {
+                              const url = await generateSchedulerFeedbackLink(
+                                run.id, task.id, task.tenantId
+                              );
+                              await navigator.clipboard.writeText(url);
+                              toast.success("Feedback link copied to clipboard");
+                            } catch {
+                              toast.error("Could not generate feedback link");
+                            } finally {
+                              setCopyingLink(null);
+                            }
+                          }}
+                        >
+                          {copyingLink === run.id ? "Copying…" : "📋 Copy Feedback Link"}
+                        </Button>
                       )}
                     </div>
                   )}

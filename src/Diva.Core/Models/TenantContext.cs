@@ -58,13 +58,35 @@ public sealed class TenantContext
     /// <summary>Fallback for unauthenticated/internal contexts (e.g., scheduled jobs).</summary>
     public static TenantContext System(int tenantId, int siteId = 0) => new()
     {
-        TenantId   = tenantId,
+        TenantId = tenantId,
         TenantName = "System",
-        UserId     = "system",
-        SiteIds    = siteId > 0 ? [siteId] : [],
+        UserId = "system",
+        SiteIds = siteId > 0 ? [siteId] : [],
         CurrentSiteId = siteId,
-        UserRoles  = ["system"],
+        UserRoles = ["system"],
         AgentAccess = ["*"]
+    };
+
+    /// <summary>Returns a copy of this context with <paramref name="sessionId"/> set.</summary>
+    public TenantContext WithSession(string? sessionId) => new()
+    {
+        TenantId = TenantId,
+        TenantName = TenantName,
+        UserId = UserId,
+        UserEmail = UserEmail,
+        UserName = UserName,
+        Role = Role,
+        UserRoles = UserRoles,
+        AgentAccess = AgentAccess,
+        SiteIds = SiteIds,
+        CurrentSiteId = CurrentSiteId,
+        AccessToken = AccessToken,
+        TokenExpiry = TokenExpiry,
+        TeamApiKey = TeamApiKey,
+        InboundApiKey = InboundApiKey,
+        CorrelationId = CorrelationId,
+        SessionId = sessionId,
+        CustomHeaders = CustomHeaders,
     };
 
     /// <summary>
@@ -73,12 +95,12 @@ public sealed class TenantContext
     /// </summary>
     public static TenantContext DevMasterAdmin() => new()
     {
-        TenantId   = 0,
+        TenantId = 0,
         TenantName = "Dev Admin",
-        UserId     = "dev-admin",
-        UserEmail  = "dev@localhost",
-        UserName   = "Dev Admin",
-        UserRoles  = ["master_admin", "admin", "system"],
+        UserId = "dev-admin",
+        UserEmail = "dev@localhost",
+        UserName = "Dev Admin",
+        UserRoles = ["master_admin", "admin", "system"],
         AgentAccess = ["*"]
     };
 }

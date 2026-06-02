@@ -10,12 +10,15 @@ COPY . .
 # Branding build args — passed from docker-compose via build.args
 ARG VITE_APP_NAME="Diva AI"
 ARG VITE_APP_SLUG="diva"
+# Subpath prefix for reverse-proxy deployments (e.g. /beta/tei-ai — no trailing slash).
+# Leave empty (default) for root deployment. When set, all asset and API URLs include this prefix.
+ARG VITE_BASE_PATH=""
 
-# Empty VITE_API_URL so all API calls are relative — nginx proxies them to diva-api
-RUN VITE_API_URL="" \
+# Skip tsc (type-check is a dev/CI concern); vite uses esbuild and does not require it
+RUN VITE_BASE_PATH="${VITE_BASE_PATH}" \
     VITE_APP_NAME="${VITE_APP_NAME}" \
     VITE_APP_SLUG="${VITE_APP_SLUG}" \
-    npm run build
+    npx vite build
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM nginx:alpine AS runtime

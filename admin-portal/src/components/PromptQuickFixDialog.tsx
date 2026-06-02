@@ -1,14 +1,14 @@
 import { useRef, useState } from "react";
 import { Wand2, X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
-import { api } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { DialogOverlay, DialogPortal } from "@/components/ui/dialog";
 
 interface Props {
-  agentId: string;
+  /** Async function that calls the backend to improve the prompt. Receives the instruction and returns the improved prompt string. */
+  onImprove: (instruction: string) => Promise<string>;
   currentPrompt: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -17,7 +17,7 @@ interface Props {
 
 type Phase = "input" | "loading" | "preview";
 
-export function PromptQuickFixDialog({ agentId, currentPrompt, open, onOpenChange, onAccept }: Props) {
+export function PromptQuickFixDialog({ onImprove, currentPrompt, open, onOpenChange, onAccept }: Props) {
   const [phase, setPhase]             = useState<Phase>("input");
   const [instruction, setInstruction] = useState("");
   const [improved, setImproved]       = useState("");
@@ -42,7 +42,7 @@ export function PromptQuickFixDialog({ agentId, currentPrompt, open, onOpenChang
     setError(null);
     setPhase("loading");
     try {
-      const { improvedPrompt } = await api.improvePrompt(agentId, trimmed);
+      const improvedPrompt = await onImprove(trimmed);
       setImproved(improvedPrompt);
       setPhase("preview");
     } catch (e: unknown) {

@@ -1,0 +1,446 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Diva AI Platform — CI/CD Pipeline
+# ─────────────────────────────────────────────────────────────────────────────
+# 6-stage pipeline (single Windows shell runner):
+#   build → test → package → backup → deploy → verify
+#
+# All stages run on a Windows shell executor (pwsh) with tags: ai, aiengine.
+# Requires .NET 10 SDK, Docker Desktop, and SSH client on the runner machine.
+# Dev stages auto-trigger on push to master.
+# Prod requires manual trigger on backup:prod; deploy + verify auto-chain.
+#
+# Two Docker images are built and deployed:
+#   diva-api    → root Dockerfile   (ASP.NET Core 10 + Node 22 for MCP tools)
+#   diva-portal → admin-portal/Dockerfile (React/Vite SPA served by nginx)
+# ─────────────────────────────────────────────────────────────────────────────
+
+variables:
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "true"
+  GIT_CLONE_PATH: 'C:\ci\tei-ai'
+  GIT_CLEAN_FLAGS: "-ffd"
+  DEV_DEPLOY_PATH: 'C:\ai-app\tei-ai-dev'
+  PROD_DEPLOY_PATH: 'C:\ai-app\tei-ai'
+  DIVA_API_IMAGE: "$CI_REGISTRY_IMAGE/diva-api"
+  DIVA_PORTAL_IMAGE: "$CI_REGISTRY_IMAGE/diva-portal"
+  DOCKER_HOST_PROD: "tcp://localhost:2375"
+  NUGET_PACKAGES: '$CI_PROJECT_DIR\.nuget\packages'
+  # Portal branding — override in GitLab CI/CD Variables if white-labelled
+  VITE_APP_NAME: "Diva AI"
+  VITE_APP_SLUG: "diva"
+
+cache:
+  key: nuget-${CI_COMMIT_REF_SLUG}
+  paths:
+    - .nuget/packages/
+  policy: pull-push
+
+stages:
+  - build
+  - test
+  - package
+  - backup
+  - deploy
+  - verify
+
+# ── Shared job templates ───────────────────────────────────────────────────────
+
+.base-job:
+  tags: [ai, aiengine]
+  before_script:
+    - dotnet --version
+
+.prod-ssh-setup:
+  before_script:
+    - |
+      $sshDir = "$env:USERPROFILE\.ssh"
+      New-Item -ItemType Directory -Path $sshDir -Force | Out-Null
+      $knownHostsFile = Join-Path $sshDir 'known_hosts'
+      if (-not (Select-String -Path $knownHostsFile -Pattern $env:PROD_SSH_HOST -Quiet -ErrorAction SilentlyContinue)) {
+        Add-Content -Path $knownHostsFile -Value $env:PROD_SSH_KNOWN_HOSTS -Encoding UTF8
+      }
+      $localKey = "$sshDir\deploy_key"
+      $keyContent = $env:PROD_SSH_KEY -replace "`r`n","`n" -replace "`r","`n"
+      if (-not $keyContent.TrimEnd().EndsWith("`n")) { $keyContent = $keyContent.TrimEnd() + "`n" }
+      [System.IO.File]::WriteAllText($localKey, $keyContent, [System.Text.UTF8Encoding]::new($false))
+      icacls $localKey /inheritance:r /grant:r "$env:USERNAME`:(F)" 2>&1 | Out-Null
+      Write-Host "SSH setup complete"
+
+.only-main:
+  rules:
+    - if: $CI_COMMIT_BRANCH == "master"
+
+# ── Stage: build ──────────────────────────────────────────────────────────────
+
+build:
+  stage: build
+  extends: .base-job
+  script:
+    - dotnet restore Diva.slnx --packages $env:NUGET_PACKAGES
+    - dotnet build Diva.slnx --no-restore -c Release
+  artifacts:
+    paths:
+      - src/**/bin/Release/
+      - tests/**/bin/Release/
+      - tools/**/bin/Release/
+    expire_in: 1 hour
+
+# ── Stage: test ───────────────────────────────────────────────────────────────
+
+test:
+  stage: test
+  extends: .base-job
+  needs: [build]
+  script:
+    - |
+      dotnet test Diva.slnx --no-build -c Release `
+        --logger "junit;LogFilePath=$PWD/results.xml" `
+        --filter "Category!=Integration&Category!=Flaky"
+  artifacts:
+    when: always
+    reports:
+      junit: results.xml
+
+# ── Stage: package ────────────────────────────────────────────────────────────
+
+package:registry:
+  stage: package
+  extends:
+    - .base-job
+    - .only-main
+  needs: [test]
+  script:
+    - |
+      Write-Host "=== Validating Docker daemon ==="
+      docker info | Select-Object -First 5
+      if ($env:CI_REGISTRY_IMAGE) {
+        $apiImage    = $env:DIVA_API_IMAGE
+        $portalImage = $env:DIVA_PORTAL_IMAGE
+        $useRegistry = $true
+        Write-Host "Registry:      $env:CI_REGISTRY"
+        Write-Host "API image:     $apiImage"
+        Write-Host "Portal image:  $portalImage"
+      } else {
+        $apiImage    = "diva-api"
+        $portalImage = "diva-portal"
+        $useRegistry = $false
+        Write-Warning "CI_REGISTRY_IMAGE not set — building locally (no push)"
+      }
+
+      Write-Host "=== Building diva-api image ==="
+      docker build `
+        -t "${apiImage}:$env:CI_COMMIT_SHORT_SHA" `
+        -t "${apiImage}:latest" `
+        .
+
+      Write-Host "=== Building diva-portal image ==="
+      docker build `
+        --build-arg "VITE_APP_NAME=$env:VITE_APP_NAME" `
+        --build-arg "VITE_APP_SLUG=$env:VITE_APP_SLUG" `
+        -t "${portalImage}:$env:CI_COMMIT_SHORT_SHA" `
+        -t "${portalImage}:latest" `
+        ./admin-portal
+
+      if ($useRegistry) {
+        Write-Host "=== Pushing images to registry ==="
+        docker login $env:CI_REGISTRY -u $env:CI_REGISTRY_USER -p $env:CI_REGISTRY_PASSWORD
+        docker push "${apiImage}:$env:CI_COMMIT_SHORT_SHA"
+        docker push "${apiImage}:latest"
+        docker push "${portalImage}:$env:CI_COMMIT_SHORT_SHA"
+        docker push "${portalImage}:latest"
+      } else {
+        Write-Host "=== Skipping push (no registry) — images available locally ==="
+      }
+      Write-Host "=== Package (registry) complete ==="
+
+# Manual alternative: build tars and ship to prod via SSH (no registry on prod host)
+package:ssh:
+  stage: package
+  extends:
+    - .base-job
+    - .prod-ssh-setup
+    - .only-main
+  needs: [test]
+  when: manual
+  allow_failure: true
+  variables:
+    IMAGE_DELIVERY: "ssh"
+  script:
+    - |
+      Write-Host "=== Validating Docker daemon ==="
+      docker info | Select-Object -First 5
+
+      $apiImage    = if ($env:CI_REGISTRY_IMAGE) { $env:DIVA_API_IMAGE }    else { "diva-api" }
+      $portalImage = if ($env:CI_REGISTRY_IMAGE) { $env:DIVA_PORTAL_IMAGE } else { "diva-portal" }
+
+      Write-Host "=== Building diva-api image ==="
+      docker build `
+        --build-arg "VITE_APP_NAME=$env:VITE_APP_NAME" `
+        --build-arg "VITE_APP_SLUG=$env:VITE_APP_SLUG" `
+        -t "${apiImage}:$env:CI_COMMIT_SHORT_SHA" `
+        -t "${apiImage}:latest" .
+
+      Write-Host "=== Building diva-portal image ==="
+      docker build `
+        --build-arg "VITE_APP_NAME=$env:VITE_APP_NAME" `
+        --build-arg "VITE_APP_SLUG=$env:VITE_APP_SLUG" `
+        -t "${portalImage}:$env:CI_COMMIT_SHORT_SHA" `
+        -t "${portalImage}:latest" ./admin-portal
+
+      Write-Host "=== Saving images to tars ==="
+      docker save "${apiImage}:latest"    -o diva-api.tar
+      docker save "${portalImage}:latest" -o diva-portal.tar
+      $apiSize    = [math]::Round((Get-Item diva-api.tar).Length    / 1MB, 1)
+      $portalSize = [math]::Round((Get-Item diva-portal.tar).Length / 1MB, 1)
+      Write-Host "diva-api.tar:    ${apiSize} MB"
+      Write-Host "diva-portal.tar: ${portalSize} MB"
+
+      Write-Host "=== Transferring to prod ==="
+      $keyFile = "$env:USERPROFILE\.ssh\deploy_key"
+      $target  = "$env:PROD_SSH_USER@$env:PROD_SSH_HOST"
+      scp -i $keyFile -o BatchMode=yes -o StrictHostKeyChecking=yes `
+        diva-api.tar diva-portal.tar "${target}:$env:PROD_DEPLOY_PATH\"
+
+      Write-Host "=== Loading images on prod ==="
+      ssh -i $keyFile -o BatchMode=yes -o StrictHostKeyChecking=yes $target `
+        "powershell -NoProfile -Command docker -H $env:DOCKER_HOST_PROD load -i $env:PROD_DEPLOY_PATH\diva-api.tar"
+      ssh -i $keyFile -o BatchMode=yes -o StrictHostKeyChecking=yes $target `
+        "powershell -NoProfile -Command docker -H $env:DOCKER_HOST_PROD load -i $env:PROD_DEPLOY_PATH\diva-portal.tar"
+
+      Remove-Item diva-api.tar, diva-portal.tar -Force -ErrorAction SilentlyContinue
+      Write-Host "=== Package (SSH) complete ==="
+  artifacts:
+    reports:
+      dotenv: image_delivery.env
+  after_script:
+    - |
+      "IMAGE_DELIVERY=ssh" | Out-File -FilePath image_delivery.env -Encoding UTF8
+
+# ── Stage: backup ─────────────────────────────────────────────────────────────
+
+backup:dev:
+  stage: backup
+  extends:
+    - .base-job
+    - .only-main
+  needs: [package:registry]
+  script:
+    - |
+      pwsh -File scripts/backup-dev.ps1 `
+        -DeployPath $env:DEV_DEPLOY_PATH `
+        -CommitSha  $env:CI_COMMIT_SHORT_SHA
+
+backup:prod:
+  stage: backup
+  extends:
+    - .base-job
+    - .prod-ssh-setup
+    - .only-main
+  needs:
+    - job: package:registry
+      optional: true
+    - job: package:ssh
+      optional: true
+  when: manual
+  script:
+    - |
+      pwsh -File scripts/backup-prod.ps1 `
+        -SshKeyFile  "$env:USERPROFILE\.ssh\deploy_key" `
+        -SshTarget   "$env:PROD_SSH_USER@$env:PROD_SSH_HOST" `
+        -DeployPath  $env:PROD_DEPLOY_PATH `
+        -CommitSha   $env:CI_COMMIT_SHORT_SHA
+
+# ── Stage: deploy ─────────────────────────────────────────────────────────────
+
+deploy:dev:
+  stage: deploy
+  extends:
+    - .base-job
+    - .only-main
+  needs: [backup:dev]
+  script:
+    - |
+      $devPath = $env:DEV_DEPLOY_PATH
+      Write-Host "=== Ensuring dev deploy directory: $devPath ==="
+      if (-not (Test-Path $devPath)) { $null = New-Item -ItemType Directory -Path $devPath -Force }
+
+      Write-Host "=== Writing .env ==="
+      $envContent = @"
+LLM__DirectProvider__Provider=$env:LLM_DIRECT_PROVIDER
+LLM__DirectProvider__ApiKey=$env:LLM_DIRECT_API_KEY
+LLM__DirectProvider__Model=$env:LLM_DIRECT_MODEL
+LLM__DirectProvider__Endpoint=$env:LLM_DIRECT_ENDPOINT
+Credentials__MasterKey=$env:CREDENTIALS_MASTER_KEY
+LocalAuth__SigningKey=$env:LOCAL_AUTH_SIGNING_KEY
+AdminPortal__CorsOrigin=$($env:PORTAL_ORIGIN ?? 'http://localhost:6010')
+AppBranding__ProductName=$($env:VITE_APP_NAME ?? 'Diva AI')
+AppBranding__Slug=$($env:VITE_APP_SLUG ?? 'diva')
+Smtp__Host=$env:SMTP_HOST
+Smtp__Port=$($env:SMTP_PORT ?? '587')
+Smtp__UseSsl=$($env:SMTP_USE_SSL ?? 'true')
+Smtp__Username=$env:SMTP_USERNAME
+Smtp__Password=$env:SMTP_PASSWORD
+Smtp__DefaultFromAddress=$($env:SMTP_FROM_ADDRESS ?? 'noreply@tei.local')
+"@
+      [System.IO.File]::WriteAllText("$devPath\.env", $envContent, [System.Text.UTF8Encoding]::new($false))
+
+      Write-Host "=== Copying compose file ==="
+      Copy-Item "$env:CI_PROJECT_DIR\docker-compose.yml" -Destination $devPath -Force
+
+      Write-Host "=== Deploying dev stack ==="
+      Push-Location $devPath
+      try {
+        if ($env:CI_REGISTRY_IMAGE) {
+          docker login $env:CI_REGISTRY -u $env:CI_REGISTRY_USER -p $env:CI_REGISTRY_PASSWORD
+          $env:DIVA_API_IMAGE    = "$env:CI_REGISTRY_IMAGE/diva-api"
+          $env:DIVA_PORTAL_IMAGE = "$env:CI_REGISTRY_IMAGE/diva-portal"
+          docker compose pull
+        }
+        docker compose up -d --remove-orphans
+      } finally {
+        Pop-Location
+      }
+      Write-Host "=== Deploy:dev complete ==="
+  after_script:
+    - |
+      if ($env:CI_JOB_STATUS -eq "failed") {
+        Write-Warning "Deploy:dev failed — initiating rollback"
+        pwsh -File scripts/rollback.ps1 -Target dev -DeployPath $env:DEV_DEPLOY_PATH
+      }
+
+deploy:prod:
+  stage: deploy
+  extends:
+    - .base-job
+    - .prod-ssh-setup
+    - .only-main
+  needs:
+    - job: backup:prod
+    - job: package:ssh
+      optional: true
+      artifacts: true
+  allow_failure: false
+  script:
+    - |
+      $keyFile    = "$env:USERPROFILE\.ssh\deploy_key"
+      $target     = "$env:PROD_SSH_USER@$env:PROD_SSH_HOST"
+      $deployPath = $env:PROD_DEPLOY_PATH
+
+      Write-Host "=== Writing .env.prod ==="
+      $envContent = @"
+LLM__DirectProvider__Provider=$env:PROD_LLM_DIRECT_PROVIDER
+LLM__DirectProvider__ApiKey=$env:PROD_LLM_DIRECT_API_KEY
+LLM__DirectProvider__Model=$env:PROD_LLM_DIRECT_MODEL
+LLM__DirectProvider__Endpoint=$env:PROD_LLM_DIRECT_ENDPOINT
+Credentials__MasterKey=$env:PROD_CREDENTIALS_MASTER_KEY
+LocalAuth__SigningKey=$env:PROD_LOCAL_AUTH_SIGNING_KEY
+AdminPortal__CorsOrigin=$($env:PROD_PORTAL_ORIGIN ?? 'http://localhost:6010')
+AppBranding__ProductName=$($env:VITE_APP_NAME ?? 'Diva AI')
+AppBranding__Slug=$($env:VITE_APP_SLUG ?? 'diva')
+Smtp__Host=$env:PROD_SMTP_HOST
+Smtp__Port=$($env:PROD_SMTP_PORT ?? '587')
+Smtp__UseSsl=$($env:PROD_SMTP_USE_SSL ?? 'true')
+Smtp__Username=$env:PROD_SMTP_USERNAME
+Smtp__Password=$env:PROD_SMTP_PASSWORD
+Smtp__DefaultFromAddress=$($env:PROD_SMTP_FROM_ADDRESS ?? 'noreply@tei.local')
+"@
+      $tmpEnvFile = Join-Path $env:TEMP ".env.prod.$env:CI_PIPELINE_ID"
+      [System.IO.File]::WriteAllText($tmpEnvFile, $envContent, [System.Text.UTF8Encoding]::new($false))
+
+      Write-Host "=== Copying files to prod ==="
+      scp -i $keyFile -o BatchMode=yes -o StrictHostKeyChecking=yes `
+        $tmpEnvFile "${target}:${deployPath}\.env"
+      Remove-Item $tmpEnvFile -Force
+
+      scp -i $keyFile -o BatchMode=yes -o StrictHostKeyChecking=yes `
+        "$env:CI_PROJECT_DIR\docker-compose.yml" "${target}:${deployPath}\"
+
+      Write-Host "=== Deploying on prod ==="
+      if ($env:IMAGE_DELIVERY -eq "ssh") {
+        # Images already loaded on prod by package:ssh — just restart the stack
+        ssh -i $keyFile -o BatchMode=yes -o StrictHostKeyChecking=yes $target `
+          "powershell -NoProfile -Command Set-Location '$deployPath'; docker -H $env:DOCKER_HOST_PROD compose up -d --remove-orphans"
+      } else {
+        # Pull from GitLab registry on prod host
+        $apiImage    = "$env:CI_REGISTRY_IMAGE/diva-api"
+        $portalImage = "$env:CI_REGISTRY_IMAGE/diva-portal"
+        $loginCmd    = "docker -H $env:DOCKER_HOST_PROD login $env:CI_REGISTRY -u $env:CI_REGISTRY_USER -p $env:CI_REGISTRY_PASSWORD"
+        $pullCmd     = "docker -H $env:DOCKER_HOST_PROD compose -f $deployPath\docker-compose.yml pull"
+        $upCmd       = "docker -H $env:DOCKER_HOST_PROD compose -f $deployPath\docker-compose.yml up -d --remove-orphans"
+        $remoteScript = "$loginCmd; $pullCmd; $upCmd"
+        $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($remoteScript))
+        ssh -i $keyFile -o BatchMode=yes -o StrictHostKeyChecking=yes $target `
+          "powershell -NoProfile -EncodedCommand $encoded"
+      }
+      Write-Host "=== Deploy:prod complete ==="
+  after_script:
+    - |
+      if ($env:CI_JOB_STATUS -eq "failed") {
+        Write-Warning "Deploy:prod failed — initiating rollback"
+        pwsh -File scripts/rollback.ps1 -Target prod `
+          -SshKeyFile "$env:USERPROFILE\.ssh\deploy_key" `
+          -SshTarget  "$env:PROD_SSH_USER@$env:PROD_SSH_HOST" `
+          -DeployPath $env:PROD_DEPLOY_PATH `
+          -DockerHost $env:DOCKER_HOST_PROD
+      }
+
+# ── Stage: verify ─────────────────────────────────────────────────────────────
+
+verify:dev:
+  stage: verify
+  extends:
+    - .base-job
+    - .only-main
+  needs: [deploy:dev]
+  script:
+    - |
+      Write-Host "=== Health check (dev) ==="
+      $maxRetries = 5
+      $delay      = 15
+      for ($i = 1; $i -le $maxRetries; $i++) {
+        try {
+          $response = Invoke-RestMethod -Uri "http://localhost:6032/health/live" -TimeoutSec 5
+          $status = if ($response.status) { $response.status } else { $response }
+          if ($status -notin @('ok', 'healthy', 'Healthy')) { throw "Unexpected status: $status" }
+          Write-Host "Health check passed: $status (attempt $i)"
+          exit 0
+        } catch {
+          Write-Host "Attempt $i/$maxRetries failed: $_"
+          if ($i -lt $maxRetries) { Start-Sleep -Seconds $delay }
+        }
+      }
+      Write-Error "Health check failed after $maxRetries attempts"
+      exit 1
+
+verify:prod:
+  stage: verify
+  extends:
+    - .base-job
+    - .prod-ssh-setup
+    - .only-main
+  needs: [deploy:prod]
+  script:
+    - |
+      Write-Host "=== Health check (prod) ==="
+      $keyFile     = "$env:USERPROFILE\.ssh\deploy_key"
+      $target      = "$env:PROD_SSH_USER@$env:PROD_SSH_HOST"
+      $maxRetries  = 5
+      $delay       = 15
+      $healthCheck = @'
+        $maxRetries = 5; $delay = 15
+        for ($i = 1; $i -le $maxRetries; $i++) {
+          try {
+            $r = Invoke-RestMethod -Uri "http://localhost:6032/health/live" -TimeoutSec 5
+            $s = if ($r.status) { $r.status } else { $r }
+            if ($s -notin @("ok","healthy","Healthy")) { throw "Unexpected: $s" }
+            Write-Host "Health OK: $s (attempt $i)"; exit 0
+          } catch {
+            Write-Host "Attempt $i/$maxRetries : $_"
+            if ($i -lt $maxRetries) { Start-Sleep -Seconds $delay }
+          }
+        }
+        Write-Error "Health check failed"; exit 1
+'@
+      $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($healthCheck))
+      ssh -i $keyFile -o BatchMode=yes -o StrictHostKeyChecking=yes $target `
+        "powershell -NoProfile -EncodedCommand $encoded"

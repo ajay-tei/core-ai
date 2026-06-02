@@ -1092,4 +1092,90 @@ export const handlers = [
     });
   }),
 
+  // ── Scheduler Feedback ─────────────────────────────────────────────────────
+
+  http.get(`${ BASE }/api/scheduler-feedback/context`, async ({ request }) =>
+  {
+    const token = new URL(request.url).searchParams.get("token");
+    if (!token || token === "invalid")
+    {
+      await delay(200);
+      return HttpResponse.json({ error: "Invalid or expired token." }, { status: 400 });
+    }
+    await delay(300);
+    return HttpResponse.json({
+      taskName: "Daily GM Briefing",
+      agentDisplayName: "Briefing Agent",
+      runId: "run-mock-001",
+      taskId: "task-mock-001",
+      sessionId: "session-mock-001",
+      taskType: "individual",
+      runCompletedAt: new Date().toISOString(),
+      runOutcome: "success",
+      runSummary: "Daily briefing generated successfully.",
+    });
+  }),
+
+  http.post(`${ BASE }/api/scheduler-feedback/submit`, async () =>
+  {
+    await delay(400);
+    return HttpResponse.json({ message: "Thank you — your feedback has been submitted." });
+  }),
+
+  http.get(`${ BASE }/api/scheduler-feedback`, async () =>
+  {
+    await delay(300);
+    return HttpResponse.json([
+      {
+        id: "fb-001",
+        tenantId: 1,
+        runId: "run-mock-001",
+        scheduledTaskId: "task-mock-001",
+        taskType: "individual",
+        taskName: "Daily GM Briefing",
+        agentDisplayName: "Briefing Agent",
+        thumbsRating: -1,
+        starRating: 2,
+        category: "Accuracy",
+        correctionText: "The figures for region West were incorrect.",
+        submitterName: "Jane Smith",
+        submitterEmail: "jane@example.com",
+        status: "pending",
+        submittedAt: new Date(Date.now() - 3600000).toISOString(),
+      },
+    ]);
+  }),
+
+  http.put(`${ BASE }/api/scheduler-feedback/:id/approve`, async () =>
+  {
+    await delay(300);
+    return HttpResponse.json({ message: "Feedback approved." });
+  }),
+
+  http.put(`${ BASE }/api/scheduler-feedback/:id/reject`, async () =>
+  {
+    await delay(300);
+    return HttpResponse.json({ message: "Feedback rejected." });
+  }),
+
+  http.get(`${ BASE }/api/scheduler-feedback/generate-link`, async ({ request }) =>
+  {
+    const params = new URL(request.url).searchParams;
+    const token = "mock-token-" + params.get("runId");
+    await delay(200);
+    return HttpResponse.json({ url: `http://localhost:5173/scheduler-feedback?token=${ token }` });
+  }),
+
+  http.get(`${ BASE }/api/schedules/feedback-settings`, async () =>
+  {
+    await delay(200);
+    return HttpResponse.json({ enableFeedbackLinks: true, feedbackLinkBaseUrl: "http://localhost:5173", expiryDays: 30 });
+  }),
+
+  http.put(`${ BASE }/api/schedules/feedback-settings`, async () =>
+  {
+    await delay(200);
+    return new HttpResponse(null, { status: 204 });
+  }),
+
 ];

@@ -26,7 +26,10 @@ public sealed class TenantContextMiddleware
         "/api/auth/setup", "/api/auth/admin",
         "/api/auth/logout", "/api/auth/logout-callback",
         "/api/debug/vision-probe",
-        "/api/debug/vision-probe/summarize"
+        "/api/debug/vision-probe/summarize",
+        // Scheduler feedback public endpoints — protected by HMAC token, not Bearer auth
+        "/api/scheduler-feedback/context",
+        "/api/scheduler-feedback/submit",
     };
 
     public TenantContextMiddleware(
@@ -35,9 +38,9 @@ public sealed class TenantContextMiddleware
         IOptions<OAuthOptions> options,
         IOptions<AppBrandingOptions> branding)
     {
-        _next     = next;
-        _logger   = logger;
-        _options  = options.Value;
+        _next = next;
+        _logger = logger;
+        _options = options.Value;
         _branding = branding.Value;
     }
 
@@ -85,20 +88,20 @@ public sealed class TenantContextMiddleware
             // Map scope to role
             var role = validatedKey.Scope switch
             {
-                "admin"    => "admin",
+                "admin" => "admin",
                 "readonly" => "reader",
-                _          => "user",
+                _ => "user",
             };
 
             var apiKeyTenant = new TenantContext
             {
-                TenantId      = validatedKey.TenantId,
-                TenantName    = $"ApiKey:{validatedKey.Name}",
-                UserId        = $"apikey:{validatedKey.KeyPrefix}",
-                Role          = role,
-                UserRoles     = [role],
-                AgentAccess   = validatedKey.AllowedAgentIds ?? ["*"],
-                SiteIds       = [],
+                TenantId = validatedKey.TenantId,
+                TenantName = $"ApiKey:{validatedKey.Name}",
+                UserId = $"apikey:{validatedKey.KeyPrefix}",
+                Role = role,
+                UserRoles = [role],
+                AgentAccess = validatedKey.AllowedAgentIds ?? ["*"],
+                SiteIds = [],
                 CurrentSiteId = int.TryParse(context.Request.Headers["X-Site-ID"].FirstOrDefault(), out var sid) ? sid : 0,
                 InboundApiKey = apiKeyHeader,
             };
@@ -107,10 +110,10 @@ public sealed class TenantContextMiddleware
 
             using var apiKeyScope = _logger.BeginScope(new Dictionary<string, object>
             {
-                ["TenantId"]      = apiKeyTenant.TenantId,
-                ["UserId"]        = apiKeyTenant.UserId,
-                ["SiteId"]        = apiKeyTenant.CurrentSiteId,
-                ["AuthMethod"]    = "ApiKey",
+                ["TenantId"] = apiKeyTenant.TenantId,
+                ["UserId"] = apiKeyTenant.UserId,
+                ["SiteId"] = apiKeyTenant.CurrentSiteId,
+                ["AuthMethod"] = "ApiKey",
                 ["CorrelationId"] = apiKeyTenant.CorrelationId
             });
 
@@ -170,9 +173,9 @@ public sealed class TenantContextMiddleware
 
         using var scope = _logger.BeginScope(new Dictionary<string, object>
         {
-            ["TenantId"]      = tenantContext.TenantId,
-            ["UserId"]        = tenantContext.UserId,
-            ["SiteId"]        = tenantContext.CurrentSiteId,
+            ["TenantId"] = tenantContext.TenantId,
+            ["UserId"] = tenantContext.UserId,
+            ["SiteId"] = tenantContext.CurrentSiteId,
             ["CorrelationId"] = tenantContext.CorrelationId
         });
 

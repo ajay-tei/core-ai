@@ -268,6 +268,9 @@ builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOpt
 builder.Services.AddSingleton<IEmailNotifier, SmtpEmailNotifier>();
 builder.Services.AddSingleton<IScheduledTaskService, ScheduledTaskService>();
 builder.Services.AddHostedService<SchedulerHostedService>();
+// Feedback token service is singleton (pure crypto, no DB/tenant context)
+builder.Services.AddSingleton<ISchedulerFeedbackTokenService, SchedulerFeedbackTokenService>();
+builder.Services.AddScoped<ISchedulerFeedbackService, SchedulerFeedbackService>();
 builder.Services.AddHostedService<AgentTaskCleanupService>();
 
 // ── Tenant Groups + DB-backed LLM Config (Phase 15.5) ─────────────────────────────────
@@ -324,15 +327,27 @@ builder.Services.AddRateLimiter(limiterOptions =>
                 SegmentsPerWindow = 4,
                 QueueLimit = 0,
             }));
+    // Anonymous scheduler feedback endpoints (context lookup + submission)
+    limiterOptions.AddPolicy("scheduler_feedback", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 20,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+            }));
 });
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
-var corsOrigin = builder.Configuration["AdminPortal:CorsOrigin"] ?? "http://localhost:5173";
+// Supports comma-separated origins: PORTAL_ORIGIN=https://app.example.com,http://localhost:6010
+var corsOrigins = (builder.Configuration["AdminPortal:CorsOrigin"] ?? "http://localhost:5173")
+    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 builder.Services.AddCors(options =>
 {
-    // Admin portal — single configured origin with credentials
+    // Admin portal — configured origin(s) with credentials
     options.AddPolicy("AdminPortal", policy =>
-        policy.WithOrigins(corsOrigin)
+        policy.WithOrigins(corsOrigins)
               .AllowAnyHeader().AllowAnyMethod().AllowCredentials());
 
     // Widget endpoints — origin validation done inside the controller against AllowedOrigins

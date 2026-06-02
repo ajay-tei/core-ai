@@ -66,6 +66,11 @@ public interface IScheduledTaskService
 
     Task<TenantNotificationSettingsEntity?> GetNotificationSettingsAsync(int tenantId, CancellationToken ct);
     Task UpsertNotificationSettingsAsync(int tenantId, string? globalNotifyEmails, string? globalNotifyOn, CancellationToken ct);
+
+    // ── Feedback settings ───────────────────────────────────────────────────
+
+    Task<TenantFeedbackSettingsEntity?> GetFeedbackSettingsAsync(int tenantId, CancellationToken ct);
+    Task UpsertFeedbackSettingsAsync(int tenantId, bool enableFeedbackLinks, string? feedbackLinkBaseUrl, int expiryDays, CancellationToken ct);
     // ── Dashboard stats ───────────────────────────────────────────────
 
     Task<SchedulerStatsDto> GetStatsAsync(int tenantId, CancellationToken ct);

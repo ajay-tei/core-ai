@@ -32,6 +32,8 @@ import SessionDetail from "@/components/SessionDetail";
 import AgentOptimizer from "@/components/AgentOptimizer";
 import AgentOptimizationSuggestions from "@/components/AgentOptimizationSuggestions";
 import AgentFewShotExamples from "@/components/AgentFewShotExamples";
+import { SchedulerFeedbackPage } from "@/components/SchedulerFeedbackPage";
+import { SchedulerFeedbackReview } from "@/components/SchedulerFeedbackReview";
 import { AUTH_ENABLED, auth } from "@/lib/auth";
 
 /** Redirects to /login when auth is enabled and no token is stored. */
@@ -49,11 +51,13 @@ function DefaultRedirect() {
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={import.meta.env.BASE_URL}>
       <Routes>
         {/* Public auth routes */}
         <Route path="login" element={<LoginPage />} />
         <Route path="auth/callback" element={<AuthCallback />} />
+        {/* Public scheduler feedback form — token is the proof of origin */}
+        <Route path="scheduler-feedback" element={<SchedulerFeedbackPage />} />
         <Route path="auth/error" element={
           <div className="flex h-screen items-center justify-center text-destructive">
             Sign-in failed. Please try again.
@@ -84,6 +88,7 @@ export default function App() {
           <Route path="sessions" element={<SessionBrowser />} />
           <Route path="sessions/:id" element={<SessionDetail />} />
           <Route path="schedules" element={<ScheduledTasks />} />
+          <Route path="schedules/feedback" element={<SchedulerFeedbackReview />} />
           <Route path="settings/sso" element={<SsoConfig />} />
           <Route path="settings/sso/new" element={<SsoConfigEditor />} />
           <Route path="settings/sso/:id/edit" element={<SsoConfigEditor />} />

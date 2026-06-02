@@ -197,8 +197,9 @@ public class AgentsController : ControllerBase
 
         try
         {
+            var promptToImprove = body.CurrentPrompt ?? agent.SystemPrompt ?? "";
             var improved = await _promptImprover.QuickImprovePromptAsync(
-                agent.SystemPrompt ?? "", body.Instruction, agent, ct);
+                promptToImprove, body.Instruction, agent, ct);
             return Ok(new { improvedPrompt = improved });
         }
         catch (Exception ex)
@@ -667,7 +668,9 @@ public record AgentInvokeRequest(
     int? LlmConfigId = null,
     bool ForwardSsoToMcp = false,
     List<ContentPart>? Attachments = null);
-public record ImprovePromptRequest(string Instruction);
+public record ImprovePromptRequest(
+    string Instruction,
+    [property: JsonPropertyName("currentPrompt")] string? CurrentPrompt = null);
 public record McpProbeRequest(string? Endpoint, string? Command, List<string>? Args, bool PassSsoToken = false, string? CredentialRef = null);
 public record McpToolInfo(string Name, string Description);
 public record McpProbeResult(bool Success, List<McpToolInfo> Tools, string? Error);

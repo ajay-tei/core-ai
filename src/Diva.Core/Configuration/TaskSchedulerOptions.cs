@@ -26,4 +26,29 @@ public sealed class TaskSchedulerOptions
     /// recovery on service restart still applies).
     /// </summary>
     public int StuckRunTimeoutMinutes { get; set; } = 60;
+
+    // ── Feedback link settings ────────────────────────────────────────────────
+
+    /// <summary>
+    /// Set false to disable feedback link generation entirely.
+    /// When false, no tokens are generated and no feedback links appear in emails or prompts.
+    /// </summary>
+    public bool EnableFeedbackLinks { get; set; } = true;
+
+    /// <summary>
+    /// Base URL of the admin portal used to build the feedback link.
+    /// Example: "https://portal.example.com" or "http://localhost:5173".
+    /// When empty, feedback links are disabled even if EnableFeedbackLinks is true.
+    /// </summary>
+    public string FeedbackLinkBaseUrl { get; set; } = string.Empty;
+
+    /// <summary>
+    /// HMAC-SHA256 secret key used to sign feedback tokens.
+    /// When empty, an ephemeral key is generated per startup (tokens will not survive restarts).
+    /// Set a stable base64-encoded 32-byte value in production.
+    /// </summary>
+    public string FeedbackTokenSecret { get; set; } = string.Empty;
+
+    /// <summary>Number of days until a generated feedback token expires. Default 30.</summary>
+    public int FeedbackLinkExpiryDays { get; set; } = 30;
 }

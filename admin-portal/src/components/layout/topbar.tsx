@@ -1,8 +1,10 @@
-import { Moon, Sun, LogOut } from "lucide-react";
+import { Moon, Sun, LogOut, KeyRound } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useLocation } from "react-router";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { AUTH_ENABLED, auth } from "@/lib/auth";
+import { ChangePasswordDialog } from "@/components/ChangePasswordDialog";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -24,6 +26,7 @@ const routeLabels: Record<string, string> = {
   business: "Business Rules",
   prompts: "Prompt Editor",
   schedules: "Schedules",
+  feedback: "Feedback Review",
 };
 
 function useBreadcrumbs() {
@@ -45,6 +48,7 @@ function useBreadcrumbs() {
 export function Topbar() {
   const { theme, setTheme } = useTheme();
   const crumbs = useBreadcrumbs();
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
 
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-background px-4">
@@ -71,6 +75,8 @@ export function Topbar() {
       <div className="ml-auto flex items-center gap-2">
         {AUTH_ENABLED && (() => {
           const user = auth.getUser();
+          // isLocalUser: userId is a plain integer — local-auth users only (not SSO)
+          const isLocalUser = !!user.userId && !isNaN(Number(user.userId));
           return (
             <>
               {(user.name || user.email) && (
@@ -78,10 +84,23 @@ export function Topbar() {
                   {user.name ?? user.email}
                 </span>
               )}
+              {isLocalUser && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8"
+                  onClick={() => setChangePasswordOpen(true)}
+                  title="Change password"
+                >
+                  <KeyRound className="size-4" />
+                  <span className="sr-only">Change password</span>
+                </Button>
+              )}
               <Button variant="ghost" size="icon" className="size-8" onClick={() => auth.logout()} title="Sign out">
                 <LogOut className="size-4" />
                 <span className="sr-only">Sign out</span>
               </Button>
+              <ChangePasswordDialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen} />
             </>
           );
         })()}

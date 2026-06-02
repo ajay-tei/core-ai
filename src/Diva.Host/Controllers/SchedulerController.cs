@@ -1,6 +1,8 @@
+using Diva.Core.Configuration;
 using Diva.Infrastructure.Auth;
 using Diva.Infrastructure.Scheduler;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 
 namespace Diva.Host.Controllers;
 
@@ -10,13 +12,16 @@ public class SchedulerController : ControllerBase
 {
     private readonly IScheduledTaskService _service;
     private readonly ILogger<SchedulerController> _logger;
+    private readonly IOptions<TaskSchedulerOptions> _schedulerOpts;
 
     public SchedulerController(
         IScheduledTaskService service,
-        ILogger<SchedulerController> logger)
+        ILogger<SchedulerController> logger,
+        IOptions<TaskSchedulerOptions> schedulerOpts)
     {
         _service = service;
         _logger = logger;
+        _schedulerOpts = schedulerOpts;
     }
 
     private int EffectiveTenantId(int requestedTenantId)
@@ -236,6 +241,35 @@ public class SchedulerController : ControllerBase
             EffectiveTenantId(tenantId), dto.GlobalNotifyEmails, dto.GlobalNotifyOn, ct);
         return NoContent();
     }
+
+    // ── GET /api/schedules/feedback-settings ──────────────────────────────────
+    [HttpGet("feedback-settings")]
+    public async Task<IActionResult> GetFeedbackSettings(
+        [FromQuery] int tenantId = 1,
+        CancellationToken ct = default)
+    {
+        var settings = await _service.GetFeedbackSettingsAsync(EffectiveTenantId(tenantId), ct);
+        // Return current values, falling back to appsettings defaults
+        return Ok(new
+        {
+            enableFeedbackLinks = settings?.EnableFeedbackLinks ?? _schedulerOpts.Value.EnableFeedbackLinks,
+            feedbackLinkBaseUrl = settings?.FeedbackLinkBaseUrl ?? _schedulerOpts.Value.FeedbackLinkBaseUrl ?? "",
+            expiryDays = settings?.ExpiryDays > 0 ? settings.ExpiryDays : _schedulerOpts.Value.FeedbackLinkExpiryDays,
+        });
+    }
+
+    // ── PUT /api/schedules/feedback-settings ──────────────────────────────────
+    [HttpPut("feedback-settings")]
+    public async Task<IActionResult> UpsertFeedbackSettings(
+        [FromBody] UpsertFeedbackSettingsDto dto,
+        [FromQuery] int tenantId = 1,
+        CancellationToken ct = default)
+    {
+        if (dto is null) return BadRequest(new { error = "Request body is required." });
+        await _service.UpsertFeedbackSettingsAsync(
+            EffectiveTenantId(tenantId), dto.EnableFeedbackLinks, dto.FeedbackLinkBaseUrl, dto.ExpiryDays, ct);
+        return NoContent();
+    }
 }
 
 // ── Request DTOs (inline, following AgentSummaryDto pattern) ───────────────
@@ -277,6 +311,11 @@ public sealed record UpdateScheduledTaskDto(
 public sealed record UpsertNotificationSettingsDto(
     string? GlobalNotifyEmails,
     string? GlobalNotifyOn);
+
+public sealed record UpsertFeedbackSettingsDto(
+    bool EnableFeedbackLinks,
+    string? FeedbackLinkBaseUrl,
+    int ExpiryDays = 30);
 
 public sealed record SetEnabledDto(bool IsEnabled);
 

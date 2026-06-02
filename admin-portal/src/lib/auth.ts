@@ -12,7 +12,7 @@
 
 import { storageKey } from "@/lib/brand";
 
-const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:5062";
+const API_BASE = import.meta.env.VITE_API_URL ?? import.meta.env.BASE_URL.replace(/\/$/, '');
 const TENANT_ID = import.meta.env.VITE_TENANT_ID ?? "1";
 
 export const AUTH_ENABLED = import.meta.env.VITE_AUTH_ENABLED !== "false";
@@ -70,7 +70,8 @@ export const auth = {
       window.location.href = `${ API_BASE }/api/auth/logout?logoutUrl=${ encoded }`;
     } else
     {
-      window.location.href = "/login";
+      // Use BASE_URL (set from VITE_BASE_PATH) so subpath deployments redirect correctly.
+      window.location.href = `${ import.meta.env.BASE_URL }login`;
     }
   },
 

@@ -7,7 +7,8 @@ namespace Diva.Core.Prompts;
 /// <summary>
 /// Resolves {{variable}} placeholders in assembled system prompts.
 /// Built-ins: {{current_date}}, {{current_time}}, {{current_datetime}}.
-/// Runtime variables (user identity, tenant) are injected per-request.
+/// Runtime variables (user identity, tenant, session) are injected per-request:
+///   {{user_id}}, {{user_email}}, {{user_name}}, {{tenant_id}}, {{tenant_name}}, {{session_id}}.
 /// Custom variables are supplied per-agent via CustomVariablesJson.
 /// Precedence (highest wins): customVariables > runtimeVariables > builtIns.
 /// Unresolved placeholders are left unchanged so they remain visible in LLM output.
@@ -46,8 +47,8 @@ public static class PromptVariableResolver
         var now = DateTime.UtcNow;
         var builtIns = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            ["current_date"]     = now.ToString("yyyy-MM-dd"),
-            ["current_time"]     = now.ToString("HH:mm") + " UTC",
+            ["current_date"] = now.ToString("yyyy-MM-dd"),
+            ["current_time"] = now.ToString("HH:mm") + " UTC",
             ["current_datetime"] = now.ToString("yyyy-MM-dd HH:mm") + " UTC",
         };
 
@@ -104,13 +105,13 @@ public static class PromptVariableResolver
 
     private static string JsonElementToString(JsonElement element) => element.ValueKind switch
     {
-        JsonValueKind.String  => element.GetString() ?? "",
-        JsonValueKind.Number  => element.GetRawText(),
-        JsonValueKind.True    => "true",
-        JsonValueKind.False   => "false",
-        JsonValueKind.Null    => "",
-        JsonValueKind.Array   => string.Join(", ", element.EnumerateArray().Select(JsonElementToString)),
-        JsonValueKind.Object  => element.GetRawText(),
-        _                     => element.GetRawText(),
+        JsonValueKind.String => element.GetString() ?? "",
+        JsonValueKind.Number => element.GetRawText(),
+        JsonValueKind.True => "true",
+        JsonValueKind.False => "false",
+        JsonValueKind.Null => "",
+        JsonValueKind.Array => string.Join(", ", element.EnumerateArray().Select(JsonElementToString)),
+        JsonValueKind.Object => element.GetRawText(),
+        _ => element.GetRawText(),
     };
 }

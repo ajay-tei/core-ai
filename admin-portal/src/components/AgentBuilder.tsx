@@ -110,6 +110,7 @@ const PROMPT_VARIABLES = [
   { name: "user_name",     description: "Logged-in user's display name" },
   { name: "tenant_id",     description: "Current tenant ID" },
   { name: "tenant_name",   description: "Current tenant name" },
+  { name: "session_id",    description: "Current session ID (resolved after session creation)" },
   { name: "current_date",  description: "Today's date (yyyy-MM-dd UTC)" },
   { name: "current_time",  description: "Current time (HH:mm UTC)" },
   { name: "current_datetime", description: "Date and time (yyyy-MM-dd HH:mm UTC)" },
@@ -1321,7 +1322,9 @@ export function AgentBuilder() {
 
           {agentId && (
             <PromptQuickFixDialog
-              agentId={agentId}
+              onImprove={(instruction) =>
+                api.improvePrompt(agentId, instruction, form.systemPrompt ?? "").then((r) => r.improvedPrompt)
+              }
               currentPrompt={form.systemPrompt ?? ""}
               open={quickFixOpen}
               onOpenChange={setQuickFixOpen}

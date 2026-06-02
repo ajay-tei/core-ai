@@ -15,6 +15,7 @@ import {
   ScrollText,
   Shield,
   ShieldAlert,
+  Star,
   Users,
   Zap,
   Code2,
@@ -62,6 +63,7 @@ const tenantNavGroups = [
       { title: "Rule Packs", url: "/rules/packs", icon: Package },
       { title: "Sessions", url: "/sessions", icon: History },
       { title: "Schedules", url: "/schedules", icon: Calendar },
+      { title: "Schedule Feedback", url: "/schedules/feedback", icon: Star },
     ],
   },
   {

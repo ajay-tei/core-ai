@@ -18,6 +18,7 @@ public record AdminLoginRequest(string Username, string Password);
 public record SetupMasterAdminRequest(string Username, string Email, string Password = "changemeonlogin", string DisplayName = "Platform Admin");
 public record CreateLocalUserRequest(string Username, string Email, string Password, string DisplayName, string[] Roles);
 public record ResetPasswordRequest(string NewPassword);
+public record ChangePasswordRequest(string CurrentPassword, string NewPassword);
 
 /// <summary>
 /// Auth endpoints: SSO redirect login, OAuth2 callback, and token introspection.
@@ -48,7 +49,10 @@ public class AuthController : ControllerBase
         _sso = sso;
         _httpClientFactory = httpClientFactory;
         _localAuth = localAuth;
-        _portalOrigin = configuration["AdminPortal:CorsOrigin"] ?? "http://localhost:5173";
+        // CorsOrigin may be comma-separated (multi-origin support); use only the first
+        // value for redirect URLs — SSO providers need a single whitelisted URI.
+        var corsOrigin = configuration["AdminPortal:CorsOrigin"] ?? "http://localhost:5173";
+        _portalOrigin = corsOrigin.Split(',', StringSplitOptions.TrimEntries)[0];
     }
 
     // ── GET /api/auth/login?tenantId=1 ────────────────────────────────────────
@@ -59,7 +63,7 @@ public class AuthController : ControllerBase
     public async Task<IActionResult> Login([FromQuery] int tenantId = 1, CancellationToken ct = default)
     {
         var configs = await _sso.GetForTenantAsync(tenantId, ct);
-        var config  = configs.FirstOrDefault(c => c.IsActive && !string.IsNullOrEmpty(c.AuthorizationEndpoint));
+        var config = configs.FirstOrDefault(c => c.IsActive && !string.IsNullOrEmpty(c.AuthorizationEndpoint));
         if (config is null)
             return NotFound("No active SSO provider with an authorization endpoint configured for this tenant.");
 
@@ -74,11 +78,11 @@ public class AuthController : ControllerBase
 
         var authUrl = QueryHelpers.AddQueryString(config.AuthorizationEndpoint!, new Dictionary<string, string?>
         {
-            ["client_id"]     = config.ClientId,
-            ["redirect_uri"]  = redirectUri,
+            ["client_id"] = config.ClientId,
+            ["redirect_uri"] = redirectUri,
             ["response_type"] = "code",
-            ["scope"]         = "openid profile email",
-            ["state"]         = statePayload,
+            ["scope"] = "openid profile email",
+            ["state"] = statePayload,
         });
 
         return Redirect(authUrl);
@@ -108,7 +112,7 @@ public class AuthController : ControllerBase
         try
         {
             var stateJson = Encoding.UTF8.GetString(Convert.FromBase64String(state));
-            var stateDoc  = JsonDocument.Parse(stateJson);
+            var stateDoc = JsonDocument.Parse(stateJson);
             tenantId = stateDoc.RootElement.GetProperty("tenantId").GetInt32();
         }
         catch
@@ -117,7 +121,7 @@ public class AuthController : ControllerBase
         }
 
         var configs = await _sso.GetForTenantAsync(tenantId, ct);
-        var config  = configs.FirstOrDefault(c => c.IsActive && !string.IsNullOrEmpty(c.TokenEndpoint));
+        var config = configs.FirstOrDefault(c => c.IsActive && !string.IsNullOrEmpty(c.TokenEndpoint));
         if (config is null)
             return NotFound("No active SSO provider with a token endpoint found for this tenant.");
 
@@ -131,10 +135,10 @@ public class AuthController : ControllerBase
             try { tenantMappings = JsonSerializer.Deserialize<ClaimMappingsOptions>(config.ClaimMappingsJson); }
             catch { /* ignore malformed JSON — fall through to defaults */ }
         }
-        var userIdField    = tenantMappings?.UserId      ?? "sub";
-        var emailField     = tenantMappings?.Email       ?? "email";
-        var nameField      = tenantMappings?.DisplayName ?? "name";
-        var rolesField     = tenantMappings?.Roles       ?? "roles";
+        var userIdField = tenantMappings?.UserId ?? "sub";
+        var emailField = tenantMappings?.Email ?? "email";
+        var nameField = tenantMappings?.DisplayName ?? "name";
+        var rolesField = tenantMappings?.Roles ?? "roles";
 
         var redirectUri = BuildApiCallbackUri(config.ProxyBaseUrl);
         var http = _httpClientFactory.CreateClient("sso-auth");
@@ -163,11 +167,11 @@ public class AuthController : ControllerBase
             tokenRequest.Headers.Authorization = new AuthenticationHeaderValue("Basic", basicCredentials);
 
             var tokenResponse = await http.SendAsync(tokenRequest, ct);
-            var tokenBody     = await tokenResponse.Content.ReadAsStringAsync(ct);
+            var tokenBody = await tokenResponse.Content.ReadAsStringAsync(ct);
             if (!tokenResponse.IsSuccessStatusCode)
                 return StatusCode(502, $"Token exchange failed ({(int)tokenResponse.StatusCode}): {tokenBody}");
 
-            tokenDoc    = JsonDocument.Parse(tokenBody);
+            tokenDoc = JsonDocument.Parse(tokenBody);
             accessToken = tokenDoc.RootElement.GetProperty("access_token").GetString()
                 ?? throw new InvalidOperationException("No access_token in token response");
         }
@@ -177,9 +181,9 @@ public class AuthController : ControllerBase
         }
 
         string? userEmail = null;
-        string? userName  = null;
-        string? userId    = null;
-        string[]? roles   = null;
+        string? userName = null;
+        string? userId = null;
+        string[]? roles = null;
 
         // ── Step 2a: Extract identity from the id_token (OIDC) ───────────────
         // The id_token is a signed JWT returned alongside the access_token.
@@ -200,12 +204,12 @@ public class AuthController : ControllerBase
                         var padded = parts[1].Replace('-', '+').Replace('_', '/');
                         padded += new string('=', (4 - padded.Length % 4) % 4);
                         var payloadJson = Encoding.UTF8.GetString(Convert.FromBase64String(padded));
-                        var idDoc  = JsonDocument.Parse(payloadJson);
+                        var idDoc = JsonDocument.Parse(payloadJson);
                         var idRoot = idDoc.RootElement;
-                        userId    = TryGetString(idRoot, userIdField, "sub", "user_id", "id");
-                        userEmail = TryGetString(idRoot, emailField,  "email", "mail");
-                        userName  = TryGetString(idRoot, nameField,   "name", "preferred_username", "username");
-                        roles     = TryGetStringArray(idRoot, rolesField, "roles");
+                        userId = TryGetString(idRoot, userIdField, "sub", "user_id", "id");
+                        userEmail = TryGetString(idRoot, emailField, "email", "mail");
+                        userName = TryGetString(idRoot, nameField, "name", "preferred_username", "username");
+                        roles = TryGetStringArray(idRoot, rolesField, "roles");
                     }
                 }
                 catch
@@ -228,21 +232,21 @@ public class AuthController : ControllerBase
                 if (userResponse.IsSuccessStatusCode)
                 {
                     var userJson = await userResponse.Content.ReadAsStringAsync(ct);
-                    var userDoc  = JsonDocument.Parse(userJson);
-                    var root     = userDoc.RootElement;
+                    var userDoc = JsonDocument.Parse(userJson);
+                    var root = userDoc.RootElement;
 
                     // Use per-tenant field names first, then standard OIDC fallbacks
-                    var uiUserId    = TryGetString(root, userIdField, "sub", "user_id", "id");
-                    var uiUserEmail = TryGetString(root, emailField,  "email", "mail", "EmailAddress", "email_address");
-                    var uiUserName  = TryGetString(root, nameField,   "name", "display_name", "displayName",
+                    var uiUserId = TryGetString(root, userIdField, "sub", "user_id", "id");
+                    var uiUserEmail = TryGetString(root, emailField, "email", "mail", "EmailAddress", "email_address");
+                    var uiUserName = TryGetString(root, nameField, "name", "display_name", "displayName",
                                                    "full_name", "FullName", "preferred_username", "username");
-                    var uiRoles     = TryGetStringArray(root, rolesField, "roles", "groups");
+                    var uiRoles = TryGetStringArray(root, rolesField, "roles", "groups");
 
                     // Userinfo wins over id_token when it returns a value
-                    userId    = uiUserId    ?? userId;
+                    userId = uiUserId ?? userId;
                     userEmail = uiUserEmail ?? userEmail;
-                    userName  = uiUserName  ?? userName;
-                    roles     = uiRoles     ?? roles;
+                    userName = uiUserName ?? userName;
+                    roles = uiRoles ?? roles;
                 }
             }
             catch
@@ -265,9 +269,9 @@ public class AuthController : ControllerBase
             tenantId,
             effectiveUserId,
             userEmail ?? "",
-            userName  ?? userEmail ?? effectiveUserId,
-            roles:           roles ?? [],
-            ssoAccessToken:  accessToken);
+            userName ?? userEmail ?? effectiveUserId,
+            roles: roles ?? [],
+            ssoAccessToken: accessToken);
 
         // ── Step 4: Redirect browser to portal with local token in URL fragment ─
         // Fragment (#) is never sent to the server and doesn't appear in access logs.
@@ -275,9 +279,9 @@ public class AuthController : ControllerBase
         var fragment = new StringBuilder();
         fragment.Append($"token={Uri.EscapeDataString(localToken)}");
         fragment.Append($"&tenant_id={tenantId}");
-        if (userId    is not null) fragment.Append($"&user_id={Uri.EscapeDataString(userId)}");
+        if (userId is not null) fragment.Append($"&user_id={Uri.EscapeDataString(userId)}");
         if (userEmail is not null) fragment.Append($"&email={Uri.EscapeDataString(userEmail)}");
-        if (userName  is not null) fragment.Append($"&name={Uri.EscapeDataString(userName)}");
+        if (userName is not null) fragment.Append($"&name={Uri.EscapeDataString(userName)}");
         if (!string.IsNullOrEmpty(config.LogoutUrl))
             fragment.Append($"&logout_url={Uri.EscapeDataString(config.LogoutUrl)}");
 
@@ -358,7 +362,7 @@ public class AuthController : ControllerBase
         if (await _localAuth.MasterAdminExistsAsync(ct))
             return Conflict(new { message = "Master admin already configured. Use the admin login endpoint." });
 
-        var dto  = new CreateLocalUserDto(req.Username, req.Email, req.Password, req.DisplayName, ["master_admin"]);
+        var dto = new CreateLocalUserDto(req.Username, req.Email, req.Password, req.DisplayName, ["master_admin"]);
         var user = await _localAuth.CreateUserAsync(0, dto, ct);  // TenantId=0 = platform-level
 
         return Ok(new { user.Id, user.Username, user.Email, message = "Master admin created. You can now sign in via POST /api/auth/admin." });
@@ -378,12 +382,12 @@ public class AuthController : ControllerBase
 
         return Ok(new
         {
-            token         = result.Token,
-            email         = result.Email,
-            name          = result.DisplayName,
-            userId        = result.UserId,
-            tenantId      = result.TenantId,   // 0 = platform level
-            roles         = result.Roles,
+            token = result.Token,
+            email = result.Email,
+            name = result.DisplayName,
+            userId = result.UserId,
+            tenantId = result.TenantId,   // 0 = platform level
+            roles = result.Roles,
             isMasterAdmin = true,
         });
     }
@@ -410,15 +414,15 @@ public class AuthController : ControllerBase
         var atIndex = email.IndexOf('@');
         if (atIndex > 0)
         {
-            var domain    = email[(atIndex + 1)..];
+            var domain = email[(atIndex + 1)..];
             var ssoConfig = await _sso.FindBySsoDomainAsync(domain, ct);
             if (ssoConfig is not null)
             {
                 return Ok(new
                 {
-                    tenantId     = ssoConfig.TenantId,
+                    tenantId = ssoConfig.TenantId,
                     providerName = ssoConfig.ProviderName,
-                    hasSso       = !string.IsNullOrEmpty(ssoConfig.AuthorizationEndpoint),
+                    hasSso = !string.IsNullOrEmpty(ssoConfig.AuthorizationEndpoint),
                     hasLocalAuth = true,
                 });
             }
@@ -429,14 +433,14 @@ public class AuthController : ControllerBase
         if (tenantId is null)
             return NotFound(new { message = "Email not registered. Contact your administrator." });
 
-        var configs   = await _sso.GetForTenantAsync(tenantId.Value, ct);
+        var configs = await _sso.GetForTenantAsync(tenantId.Value, ct);
         var activeSso = configs.FirstOrDefault(c => c.IsActive && !string.IsNullOrEmpty(c.AuthorizationEndpoint));
 
         return Ok(new
         {
             tenantId,
             providerName = activeSso?.ProviderName,   // null = no SSO, only local login available
-            hasSso       = activeSso is not null,
+            hasSso = activeSso is not null,
             hasLocalAuth = true,
         });
     }
@@ -476,12 +480,12 @@ public class AuthController : ControllerBase
 
         return Ok(new
         {
-            token     = result.Token,
-            email     = result.Email,
-            name      = result.DisplayName,
-            userId    = result.UserId,
-            tenantId  = result.TenantId,
-            roles     = result.Roles,
+            token = result.Token,
+            email = result.Email,
+            name = result.DisplayName,
+            userId = result.UserId,
+            tenantId = result.TenantId,
+            roles = result.Roles,
         });
     }
 
@@ -499,7 +503,14 @@ public class AuthController : ControllerBase
         var users = await _localAuth.GetUsersAsync(EffectiveTenantId(tenantId), ct);
         return Ok(users.Select(u => new
         {
-            u.Id, u.Username, u.Email, u.DisplayName, u.Roles, u.IsActive, u.CreatedAt, u.LastLoginAt
+            u.Id,
+            u.Username,
+            u.Email,
+            u.DisplayName,
+            u.Roles,
+            u.IsActive,
+            u.CreatedAt,
+            u.LastLoginAt
         }));
     }
 
@@ -511,7 +522,7 @@ public class AuthController : ControllerBase
         [FromQuery] int tenantId = 1,
         CancellationToken ct = default)
     {
-        var dto  = new CreateLocalUserDto(req.Username, req.Email, req.Password, req.DisplayName, req.Roles);
+        var dto = new CreateLocalUserDto(req.Username, req.Email, req.Password, req.DisplayName, req.Roles);
         var user = await _localAuth.CreateUserAsync(EffectiveTenantId(tenantId), dto, ct);
         return Ok(new { user.Id, user.Username, user.Email, user.DisplayName, user.Roles, user.IsActive });
     }
@@ -538,6 +549,33 @@ public class AuthController : ControllerBase
         CancellationToken ct = default)
     {
         await _localAuth.ResetPasswordAsync(EffectiveTenantId(tenantId), id, req.NewPassword, ct);
+        return NoContent();
+    }
+
+    // ── POST /api/auth/change-password ─────────────────────────────────────
+    // Allows a logged-in local-auth user to change their own password.
+    // Requires the current password to prevent abuse from unlocked sessions.
+    // Returns 400 for SSO users (no local password record) or wrong current password.
+
+    [HttpPost("change-password")]
+    public async Task<IActionResult> ChangePassword(
+        [FromBody] ChangePasswordRequest req,
+        CancellationToken ct)
+    {
+        var ctx = HttpContext.TryGetTenantContext();
+        if (ctx is null)
+            return Unauthorized();
+
+        if (!int.TryParse(ctx.UserId, out var userId))
+            return BadRequest("Change password is only available for local account users.");
+
+        if (string.IsNullOrWhiteSpace(req.NewPassword) || req.NewPassword.Length < 8)
+            return BadRequest("New password must be at least 8 characters.");
+
+        var ok = await _localAuth.ChangePasswordAsync(ctx.TenantId, userId, req.CurrentPassword, req.NewPassword, ct);
+        if (!ok)
+            return BadRequest("Current password is incorrect.");
+
         return NoContent();
     }
 
