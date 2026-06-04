@@ -276,7 +276,7 @@ export function SchedulerFeedbackReview() {
                         <span className="font-mono text-xs">{selected.sessionId}</span>
                       </span>
                       <a
-                        href={`/sessions/${encodeURIComponent(selected.sessionId)}`}
+                        href={`${import.meta.env.BASE_URL.replace(/\/$/, '')}/sessions/${encodeURIComponent(selected.sessionId)}`}
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex items-center gap-1 text-xs text-blue-500 hover:underline"
