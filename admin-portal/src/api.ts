@@ -1144,7 +1144,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T>
     {
       // Token missing or expired — clear stale token and redirect to login
       localStorage.removeItem(storageKey("token"));
-      window.location.replace("/login");
+      window.location.replace(`${import.meta.env.BASE_URL}login`);
       return new Promise(() => { }); // halt execution while redirecting
     }
     const body = await res.text().catch(() => "");

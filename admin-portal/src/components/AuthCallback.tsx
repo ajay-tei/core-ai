@@ -70,7 +70,7 @@ export function AuthCallback() {
       <div className="flex h-screen flex-col items-center justify-center gap-4 px-6 text-center">
         <p className="text-destructive font-medium">Sign-in failed</p>
         <p className="text-muted-foreground max-w-md text-sm break-all">{errorDetail}</p>
-        <a href="/login" className="text-primary underline text-sm">
+        <a href={`${import.meta.env.BASE_URL}login`} className="text-primary underline text-sm">
           Return to sign-in
         </a>
       </div>
