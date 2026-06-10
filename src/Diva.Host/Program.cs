@@ -105,6 +105,13 @@ var traceCleanupOpts = builder.Configuration
 builder.Services.AddSingleton(traceCleanupOpts);
 builder.Services.AddHostedService<TraceCleanupService>();
 
+// ── Main conversation session cleanup ─────────────────────────────────────
+var sessionCleanupOpts = builder.Configuration
+    .GetSection("Sessions")
+    .Get<SessionCleanupOptions>() ?? new SessionCleanupOptions();
+builder.Services.AddSingleton(sessionCleanupOpts);
+builder.Services.AddHostedService<SessionCleanupService>();
+
 // ── LLM Provider wrappers (injectable — enable unit testing without real API keys) ──
 // Register named HttpClient for Anthropic with configured timeout, then register
 // AnthropicProvider as singleton using IHttpClientFactory (avoids captive dependency).

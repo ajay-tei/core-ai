@@ -1,6 +1,6 @@
 # Phase 7: Session Management
 
-> **Status:** `[x]` Done
+> **Status:** `[x]` Done — updated 2026-06-10 (ADR-13683 gap fixes)
 > **Depends on:** [phase-04-database.md](phase-04-database.md)
 > **Blocks:** [phase-08-agents.md](phase-08-agents.md)
 > **Project:** `Diva.Infrastructure`
@@ -226,6 +226,36 @@ public async Task<AgentResponse> InvokeAsync(AgentRequest request, TenantContext
     var result = await ExecuteWithHistoryAsync(chatHistory, request.Query, tenant, ct);
 
     // Save assistant response
+
+---
+
+## 2026-06-10 — ADR-13683 Gap Fixes (implemented)
+
+### Session Expiry Enforcement
+
+`ExpiresAt` was modelled but never enforced at runtime. Two changes were made:
+
+1. **`AgentSessionService.GetOrCreateAsync`** — active-session lookup now includes `&& s.ExpiresAt > now`; expired sessions fall through to create a new one.
+
+2. **`SessionCleanupService`** (new — `src/Diva.Infrastructure/Sessions/SessionCleanupService.cs`) — `BackgroundService` that runs every `Sessions:IntervalHours` (default 6h):
+   - Marks `Status = "expired"` on any active session where `ExpiresAt <= now`
+   - Hard-deletes sessions whose `LastActivityAt` is older than `Sessions:HardDeleteAfterDays` (default 90)
+   - Registered in `Program.cs`; configured via `appsettings.json` `Sessions` section
+
+### Supervisor → Worker Context Handoff
+
+`DispatchStage` previously created worker `AgentRequest`s with no session context. Three changes were made:
+
+1. **`AgentRequest.ConversationContext`** (new nullable property in `Diva.Core`) — condensed text summary of the supervisor's conversation history.
+
+2. **`DispatchStage.BuildConversationContext()`** — static helper that takes the last 10 messages from `state.SessionHistory` and formats them as a markdown block. Assigned to `subRequest.ConversationContext`.
+
+3. **`AnthropicAgentRunner`** — injects `ConversationContext` into the worker system prompt immediately after the `Instructions` block. Respects Anthropic history-caching split (goes into the dynamic volatile block).
+
+### SessionsController IDOR Security Fix
+
+`GetSession`, `GetTurnIterations`, `GetSessionTree`, `ExportSession`, and `DeleteSession` now apply the same `effectiveTenantId` ownership check already present on the list and continue endpoints. Non-master users receive `404` if the session belongs to a different tenant.
+
     await _sessions.AddMessageAsync(session.Id, "assistant", result.Content,
         new SessionMessageMetadata
         {

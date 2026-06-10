@@ -34,6 +34,14 @@ public sealed class AgentRequest
     public string? ParentSessionId { get; init; }
 
     /// <summary>
+    /// Condensed summary of the supervisor's conversation history, injected by DispatchStage
+    /// when delegating to a worker agent. Gives the worker the user's previously stated
+    /// context (e.g. collected parameters, prior answers) without replaying the full transcript.
+    /// Null when the request originates directly from the API (not a supervisor delegation).
+    /// </summary>
+    public string? ConversationContext { get; init; }
+
+    /// <summary>
     /// When true, forces SSO token forwarding to all HTTP/SSE MCP bindings for this request,
     /// regardless of each binding's individual PassSsoToken setting.
     /// Used by the agent test chat so the caller's Bearer token reaches MCP tool servers

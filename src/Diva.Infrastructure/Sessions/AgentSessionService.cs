@@ -30,9 +30,10 @@ public sealed class AgentSessionService
         if (!string.IsNullOrEmpty(sessionId))
         {
             using var db = _db.CreateDbContext(tenant);
+            var now = DateTime.UtcNow;
             var session = await db.Sessions
                 .Include(s => s.Messages.OrderBy(m => m.CreatedAt))
-                .FirstOrDefaultAsync(s => s.Id == sessionId && s.Status == "active", ct);
+                .FirstOrDefaultAsync(s => s.Id == sessionId && s.Status == "active" && s.ExpiresAt > now, ct);
 
             if (session is not null)
             {

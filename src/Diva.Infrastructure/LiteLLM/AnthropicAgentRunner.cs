@@ -280,6 +280,17 @@ public sealed class AnthropicAgentRunner : IAgentRunner
             systemPrompt += instructions;
         }
 
+        // ── Supervisor conversation context (delegated worker requests only) ────
+        if (!string.IsNullOrWhiteSpace(request.ConversationContext))
+        {
+            var ctxBlock = $"\n\n{request.ConversationContext}";
+            if (useAnthropicEarly && enableHistoryCaching)
+                dynamicSystemPrompt += ctxBlock;   // volatile: changes per turn
+            else
+                staticSystemPrompt += ctxBlock;
+            systemPrompt += ctxBlock;
+        }
+
         // ── Resolve LLM config (platform → group → tenant → per-agent) ────────────
         ResolvedLlmConfig? resolved = null;
         if (_resolver is not null && tenant.TenantId > 0)

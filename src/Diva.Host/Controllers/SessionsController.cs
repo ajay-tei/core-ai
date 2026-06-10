@@ -116,11 +116,17 @@ public class SessionsController : ControllerBase
     [HttpGet("{id}")]
     public async Task<ActionResult<SessionDetail>> GetSession(string id, CancellationToken ct)
     {
+        var ctx = HttpContext.TryGetTenantContext();
+        var effectiveTenantId = ctx is { TenantId: > 0 } ? ctx.TenantId : (int?)null;
+
         var session = await _trace.TraceSessions
             .AsNoTracking()
             .FirstOrDefaultAsync(s => s.SessionId == id, ct);
 
         if (session is null || session.Status == "deleted")
+            return NotFound();
+
+        if (effectiveTenantId.HasValue && session.TenantId != effectiveTenantId.Value)
             return NotFound();
 
         var turns = await _trace.TraceSessionTurns
@@ -175,6 +181,19 @@ public class SessionsController : ControllerBase
     public async Task<ActionResult<List<IterationDetail>>> GetTurnIterations(
         string id, int turnNumber, CancellationToken ct)
     {
+        var ctx = HttpContext.TryGetTenantContext();
+        var effectiveTenantId = ctx is { TenantId: > 0 } ? ctx.TenantId : (int?)null;
+
+        if (effectiveTenantId.HasValue)
+        {
+            var sessionTenant = await _trace.TraceSessions.AsNoTracking()
+                .Where(s => s.SessionId == id)
+                .Select(s => (int?)s.TenantId)
+                .FirstOrDefaultAsync(ct);
+            if (sessionTenant is null || sessionTenant != effectiveTenantId.Value)
+                return NotFound();
+        }
+
         var turn = await _trace.TraceSessionTurns
             .AsNoTracking()
             .FirstOrDefaultAsync(t => t.SessionId == id && t.TurnNumber == turnNumber, ct);
@@ -256,9 +275,15 @@ public class SessionsController : ControllerBase
     [HttpGet("{id}/tree")]
     public async Task<ActionResult<List<SessionTreeNode>>> GetSessionTree(string id, CancellationToken ct)
     {
+        var ctx = HttpContext.TryGetTenantContext();
+        var effectiveTenantId = ctx is { TenantId: > 0 } ? ctx.TenantId : (int?)null;
+
         var current = await _trace.TraceSessions.AsNoTracking()
             .FirstOrDefaultAsync(s => s.SessionId == id, ct);
         if (current is null) return NotFound();
+
+        if (effectiveTenantId.HasValue && current.TenantId != effectiveTenantId.Value)
+            return NotFound();
 
         // Walk up to the true root
         var rootId = id;
@@ -326,10 +351,16 @@ public class SessionsController : ControllerBase
     [HttpGet("{id}/export")]
     public async Task<IActionResult> ExportSession(string id, CancellationToken ct)
     {
+        var ctx = HttpContext.TryGetTenantContext();
+        var effectiveTenantId = ctx is { TenantId: > 0 } ? ctx.TenantId : (int?)null;
+
         var session = await _trace.TraceSessions
             .AsNoTracking()
             .FirstOrDefaultAsync(s => s.SessionId == id, ct);
         if (session is null) return NotFound();
+
+        if (effectiveTenantId.HasValue && session.TenantId != effectiveTenantId.Value)
+            return NotFound();
 
         var turns = await _trace.TraceSessionTurns.AsNoTracking()
             .Where(t => t.SessionId == id).ToListAsync(ct);
@@ -399,9 +430,15 @@ public class SessionsController : ControllerBase
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeleteSession(string id, CancellationToken ct)
     {
+        var ctx = HttpContext.TryGetTenantContext();
+        var effectiveTenantId = ctx is { TenantId: > 0 } ? ctx.TenantId : (int?)null;
+
         var session = await _trace.TraceSessions
             .FirstOrDefaultAsync(s => s.SessionId == id, ct);
         if (session is null) return NotFound();
+
+        if (effectiveTenantId.HasValue && session.TenantId != effectiveTenantId.Value)
+            return NotFound();
 
         session.Status = "deleted";
         await _trace.SaveChangesAsync(ct);

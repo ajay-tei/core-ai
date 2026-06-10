@@ -4,6 +4,45 @@
 
 ---
 
+## [2026-06-10] ADR-13683 — AI Session & Context Management gaps resolved
+
+Closes the three critical gaps identified against ADR-13683 (_Implement AI Session & Context Management Framework_).
+
+### GAP 2 — Supervisor conversation history forwarded to Worker Agents
+
+Previously `DispatchStage` created worker `AgentRequest`s with no session context; workers started blind even when the user had already provided parameters (date, party size, site) to the supervisor.
+
+| File | Change |
+|------|--------|
+| `src/Diva.Core/Models/AgentRequest.cs` | Added optional `ConversationContext` property — condensed supervisor history injected by `DispatchStage` |
+| `src/Diva.Agents/Supervisor/Stages/DispatchStage.cs` | Populates `ConversationContext` from `state.SessionHistory` (last 10 messages) via new `BuildConversationContext()` helper |
+| `src/Diva.Infrastructure/LiteLLM/AnthropicAgentRunner.cs` | Injects `ConversationContext` into the worker system prompt (respects Anthropic cache split — goes into the volatile dynamic block) |
+
+### GAP 4 (security) — SessionsController IDOR fixed
+
+Non-master users could read or delete another tenant's session data via direct ID on five endpoints.
+
+| File | Change |
+|------|--------|
+| `src/Diva.Host/Controllers/SessionsController.cs` | Added `effectiveTenantId` ownership check to `GetSession`, `GetTurnIterations`, `GetSessionTree`, `ExportSession`, and `DeleteSession` — same pattern already used by list and continue endpoints |
+
+### GAP 1 — Session expiry now enforced at runtime
+
+`ExpiresAt` was modelled but never enforced — active-session lookup ignored it, and no background worker marked sessions expired.
+
+| File | Change |
+|------|--------|
+| `src/Diva.Infrastructure/Sessions/AgentSessionService.cs` | `GetOrCreateAsync` now filters by `s.ExpiresAt > now` in addition to `Status == "active"` |
+| `src/Diva.Infrastructure/Sessions/SessionCleanupService.cs` | **New** — `BackgroundService` that marks active sessions with past `ExpiresAt` as `"expired"` and hard-deletes sessions inactive for `HardDeleteAfterDays` (default 90); runs every `IntervalHours` (default 6) |
+| `src/Diva.Host/Program.cs` | Registers `SessionCleanupService` and binds `SessionCleanupOptions` from `Sessions` config section |
+| `src/Diva.Host/appsettings.json` | Added `Sessions` config section: `CleanupEnabled: true`, `IntervalHours: 6`, `HardDeleteAfterDays: 90` |
+
+### Backward compatibility
+
+All changes are additive or narrowly scoped. No DB migrations needed. No agent reconfiguration required. Workers that receive `null` for `ConversationContext` behave exactly as before.
+
+---
+
 ## [2026-06-02] Platform Administrators management
 
 Multiple platform admins can now be created and managed from the admin portal.
