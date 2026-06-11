@@ -36,14 +36,14 @@ public sealed class ContextWindowManager : IContextWindowManager
         IOpenAiProvider openAi,
         ILogger<ContextWindowManager> logger)
     {
-        _opts      = agentOpts.Value.ContextWindow;
-        _llm       = llm.Value;
+        _opts = agentOpts.Value.ContextWindow;
+        _llm = llm.Value;
         _anthropic = anthropic;
-        _openAi    = openAi;
+        _openAi = openAi;
         _summarizer = _llm.DirectProvider.Provider.Equals("Anthropic", StringComparison.OrdinalIgnoreCase)
-            ? new AnthropicSummarizationStrategy(anthropic)
-            : new OpenAiSummarizationStrategy(openAi);
-        _logger    = logger;
+            ? new AnthropicSummarizationStrategy(anthropic, _opts.SummarizerMaxTokens)
+            : new OpenAiSummarizationStrategy(openAi, _opts.SummarizerMaxTokens);
+        _logger = logger;
     }
 
     // ── Per-agent merge ───────────────────────────────────────────────────────
@@ -51,11 +51,11 @@ public sealed class ContextWindowManager : IContextWindowManager
     private ContextWindowOptions Effective(ContextWindowOverrideOptions? perAgent) =>
         perAgent is null ? _opts : new ContextWindowOptions
         {
-            BudgetTokens        = perAgent.BudgetTokens        ?? _opts.BudgetTokens,
+            BudgetTokens = perAgent.BudgetTokens ?? _opts.BudgetTokens,
             CompactionThreshold = perAgent.CompactionThreshold ?? _opts.CompactionThreshold,
             KeepLastRawMessages = perAgent.KeepLastRawMessages ?? _opts.KeepLastRawMessages,
-            MaxHistoryTurns     = perAgent.MaxHistoryTurns     ?? _opts.MaxHistoryTurns,
-            SummarizerModel     = perAgent.SummarizerModel     ?? _opts.SummarizerModel,
+            MaxHistoryTurns = perAgent.MaxHistoryTurns ?? _opts.MaxHistoryTurns,
+            SummarizerModel = perAgent.SummarizerModel ?? _opts.SummarizerModel,
         };
 
     // ── Point B ───────────────────────────────────────────────────────────────
@@ -71,11 +71,11 @@ public sealed class ContextWindowManager : IContextWindowManager
             return (history, null);
 
         var offloaded = history[..^opts.MaxHistoryTurns];
-        var recent    = history[^opts.MaxHistoryTurns..];
+        var recent = history[^opts.MaxHistoryTurns..];
 
         // Model priority: explicit config > session model > rule-based fallback
         var summarizerModel = !string.IsNullOrWhiteSpace(opts.SummarizerModel) ? opts.SummarizerModel
-                            : !string.IsNullOrWhiteSpace(sessionModel)          ? sessionModel
+                            : !string.IsNullOrWhiteSpace(sessionModel) ? sessionModel
                             : null;
 
         string summary;
@@ -101,7 +101,7 @@ public sealed class ContextWindowManager : IContextWindowManager
 
         _logger.LogDebug("Cross-run compaction: kept {Kept}/{Total} turns verbatim",
             recent.Count, history.Count);
-        return ([..recent], summary);
+        return ([.. recent], summary);
     }
 
     // ── Point B — LLM summarisation ───────────────────────────────────────────
@@ -148,14 +148,14 @@ public sealed class ContextWindowManager : IContextWindowManager
             string systemText,
             ContextWindowOverrideOptions? agentOverride = null)
     {
-        var opts      = Effective(agentOverride);
-        var totalEst  = EstimateTokens(systemText) + messageTexts.Sum(EstimateTokens);
+        var opts = Effective(agentOverride);
+        var totalEst = EstimateTokens(systemText) + messageTexts.Sum(EstimateTokens);
         var threshold = (int)(opts.BudgetTokens * opts.CompactionThreshold);
 
         if (totalEst <= threshold || messageTexts.Count <= opts.KeepLastRawMessages + 1)
             return (false, 0, string.Empty);
 
-        var keep        = opts.KeepLastRawMessages;
+        var keep = opts.KeepLastRawMessages;
         var compactable = messageTexts.Skip(1).Take(messageTexts.Count - 1 - keep).ToList();
         var summaryText = "[Prior context in this run — compacted]\n" +
                           string.Join("\n", compactable.Select(t =>
@@ -196,10 +196,10 @@ public sealed class ContextWindowManager : IContextWindowManager
 
         var summaryMsg = new Message
         {
-            Role    = RoleType.User,
+            Role = RoleType.User,
             Content = [new Anthropic.SDK.Messaging.TextContent { Text = summaryText }]
         };
-        return [messages[0], summaryMsg, ..messages[^keepLast..]];
+        return [messages[0], summaryMsg, .. messages[^keepLast..]];
     }
 
     // ── Point A — OpenAI adapter ──────────────────────────────────────────────
@@ -211,7 +211,7 @@ public sealed class ContextWindowManager : IContextWindowManager
         if (messages.Count < 3) return messages;
 
         var systemText = messages[0].Text ?? "";
-        var bodyTexts  = messages.Skip(1).Select(ChatMessageText).ToList();
+        var bodyTexts = messages.Skip(1).Select(ChatMessageText).ToList();
         var (should, keepLast, summaryText) =
             ComputeCompactionPlan(bodyTexts, systemText, agentOverride);
         if (!should) return messages;
@@ -225,7 +225,7 @@ public sealed class ContextWindowManager : IContextWindowManager
         keepLast = messages.Count - tailStart;
 
         var summaryMsg = new ChatMessage(ChatRole.User, summaryText);
-        return [messages[0], messages[1], summaryMsg, ..messages[^keepLast..]];
+        return [messages[0], messages[1], summaryMsg, .. messages[^keepLast..]];
     }
 
     // ── Shared helpers ────────────────────────────────────────────────────────
@@ -236,12 +236,12 @@ public sealed class ContextWindowManager : IContextWindowManager
     internal static string AnthropicMessageText(Message msg) =>
         string.Join(" ", msg.Content.Select(c => c switch
         {
-            Anthropic.SDK.Messaging.TextContent tc       => tc.Text ?? "",
+            Anthropic.SDK.Messaging.TextContent tc => tc.Text ?? "",
             Anthropic.SDK.Messaging.ToolResultContent tr => string.Join(" ",
                 tr.Content?.OfType<Anthropic.SDK.Messaging.TextContent>()
                            .Select(t => t.Text) ?? []),
-            ToolUseContent tu                            => tu.Input?.ToString() ?? "",
-            _                                            => ""
+            ToolUseContent tu => tu.Input?.ToString() ?? "",
+            _ => ""
         }));
 
     /// <summary>
@@ -277,16 +277,16 @@ internal interface ISummarizationStrategy
     Task<string> SummarizeAsync(string prompt, string model, CancellationToken ct);
 }
 
-internal sealed class AnthropicSummarizationStrategy(IAnthropicProvider anthropic) : ISummarizationStrategy
+internal sealed class AnthropicSummarizationStrategy(IAnthropicProvider anthropic, int maxTokens) : ISummarizationStrategy
 {
     public async Task<string> SummarizeAsync(string prompt, string model, CancellationToken ct)
     {
         var parameters = new MessageParameters
         {
-            Model     = model,
-            MaxTokens = 512,
-            System    = [new SystemMessage("You are a concise summariser. Reply only with bullet points.")],
-            Messages  =
+            Model = model,
+            MaxTokens = maxTokens,
+            System = [new SystemMessage("You are a concise summariser. Reply only with bullet points.")],
+            Messages =
             [
                 new Message
                 {
@@ -302,7 +302,7 @@ internal sealed class AnthropicSummarizationStrategy(IAnthropicProvider anthropi
     }
 }
 
-internal sealed class OpenAiSummarizationStrategy(IOpenAiProvider openAi) : ISummarizationStrategy
+internal sealed class OpenAiSummarizationStrategy(IOpenAiProvider openAi, int maxTokens) : ISummarizationStrategy
 {
     public async Task<string> SummarizeAsync(string prompt, string model, CancellationToken ct)
     {
@@ -313,7 +313,7 @@ internal sealed class OpenAiSummarizationStrategy(IOpenAiProvider openAi) : ISum
             new(ChatRole.User, prompt)
         };
         var result = await client.GetResponseAsync(
-            oaiMessages, new ChatOptions { MaxOutputTokens = 512 }, ct);
+            oaiMessages, new ChatOptions { MaxOutputTokens = maxTokens }, ct);
         return "Earlier session context (LLM summary):\n" + (result.Text ?? "(no summary)");
     }
 }

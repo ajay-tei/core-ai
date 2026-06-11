@@ -4,6 +4,31 @@
 
 ---
 
+## [2026-06-11] Verification Auto-mode escalation + token-cost optimisations
+
+### Auto mode now escalates low-confidence responses to an LLM cross-check
+
+Previously `Auto` always terminated in the cheap `ToolGrounded` heuristic and never made a second LLM call, so action/delivery claims (e.g. "email sent", "CC'd", "delivered", "rendered") were trusted at a flat confidence even though tool *data* evidence could not prove them — the same false-positive class seen in Strict mode. `ToolGroundedCheck` now returns **variable confidence**, and `Auto` escalates to a non-blocking LLM verifier only when confidence falls below a configurable threshold and evidence exists. The common case (plain tool-grounded data) stays zero-cost.
+
+| File | Change |
+|------|--------|
+| `src/Diva.Core/Configuration/VerificationOptions.cs` | Added `AutoEscalateThreshold` (default `0.7`; `0` disables escalation) |
+| `src/Diva.Infrastructure/Verification/ResponseVerifier.cs` | New `ActionClaimPattern` regex; `ToolGroundedCheck` lowers confidence to `0.6` on action/delivery claims; `AutoVerifyAsync` rewritten to run heuristic first, then escalate to a non-blocking `LlmVerifier` (relabelled `Mode="Auto"`) below threshold when evidence is present |
+| `src/Diva.Host/appsettings.json` | Added `Verification:AutoEscalateThreshold: 0.7` |
+| `docker-compose.yml` | Dev stack `Verification__Mode` switched `LlmVerifier` → `Auto`; added `Verification__AutoEscalateThreshold: "0.7"` |
+| `tests/Diva.Agents.Tests/ResponseVerifierTests.cs` | +4 tests: action-claim confidence drop, plain-data baseline, escalation with evidence, no-escalation without evidence, escalation disabled (14 total, all green) |
+| `docs/arch-response-verification.md` | Updated Auto decision tree, per-agent table, and config example |
+
+### Context-window token-cost optimisations
+
+| File | Change |
+|------|--------|
+| `src/Diva.Core/Configuration/AgentOptions.cs` | Added `ContextWindow:SummarizerMaxTokens` (default 512) |
+| `src/Diva.Infrastructure/Context/ContextWindowManager.cs` | Point B summariser max tokens now configurable via `SummarizerMaxTokens` (was hardcoded 512) for both Anthropic and OpenAI strategies |
+| `src/Diva.TenantAdmin/Prompts/TenantAwarePromptBuilder.cs` | Few-shot examples (Phase 24) moved from the per-session dynamic block to the static (cached) block — they are stable per agent+tenant, so this maximises the Anthropic BP1 prompt-cache hit rate |
+
+---
+
 ## [2026-06-10] ADR-13683 — AI Session & Context Management gaps resolved
 
 Closes the three critical gaps identified against ADR-13683 (_Implement AI Session & Context Management Framework_).

@@ -119,7 +119,7 @@ public sealed class AgentOptions
 
 public sealed class LlmRetryOptions
 {
-    public int MaxRetries  { get; set; } = 3;
+    public int MaxRetries { get; set; } = 3;
     public int BaseDelayMs { get; set; } = 1000;  // doubles each attempt: 2s, 4s, 8s
 }
 
@@ -148,6 +148,9 @@ public sealed class ContextWindowOptions
     /// null = fall back to the session's own model, then to rule-based summarisation.
     /// </summary>
     public string? SummarizerModel { get; set; }
+
+    /// <summary>Max output tokens for the cross-run (Point B) LLM summariser call. Default 512.</summary>
+    public int SummarizerMaxTokens { get; set; } = 512;
 }
 
 /// <summary>

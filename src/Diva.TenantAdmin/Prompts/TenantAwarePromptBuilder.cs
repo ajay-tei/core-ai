@@ -179,22 +179,9 @@ public sealed class TenantAwarePromptBuilder : IPromptBuilder
             staticParts.Add("## Group Rules\n\n" +
                 string.Join("\n", groupRules.Select(r => $"- {r.PromptInjection}")));
 
-        var staticResult = string.Join("\n\n", staticParts);
-        var customVars = PromptVariableResolver.ParseJson(customVariablesJson, _logger);
-        var runtimeVars = BuildRuntimeVariables(tenant);
-        staticResult = PromptVariableResolver.Resolve(staticResult, customVars, runtimeVars, _logger);
-
-        // ── Dynamic part (changes per session) ────────────────────────────────────────────
-        var sessionRuleList = sessionRulesTask.Result;
-        var dynamicParts = new List<string>();
-
-        if (sessionRuleList.Count > 0)
-            dynamicParts.Add(PromptVariableResolver.Resolve(
-                "## Session Rules\n\n" +
-                string.Join("\n", sessionRuleList.Select(r => $"- {r.PromptInjection}")),
-                customVars, runtimeVars, _logger));
-
-        // Few-shot examples (Phase 24) — injected in dynamic part (per-agent, not per-session)
+        // Few-shot examples (Phase 24) — per-agent (not per-session), so they belong in the
+        // STATIC (cached) block to maximise the Anthropic BP1 cache hit rate. They are stable
+        // across turns for a given agent+tenant.
         if (agentId is not null)
         {
             try
@@ -212,7 +199,7 @@ public sealed class TenantAwarePromptBuilder : IPromptBuilder
                         sb.AppendLine($"Assistant: {ex.AssistantMessage}");
                         sb.AppendLine();
                     }
-                    dynamicParts.Add(sb.ToString().TrimEnd());
+                    staticParts.Add(sb.ToString().TrimEnd());
                 }
             }
             catch (Exception ex)
@@ -220,6 +207,21 @@ public sealed class TenantAwarePromptBuilder : IPromptBuilder
                 _logger.LogWarning(ex, "Failed to load few-shot examples for agent {AgentId}", agentId);
             }
         }
+
+        var staticResult = string.Join("\n\n", staticParts);
+        var customVars = PromptVariableResolver.ParseJson(customVariablesJson, _logger);
+        var runtimeVars = BuildRuntimeVariables(tenant);
+        staticResult = PromptVariableResolver.Resolve(staticResult, customVars, runtimeVars, _logger);
+
+        // ── Dynamic part (changes per session) ────────────────────────────────────────────
+        var sessionRuleList = sessionRulesTask.Result;
+        var dynamicParts = new List<string>();
+
+        if (sessionRuleList.Count > 0)
+            dynamicParts.Add(PromptVariableResolver.Resolve(
+                "## Session Rules\n\n" +
+                string.Join("\n", sessionRuleList.Select(r => $"- {r.PromptInjection}")),
+                customVars, runtimeVars, _logger));
 
         var dynamicResult = dynamicParts.Count > 0 ? string.Join("\n\n", dynamicParts) : string.Empty;
 
