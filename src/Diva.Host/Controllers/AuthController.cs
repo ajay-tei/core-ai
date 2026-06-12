@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Diva.Core.Configuration;
+using Diva.Host.Auth;
 using Diva.Infrastructure.Auth;
 using Diva.TenantAdmin.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -139,6 +140,9 @@ public class AuthController : ControllerBase
         var emailField = tenantMappings?.Email ?? "email";
         var nameField = tenantMappings?.DisplayName ?? "name";
         var rolesField = tenantMappings?.Roles ?? "roles";
+        var groupsField = tenantMappings?.Groups ?? "groups";
+        var agentAccessField = tenantMappings?.AgentAccess ?? "agent_access";
+        var groupAccessField = tenantMappings?.GroupAccess ?? "group_access";
 
         var redirectUri = BuildApiCallbackUri(config.ProxyBaseUrl);
         var http = _httpClientFactory.CreateClient("sso-auth");
@@ -184,6 +188,9 @@ public class AuthController : ControllerBase
         string? userName = null;
         string? userId = null;
         string[]? roles = null;
+        string[]? groups = null;
+        string[]? agentAccess = null;
+        string[]? groupAccess = null;
 
         // ── Step 2a: Extract identity from the id_token (OIDC) ───────────────
         // The id_token is a signed JWT returned alongside the access_token.
@@ -210,6 +217,9 @@ public class AuthController : ControllerBase
                         userEmail = TryGetString(idRoot, emailField, "email", "mail");
                         userName = TryGetString(idRoot, nameField, "name", "preferred_username", "username");
                         roles = TryGetStringArray(idRoot, rolesField, "roles");
+                        groups = TryGetStringArray(idRoot, groupsField, "groups");
+                        agentAccess = TryGetStringArray(idRoot, agentAccessField, "agent_access");
+                        groupAccess = TryGetStringArray(idRoot, groupAccessField, "group_access");
                     }
                 }
                 catch
@@ -241,12 +251,18 @@ public class AuthController : ControllerBase
                     var uiUserName = TryGetString(root, nameField, "name", "display_name", "displayName",
                                                    "full_name", "FullName", "preferred_username", "username");
                     var uiRoles = TryGetStringArray(root, rolesField, "roles", "groups");
+                    var uiGroups = TryGetStringArray(root, groupsField, "groups");
+                    var uiAgentAccess = TryGetStringArray(root, agentAccessField, "agent_access");
+                    var uiGroupAccess = TryGetStringArray(root, groupAccessField, "group_access");
 
                     // Userinfo wins over id_token when it returns a value
                     userId = uiUserId ?? userId;
                     userEmail = uiUserEmail ?? userEmail;
                     userName = uiUserName ?? userName;
                     roles = uiRoles ?? roles;
+                    groups = uiGroups ?? groups;
+                    agentAccess = uiAgentAccess ?? agentAccess;
+                    groupAccess = uiGroupAccess ?? groupAccess;
                 }
             }
             catch
@@ -265,13 +281,24 @@ public class AuthController : ControllerBase
         if (string.IsNullOrEmpty(effectiveUserId))
             return BadRequest("SSO provider did not return a user identifier (sub) or email. Cannot complete login.");
 
+        // Normalize roles/groups into canonical Diva roles + access-group IDs, applying the
+        // default-user fallback when the IdP supplied no roles. A user with no mapped access
+        // groups ends up with an empty group_access list and can therefore invoke only agents
+        // that are not restricted to any access group.
+        var mapped = SsoClaimMapper.Map(roles, groups, groupAccess, tenantMappings, config.UseRoleMappings);
+        roles = mapped.Roles;
+        groupAccess = mapped.GroupAccess;
+
         var localToken = _localAuth.IssueSsoJwt(
             tenantId,
             effectiveUserId,
             userEmail ?? "",
             userName ?? userEmail ?? effectiveUserId,
-            roles: roles ?? [],
-            ssoAccessToken: accessToken);
+            roles: roles,
+            ssoAccessToken: accessToken,
+            groups: groups ?? [],
+            agentAccess: agentAccess ?? [],
+            groupAccess: groupAccess);
 
         // ── Step 4: Redirect browser to portal with local token in URL fragment ─
         // Fragment (#) is never sent to the server and doesn't appear in access logs.
@@ -279,6 +306,8 @@ public class AuthController : ControllerBase
         var fragment = new StringBuilder();
         fragment.Append($"token={Uri.EscapeDataString(localToken)}");
         fragment.Append($"&tenant_id={tenantId}");
+        var isAdmin = (roles ?? []).Any(r => string.Equals(r, "admin", StringComparison.OrdinalIgnoreCase));
+        fragment.Append($"&is_admin={(isAdmin ? "true" : "false")}");
         if (userId is not null) fragment.Append($"&user_id={Uri.EscapeDataString(userId)}");
         if (userEmail is not null) fragment.Append($"&email={Uri.EscapeDataString(userEmail)}");
         if (userName is not null) fragment.Append($"&name={Uri.EscapeDataString(userName)}");
@@ -389,6 +418,7 @@ public class AuthController : ControllerBase
             tenantId = result.TenantId,   // 0 = platform level
             roles = result.Roles,
             isMasterAdmin = true,
+            isAdmin = true,
         });
     }
 
@@ -486,6 +516,7 @@ public class AuthController : ControllerBase
             userId = result.UserId,
             tenantId = result.TenantId,
             roles = result.Roles,
+            isAdmin = result.Roles.Any(r => string.Equals(r, "admin", StringComparison.OrdinalIgnoreCase)),
         });
     }
 
@@ -498,6 +529,7 @@ public class AuthController : ControllerBase
     // ── GET /api/auth/local-users?tenantId=1 ─────────────────────────────────
 
     [HttpGet("local-users")]
+    [RequireTenantAdmin]
     public async Task<IActionResult> GetLocalUsers([FromQuery] int tenantId = 1, CancellationToken ct = default)
     {
         var users = await _localAuth.GetUsersAsync(EffectiveTenantId(tenantId), ct);
@@ -517,6 +549,7 @@ public class AuthController : ControllerBase
     // ── POST /api/auth/local-users?tenantId=1 ────────────────────────────────
 
     [HttpPost("local-users")]
+    [RequireTenantAdmin]
     public async Task<IActionResult> CreateLocalUser(
         [FromBody] CreateLocalUserRequest req,
         [FromQuery] int tenantId = 1,
@@ -530,6 +563,7 @@ public class AuthController : ControllerBase
     // ── DELETE /api/auth/local-users/{id}?tenantId=1 ─────────────────────────
 
     [HttpDelete("local-users/{id:int}")]
+    [RequireTenantAdmin]
     public async Task<IActionResult> DeleteLocalUser(
         int id,
         [FromQuery] int tenantId = 1,
@@ -552,6 +586,7 @@ public class AuthController : ControllerBase
     // ── POST /api/auth/local-users/{id}/reset-password?tenantId=1 ────────────
 
     [HttpPost("local-users/{id:int}/reset-password")]
+    [RequireTenantAdmin]
     public async Task<IActionResult> ResetLocalUserPassword(
         int id,
         [FromBody] ResetPasswordRequest req,

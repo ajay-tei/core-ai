@@ -1,3 +1,4 @@
+using Diva.Host.Auth;
 using Diva.Infrastructure.Auth;
 using Diva.Infrastructure.Learning;
 using Microsoft.AspNetCore.Mvc;
@@ -6,6 +7,7 @@ namespace Diva.Host.Controllers;
 
 [ApiController]
 [Route("api/learned-rules")]
+[RequireTenantAdmin]
 public class LearnedRulesController : ControllerBase
 {
     private readonly IRuleLearningService _learning;

@@ -285,6 +285,9 @@ builder.Services.AddSingleton<IGroupMembershipCache, GroupMembershipCache>();
 builder.Services.AddSingleton<ILlmConfigResolver, LlmConfigResolver>();
 builder.Services.AddSingleton<ITenantGroupService, TenantGroupService>();
 
+// ── Phase 28: Agent Access Groups ─────────────────────────────────────────────────────
+builder.Services.AddSingleton<IAgentGroupService, AgentGroupService>();
+
 // ── Phase 18: Group Agent Overlays ────────────────────────────────────────────────────
 builder.Services.AddSingleton<IGroupAgentOverlayService, GroupAgentOverlayService>();
 

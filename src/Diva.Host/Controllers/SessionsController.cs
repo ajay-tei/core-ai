@@ -1,5 +1,6 @@
 using Diva.Core.Models;
 using Diva.Core.Models.Session;
+using Diva.Host.Auth;
 using Diva.Infrastructure.Auth;
 using Diva.Infrastructure.Data;
 using Diva.Infrastructure.Data.Entities;
@@ -23,6 +24,11 @@ public class SessionsController : ControllerBase
         WriteIndented = true,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
+
+    // Regular users (role "user" / "viewer") may only see their own sessions.
+    // Tenant admins and the master admin see all sessions in their tenant.
+    private static bool IsRestrictedUser(TenantContext? ctx)
+        => ctx is not null && !ctx.IsAdmin && !ctx.IsMasterAdmin;
 
     public SessionsController(
         SessionTraceDbContext trace,
@@ -52,6 +58,21 @@ public class SessionsController : ControllerBase
     {
         var ctx = HttpContext.TryGetTenantContext();
         var effectiveTenantId = ctx is { TenantId: > 0 } ? ctx.TenantId : tenantId;
+
+        // Non-admin users (user / viewer) may only see their own sessions.
+        if (IsRestrictedUser(ctx))
+        {
+            userId = ctx!.UserId;
+            if (string.IsNullOrEmpty(userId))
+                return Ok(new PagedResult<SessionSummary>
+                {
+                    Items = [],
+                    Page = page,
+                    PageSize = pageSize,
+                    TotalCount = 0,
+                    TotalPages = 0,
+                });
+        }
 
         var query = _trace.TraceSessions.AsNoTracking();
 
@@ -129,6 +150,9 @@ public class SessionsController : ControllerBase
         if (effectiveTenantId.HasValue && session.TenantId != effectiveTenantId.Value)
             return NotFound();
 
+        if (IsRestrictedUser(ctx) && session.UserId != ctx!.UserId)
+            return NotFound();
+
         var turns = await _trace.TraceSessionTurns
             .AsNoTracking()
             .Where(t => t.SessionId == id)
@@ -191,6 +215,16 @@ public class SessionsController : ControllerBase
                 .Select(s => (int?)s.TenantId)
                 .FirstOrDefaultAsync(ct);
             if (sessionTenant is null || sessionTenant != effectiveTenantId.Value)
+                return NotFound();
+        }
+
+        if (IsRestrictedUser(ctx))
+        {
+            var ownerId = await _trace.TraceSessions.AsNoTracking()
+                .Where(s => s.SessionId == id)
+                .Select(s => s.UserId)
+                .FirstOrDefaultAsync(ct);
+            if (ownerId != ctx!.UserId)
                 return NotFound();
         }
 
@@ -285,6 +319,9 @@ public class SessionsController : ControllerBase
         if (effectiveTenantId.HasValue && current.TenantId != effectiveTenantId.Value)
             return NotFound();
 
+        if (IsRestrictedUser(ctx) && current.UserId != ctx!.UserId)
+            return NotFound();
+
         // Walk up to the true root
         var rootId = id;
         while (current?.ParentSessionId != null)
@@ -362,6 +399,9 @@ public class SessionsController : ControllerBase
         if (effectiveTenantId.HasValue && session.TenantId != effectiveTenantId.Value)
             return NotFound();
 
+        if (IsRestrictedUser(ctx) && session.UserId != ctx!.UserId)
+            return NotFound();
+
         var turns = await _trace.TraceSessionTurns.AsNoTracking()
             .Where(t => t.SessionId == id).ToListAsync(ct);
         var iterations = await _trace.TraceIterations.AsNoTracking()
@@ -408,6 +448,9 @@ public class SessionsController : ControllerBase
         if (effectiveTenantId.HasValue && session.TenantId != effectiveTenantId.Value)
             return NotFound();
 
+        if (IsRestrictedUser(ctx) && session.UserId != ctx!.UserId)
+            return NotFound();
+
         var tenant = ctx is { TenantId: > 0 } ? ctx : TenantContext.System(session.TenantId);
         var reactivated = await _sessions.ReactivateAsync(id, tenant, ct);
 
@@ -440,6 +483,9 @@ public class SessionsController : ControllerBase
         if (effectiveTenantId.HasValue && session.TenantId != effectiveTenantId.Value)
             return NotFound();
 
+        if (IsRestrictedUser(ctx) && session.UserId != ctx!.UserId)
+            return NotFound();
+
         session.Status = "deleted";
         await _trace.SaveChangesAsync(ct);
         return NoContent();
@@ -452,6 +498,7 @@ public class SessionsController : ControllerBase
     /// Returns { deleted: N }.
     /// </summary>
     [HttpDelete("purge")]
+    [RequireTenantAdmin]
     public async Task<IActionResult> PurgeSessions(
         [FromQuery] int olderThanDays = 30,
         [FromQuery] string? status = null,

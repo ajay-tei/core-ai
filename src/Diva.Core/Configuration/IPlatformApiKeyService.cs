@@ -20,7 +20,8 @@ public sealed record ValidatedApiKey(
     string Name,
     string KeyPrefix,
     string Scope,
-    string[]? AllowedAgentIds);
+    string[]? AllowedAgentIds,
+    string[]? AllowedGroupIds = null);
 
 /// <summary>
 /// Request to create a new platform API key.
@@ -29,7 +30,8 @@ public sealed record CreateApiKeyRequest(
     string Name,
     string Scope,
     string[]? AllowedAgentIds,
-    DateTime? ExpiresAt);
+    DateTime? ExpiresAt,
+    string[]? AllowedGroupIds = null);
 
 /// <summary>
 /// Manages platform API keys for non-SSO authentication.
@@ -63,4 +65,5 @@ public sealed record PlatformApiKeyInfo(
     DateTime? ExpiresAt,
     bool IsActive,
     DateTime? LastUsedAt,
-    string? CreatedByUserId);
+    string? CreatedByUserId,
+    string[]? AllowedGroupIds = null);

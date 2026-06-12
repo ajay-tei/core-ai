@@ -101,6 +101,7 @@ public sealed class TenantContextMiddleware
                 Role = role,
                 UserRoles = [role],
                 AgentAccess = validatedKey.AllowedAgentIds ?? ["*"],
+                GroupAccess = validatedKey.AllowedGroupIds ?? [],
                 SiteIds = [],
                 CurrentSiteId = int.TryParse(context.Request.Headers["X-Site-ID"].FirstOrDefault(), out var sid) ? sid : 0,
                 InboundApiKey = apiKeyHeader,

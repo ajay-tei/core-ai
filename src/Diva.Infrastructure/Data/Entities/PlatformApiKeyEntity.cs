@@ -28,6 +28,13 @@ public class PlatformApiKeyEntity : ITenantEntity
     /// </summary>
     public string? AllowedAgentIdsJson { get; set; }
 
+    /// <summary>
+    /// Optional JSON array of agent-group IDs this key is explicitly granted.
+    /// Used to authorize access to access-restricted (grouped) agents, since an
+    /// API key has no real user/role identity. Null or empty = no group grants.
+    /// </summary>
+    public string? AllowedGroupIdsJson { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? ExpiresAt { get; set; }
     public bool IsActive { get; set; } = true;

@@ -1,5 +1,6 @@
 using Diva.Core.Configuration;
 using Diva.Core.Models;
+using Diva.Host.Auth;
 using Diva.Infrastructure.Auth;
 using Diva.Infrastructure.Data;
 using Diva.Infrastructure.Learning;
@@ -12,6 +13,7 @@ namespace Diva.Host.Controllers;
 
 [ApiController]
 [Route("api/admin")]
+[RequireTenantAdmin]
 public class AdminController : ControllerBase
 {
     private readonly ITenantBusinessRulesService _rules;
@@ -27,11 +29,11 @@ public class AdminController : ControllerBase
         ITenantSsoConfigService sso,
         ITenantGroupService groups)
     {
-        _rules        = rules;
+        _rules = rules;
         _learnedRules = learnedRules;
-        _db           = db;
-        _sso          = sso;
-        _groups       = groups;
+        _db = db;
+        _sso = sso;
+        _groups = groups;
     }
 
     /// <summary>
@@ -63,7 +65,7 @@ public class AdminController : ControllerBase
         [FromQuery] int tenantId = 1,
         CancellationToken ct = default)
     {
-        var tid    = EffectiveTenantId(tenantId);
+        var tid = EffectiveTenantId(tenantId);
         var entity = await _rules.CreateRuleAsync(tid, dto, ct);
         return CreatedAtAction(nameof(GetRules), new { tenantId = tid }, entity);
     }
@@ -253,7 +255,7 @@ public class AdminController : ControllerBase
         [FromQuery] int tenantId = 1,
         CancellationToken ct = default)
     {
-        var tid    = EffectiveTenantId(tenantId);
+        var tid = EffectiveTenantId(tenantId);
         var entity = await _rules.CreatePromptOverrideAsync(tid, dto, ct);
         return CreatedAtAction(nameof(GetPromptOverrides), new { tenantId = tid }, entity);
     }
@@ -340,10 +342,10 @@ public class AdminController : ControllerBase
         var tid = EffectiveTenantId(tenantId);
         using var db = _db.CreateDbContext(TenantContext.System(tid));
 
-        var agentCount       = await db.AgentDefinitions.CountAsync(ct);
-        var activeRuleCount  = await db.BusinessRules.CountAsync(r => r.IsActive, ct);
+        var agentCount = await db.AgentDefinitions.CountAsync(ct);
+        var activeRuleCount = await db.BusinessRules.CountAsync(r => r.IsActive, ct);
         var pendingRuleCount = await db.LearnedRules.CountAsync(r => r.Status == "pending", ct);
-        var sessionCount     = await db.Sessions.CountAsync(ct);
+        var sessionCount = await db.Sessions.CountAsync(ct);
 
         return Ok(new
         {
@@ -362,6 +364,7 @@ public record RejectRuleBody(string? Notes);
 
 [ApiController]
 [Route("api/admin/sso-configs")]
+[RequireTenantAdmin]
 public class SsoConfigController : ControllerBase
 {
     private readonly ITenantSsoConfigService _sso;
@@ -394,7 +397,7 @@ public class SsoConfigController : ControllerBase
         [FromQuery] int tenantId = 1,
         CancellationToken ct = default)
     {
-        var tid    = EffectiveTenantId(tenantId);
+        var tid = EffectiveTenantId(tenantId);
         var entity = await _sso.CreateAsync(tid, dto, ct);
         return CreatedAtAction(nameof(GetById), new { id = entity.Id, tenantId = tid }, entity);
     }
@@ -431,6 +434,7 @@ public class SsoConfigController : ControllerBase
 
 [ApiController]
 [Route("api/admin/user-profiles")]
+[RequireTenantAdmin]
 public class UserProfilesController : ControllerBase
 {
     private readonly IUserProfileService _profiles;
@@ -500,6 +504,7 @@ public class UserProfilesController : ControllerBase
 
 [ApiController]
 [Route("api/admin/a2a-config")]
+[RequireTenantAdmin]
 public class A2AConfigController : ControllerBase
 {
     private readonly A2AOptions _opts;
@@ -514,6 +519,7 @@ public class A2AConfigController : ControllerBase
 
 [ApiController]
 [Route("api/admin/widgets")]
+[RequireTenantAdmin]
 public class WidgetAdminController : ControllerBase
 {
     private readonly IWidgetConfigService _widgets;

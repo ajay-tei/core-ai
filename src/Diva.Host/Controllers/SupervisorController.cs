@@ -1,5 +1,6 @@
 using Diva.Agents.Supervisor;
 using Diva.Core.Models;
+using Diva.Host.Auth;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Diva.Host.Controllers;
@@ -12,6 +13,7 @@ namespace Diva.Host.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/supervisor")]
+[RequireTenantAdmin]
 public class SupervisorController : ControllerBase
 {
     private readonly ISupervisorAgent _supervisor;
@@ -20,7 +22,7 @@ public class SupervisorController : ControllerBase
     public SupervisorController(ISupervisorAgent supervisor, ILogger<SupervisorController> logger)
     {
         _supervisor = supervisor;
-        _logger     = logger;
+        _logger = logger;
     }
 
     /// <summary>
@@ -38,10 +40,10 @@ public class SupervisorController : ControllerBase
 
         var request = new AgentRequest
         {
-            Query          = req.Query,
-            SessionId      = req.SessionId,
+            Query = req.Query,
+            SessionId = req.SessionId,
             PreferredAgent = req.PreferredAgent,
-            TriggerType    = "api"
+            TriggerType = "api"
         };
 
         _logger.LogInformation("Supervisor invoke: tenant={TenantId}, preferred={Preferred}",
@@ -55,6 +57,6 @@ public class SupervisorController : ControllerBase
 // ── DTOs ──────────────────────────────────────────────────────────────────────
 public record SupervisorInvokeRequest(
     string Query,
-    string? SessionId      = null,
+    string? SessionId = null,
     string? PreferredAgent = null,
-    int?    TenantId       = null);
+    int? TenantId = null);

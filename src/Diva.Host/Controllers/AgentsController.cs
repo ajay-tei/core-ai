@@ -4,6 +4,7 @@ using Diva.Agents.Registry;
 using Diva.Agents.Workers;
 using Diva.Core.Configuration;
 using Diva.Core.Models;
+using Diva.Host.Auth;
 using Diva.Infrastructure.AgentExport;
 using Diva.Infrastructure.Auth;
 using Diva.Infrastructure.Data;
@@ -25,6 +26,7 @@ public class AgentsController : ControllerBase
     private readonly IDatabaseProviderFactory _db;
     private readonly IAgentRunner _runner;
     private readonly ITenantGroupService _groups;
+    private readonly IAgentGroupService _agentGroups;
     private readonly IGroupAgentOverlayService _overlays;
     private readonly IArchetypeRegistry _archetypes;
     private readonly IAgentRegistry _registry;
@@ -38,6 +40,7 @@ public class AgentsController : ControllerBase
         IDatabaseProviderFactory db,
         IAgentRunner runner,
         ITenantGroupService groups,
+        IAgentGroupService agentGroups,
         IGroupAgentOverlayService overlays,
         IArchetypeRegistry archetypes,
         IAgentRegistry registry,
@@ -50,6 +53,7 @@ public class AgentsController : ControllerBase
         _db = db;
         _runner = runner;
         _groups = groups;
+        _agentGroups = agentGroups;
         _overlays = overlays;
         _archetypes = archetypes;
         _registry = registry;
@@ -88,7 +92,16 @@ public class AgentsController : ControllerBase
                     IsActivated: ov?.IsEnabled ?? false, OverlayGuid: ov?.Guid);
             });
 
-        return Ok(ownAgents.Concat(sharedSummaries));
+        var all = ownAgents.Concat(sharedSummaries);
+
+        // Non-admin users (e.g. user / viewer) only see agents they may invoke.
+        if (!tenant.IsAdmin && !tenant.IsMasterAdmin)
+        {
+            var denied = await _agentGroups.GetDeniedAgentIdsAsync(tenant, ct);
+            all = all.Where(a => !denied.Contains(a.Id));
+        }
+
+        return Ok(all);
     }
 
     // ── GET /api/agents/{id} ──────────────────────────────────────────────────
@@ -96,6 +109,12 @@ public class AgentsController : ControllerBase
     public async Task<IActionResult> Get(string id, CancellationToken ct)
     {
         var tenant = Tenant;
+
+        // Non-admin users may only view agents they are allowed to invoke.
+        if (!tenant.IsAdmin && !tenant.IsMasterAdmin
+            && !await _agentGroups.CanInvokeAgentAsync(id, tenant, ct))
+            return Forbid();
+
         using var db = _db.CreateDbContext(tenant);
         var agent = await db.AgentDefinitions.FindAsync([id], ct);
         if (agent is not null) return Ok(agent);
@@ -109,6 +128,7 @@ public class AgentsController : ControllerBase
 
     // ── POST /api/agents ──────────────────────────────────────────────────────
     [HttpPost]
+    [RequireTenantAdmin]
     public async Task<IActionResult> Create([FromBody] AgentDefinitionEntity dto, CancellationToken ct)
     {
         var tenant = Tenant;
@@ -125,6 +145,7 @@ public class AgentsController : ControllerBase
 
     // ── PUT /api/agents/{id} ──────────────────────────────────────────────────
     [HttpPut("{id}")]
+    [RequireTenantAdmin]
     public async Task<IActionResult> Update(string id, [FromBody] AgentDefinitionEntity dto, CancellationToken ct)
     {
         using var db = _db.CreateDbContext(Tenant);
@@ -171,6 +192,7 @@ public class AgentsController : ControllerBase
 
     // ── DELETE /api/agents/{id} ───────────────────────────────────────────────
     [HttpDelete("{id}")]
+    [RequireTenantAdmin]
     public async Task<IActionResult> Delete(string id, CancellationToken ct)
     {
         using var db = _db.CreateDbContext(Tenant);
@@ -183,6 +205,7 @@ public class AgentsController : ControllerBase
 
     // ── POST /api/agents/{id}/prompt/improve ──────────────────────────────────
     [HttpPost("{id}/prompt/improve")]
+    [RequireTenantAdmin]
     public async Task<IActionResult> ImprovePrompt(
         string id,
         [FromBody] ImprovePromptRequest body,
@@ -220,6 +243,9 @@ public class AgentsController : ControllerBase
         if (!tenant.CanInvokeAgent(agent.AgentType))
             return StatusCode(403, new { error = "Access denied to this agent." });
 
+        if (!await _agentGroups.CanInvokeAgentAsync(agent.Id, tenant, ct))
+            return StatusCode(403, new { error = "Access denied to this agent." });
+
         var request = new AgentRequest { Query = req.Query, SessionId = req.SessionId, ModelId = req.ModelId, LlmConfigId = req.LlmConfigId, Attachments = req.Attachments ?? [] };
 
         var result = await _runner.RunAsync(agent, request, tenant, ct);
@@ -235,6 +261,13 @@ public class AgentsController : ControllerBase
         if (agent is null) { Response.StatusCode = 404; return; }
         if (!agent.IsEnabled) { Response.StatusCode = 400; return; }
         if (!tenant.CanInvokeAgent(agent.AgentType))
+        {
+            Response.StatusCode = 403;
+            await Response.WriteAsync("Access denied to this agent.");
+            return;
+        }
+
+        if (!await _agentGroups.CanInvokeAgentAsync(agent.Id, tenant, ct))
         {
             Response.StatusCode = 403;
             await Response.WriteAsync("Access denied to this agent.");
@@ -272,6 +305,7 @@ public class AgentsController : ControllerBase
 
     // ── GET /api/agents/{id}/export ───────────────────────────────────────────
     [HttpGet("{id}/export")]
+    [RequireTenantAdmin]
     public async Task<IActionResult> Export(string id, CancellationToken ct)
     {
         var tenant = Tenant;
@@ -294,6 +328,7 @@ public class AgentsController : ControllerBase
 
     // ── POST /api/agents/import ───────────────────────────────────────────────
     [HttpPost("import")]
+    [RequireTenantAdmin]
     public async Task<IActionResult> Import(
         [FromBody] AgentExportBundle bundle,
         [FromQuery] bool overwrite = false,
@@ -318,6 +353,7 @@ public class AgentsController : ControllerBase
     // Connects to an MCP server (HTTP or stdio) and returns its available tools.
     // PassSsoToken=true forwards the caller's Bearer JWT; CredentialRef resolves a stored credential.
     [HttpPost("mcp-probe")]
+    [RequireTenantAdmin]
     public async Task<IActionResult> McpProbe([FromBody] McpProbeRequest req, CancellationToken ct)
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -453,6 +489,7 @@ public class AgentsController : ControllerBase
 
     /// <summary>Applies (activates) a group template for this tenant — upsert.</summary>
     [HttpPost("group-templates/{templateId}/overlay")]
+    [RequireTenantAdmin]
     public async Task<IActionResult> ApplyOverlay(
         string templateId,
         [FromBody] ApplyGroupAgentOverlayDto dto,
@@ -471,6 +508,7 @@ public class AgentsController : ControllerBase
 
     /// <summary>Updates an existing overlay's fields.</summary>
     [HttpPut("group-templates/{templateId}/overlay")]
+    [RequireTenantAdmin]
     public async Task<IActionResult> UpdateOverlay(
         string templateId,
         [FromBody] UpdateGroupAgentOverlayDto dto,
@@ -491,6 +529,7 @@ public class AgentsController : ControllerBase
 
     /// <summary>Removes the tenant's overlay for a group template.</summary>
     [HttpDelete("group-templates/{templateId}/overlay")]
+    [RequireTenantAdmin]
     public async Task<IActionResult> RemoveOverlay(string templateId, CancellationToken ct)
     {
         var existing = await _overlays.GetOverlayAsync(Tenant.TenantId, templateId, ct);
@@ -501,6 +540,7 @@ public class AgentsController : ControllerBase
 
     /// <summary>Toggles IsEnabled on the tenant's overlay for a group template.</summary>
     [HttpPatch("group-templates/{templateId}/overlay/enabled")]
+    [RequireTenantAdmin]
     public async Task<IActionResult> SetOverlayEnabled(
         string templateId,
         [FromBody] SetOverlayEnabledDto dto,
@@ -596,6 +636,7 @@ public class AgentsController : ControllerBase
 
     // ── POST /api/agents/suggest-prompt ──────────────────────────────────────
     [HttpPost("suggest-prompt")]
+    [RequireTenantAdmin]
     public async Task<IActionResult> SuggestPrompt(
         [FromBody] AgentSetupContext ctx,
         CancellationToken ct)
@@ -615,6 +656,7 @@ public class AgentsController : ControllerBase
 
     // ── POST /api/agents/suggest-rule-packs ───────────────────────────────────
     [HttpPost("suggest-rule-packs")]
+    [RequireTenantAdmin]
     public async Task<IActionResult> SuggestRulePacks(
         [FromBody] AgentSetupContext ctx,
         CancellationToken ct)
@@ -634,6 +676,7 @@ public class AgentsController : ControllerBase
 
     // ── GET /api/agents/{agentId}/prompt-history ─────────────────────────────
     [HttpGet("{agentId}/prompt-history")]
+    [RequireTenantAdmin]
     public async Task<IActionResult> GetPromptHistory(string agentId, CancellationToken ct)
     {
         var tenant = Tenant;
@@ -643,6 +686,7 @@ public class AgentsController : ControllerBase
 
     // ── POST /api/agents/{agentId}/prompt-history/{version}/restore ──────────
     [HttpPost("{agentId}/prompt-history/{version:int}/restore")]
+    [RequireTenantAdmin]
     public async Task<IActionResult> RestorePromptVersion(
         string agentId,
         int version,

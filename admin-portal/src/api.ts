@@ -929,6 +929,7 @@ export interface PlatformApiKey
   keyPrefix: string;
   scope: string;               // "admin" | "invoke" | "readonly"
   allowedAgentIds?: string[];
+  allowedGroupIds?: string[];
   createdAt: string;
   expiresAt?: string;
   isActive: boolean;
@@ -951,7 +952,32 @@ export interface CreateApiKeyDto
   name: string;
   scope?: string;
   allowedAgentIds?: string[];
+  allowedGroupIds?: string[];
   expiresAt?: string;
+  tenantId?: number;
+}
+
+// ── Agent Access Groups (Phase 28) ────────────────────────────────────────────
+
+export interface AgentGroup
+{
+  id: string;
+  name: string;
+  description?: string;
+  agentIds: string[];
+  allowedUserIds: string[];
+  allowedRoles: string[];
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface AgentGroupRequest
+{
+  name: string;
+  description?: string;
+  agentIds?: string[];
+  allowedUserIds?: string[];
+  allowedRoles?: string[];
   tenantId?: number;
 }
 
@@ -1607,6 +1633,18 @@ export const api = {
     request<void>(`/api/admin/api-keys/${ id }${ tenantId ? `?tenantId=${ tenantId }` : "" }`, { method: "DELETE" }),
   rotateApiKey: (id: number, tenantId?: number) =>
     request<ApiKeyCreatedResult>(`/api/admin/api-keys/${ id }/rotate`, { method: "POST", body: JSON.stringify({ tenantId: tenantId ?? 1 }) }),
+
+  // ── Agent Access Groups (Phase 28) ──────────────────────────────────────────
+  listAgentGroups: (tenantId?: number) =>
+    request<AgentGroup[]>(`/api/agent-groups${ tenantId ? `?tenantId=${ tenantId }` : "" }`),
+  getAgentGroup: (id: string, tenantId?: number) =>
+    request<AgentGroup>(`/api/agent-groups/${ id }${ tenantId ? `?tenantId=${ tenantId }` : "" }`),
+  createAgentGroup: (dto: AgentGroupRequest) =>
+    request<AgentGroup>("/api/agent-groups", { method: "POST", body: JSON.stringify(dto) }),
+  updateAgentGroup: (id: string, dto: AgentGroupRequest) =>
+    request<AgentGroup>(`/api/agent-groups/${ id }`, { method: "PUT", body: JSON.stringify(dto) }),
+  deleteAgentGroup: (id: string, tenantId?: number) =>
+    request<void>(`/api/agent-groups/${ id }${ tenantId ? `?tenantId=${ tenantId }` : "" }`, { method: "DELETE" }),
 
   // ── A2A Config ────────────────────────────────────────────────────────────
   getA2AConfig: () => request<A2AConfig>("/api/admin/a2a-config"),

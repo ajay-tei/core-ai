@@ -1,4 +1,5 @@
 using Diva.Core.Configuration;
+using Diva.Host.Auth;
 using Diva.Infrastructure.Auth;
 using Microsoft.AspNetCore.Mvc;
 
@@ -6,6 +7,7 @@ namespace Diva.Host.Controllers;
 
 [ApiController]
 [Route("api/admin/api-keys")]
+[RequireTenantAdmin]
 public class ApiKeysController : ControllerBase
 {
     private readonly IPlatformApiKeyService _keys;
@@ -13,7 +15,7 @@ public class ApiKeysController : ControllerBase
 
     public ApiKeysController(IPlatformApiKeyService keys, ILogger<ApiKeysController> logger)
     {
-        _keys   = keys;
+        _keys = keys;
         _logger = logger;
     }
 
@@ -39,7 +41,7 @@ public class ApiKeysController : ControllerBase
         var tid = EffectiveTenantId(dto.TenantId);
         var ctx = HttpContext.TryGetTenantContext();
 
-        var request = new CreateApiKeyRequest(dto.Name, dto.Scope, dto.AllowedAgentIds, dto.ExpiresAt);
+        var request = new CreateApiKeyRequest(dto.Name, dto.Scope, dto.AllowedAgentIds, dto.ExpiresAt, dto.AllowedGroupIds);
         var result = await _keys.CreateAsync(tid, ctx?.UserId ?? "unknown", request, ct);
 
         _logger.LogInformation("API key created: {Name} (scope={Scope}) for tenant {TenantId}",
@@ -78,6 +80,7 @@ public record CreateApiKeyDto(
     string Scope = "invoke",
     string[]? AllowedAgentIds = null,
     DateTime? ExpiresAt = null,
-    int TenantId = 1);
+    int TenantId = 1,
+    string[]? AllowedGroupIds = null);
 
 public record RotateApiKeyDto(int TenantId = 1);

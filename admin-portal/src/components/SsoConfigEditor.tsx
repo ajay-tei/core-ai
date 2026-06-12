@@ -15,8 +15,54 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Save, Info, ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowLeft, Save, Info, ChevronDown, ChevronUp, Plus, X } from "lucide-react";
 import { toast } from "sonner";
+
+/** A single IdP-value → target mapping row used by the RoleMap / AccessGroupMap editors. */
+type MapRow = { from: string; to: string };
+
+function safeParseObject(json: string | undefined): Record<string, unknown> {
+  if (!json || !json.trim()) return {};
+  try {
+    const o = JSON.parse(json);
+    return o && typeof o === "object" && !Array.isArray(o) ? (o as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function roleMapToRows(v: unknown): MapRow[] {
+  if (!v || typeof v !== "object") return [];
+  return Object.entries(v as Record<string, unknown>).map(([from, to]) => ({ from, to: String(to ?? "") }));
+}
+
+function accessGroupMapToRows(v: unknown): MapRow[] {
+  if (!v || typeof v !== "object") return [];
+  return Object.entries(v as Record<string, unknown>).map(([from, to]) => ({
+    from,
+    to: Array.isArray(to) ? to.join(", ") : String(to ?? ""),
+  }));
+}
+
+function rowsToRoleMap(rows: MapRow[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const r of rows) {
+    const k = r.from.trim();
+    const val = r.to.trim();
+    if (k && val) out[k] = val;
+  }
+  return out;
+}
+
+function rowsToAccessGroupMap(rows: MapRow[]): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const r of rows) {
+    const k = r.from.trim();
+    const ids = r.to.split(",").map(s => s.trim()).filter(Boolean);
+    if (k && ids.length) out[k] = ids;
+  }
+  return out;
+}
 
 const CLAIM_FIELDS = [
   { key: "TenantId",    default: "tenant_id",       desc: "Integer tenant identifier" },
@@ -26,7 +72,9 @@ const CLAIM_FIELDS = [
   { key: "DisplayName", default: "name",             desc: 'User display name — try "displayName" for Azure AD' },
   { key: "SiteIds",     default: "site_ids",         desc: "Array or comma-list of integer site IDs the user can access" },
   { key: "Roles",       default: "roles",            desc: "Array or comma-list of role strings" },
+  { key: "Groups",      default: "groups",           desc: "Array or comma-list of SSO group strings" },
   { key: "AgentAccess", default: "agent_access",     desc: "Array or comma-list of agent IDs this user may invoke" },
+  { key: "GroupAccess", default: "group_access",     desc: "Array or comma-list of access-group IDs the user belongs to" },
   { key: "TeamApiKey",  default: "litellm_team_key", desc: "LiteLLM team API key forwarded with LLM calls" },
 ] as const;
 
@@ -63,33 +111,57 @@ export function SsoConfigEditor({ tenantId = 1 }: { tenantId?: number }) {
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);
   const [claimHelpOpen, setClaimHelpOpen] = useState(false);
+  const [roleMapRows, setRoleMapRows] = useState<MapRow[]>([]);
+  const [accessGroupMapRows, setAccessGroupMapRows] = useState<MapRow[]>([]);
 
   const set = (field: keyof CreateSsoConfigDto, value: unknown) =>
     setForm(f => ({ ...f, [field]: value }));
 
+  /** Merges the structured RoleMap / AccessGroupMap rows back into the raw claim-name JSON. */
+  function buildMergedClaimMappings(): string {
+    const base = safeParseObject(form.claimMappingsJson);
+    delete base.RoleMap;
+    delete base.AccessGroupMap;
+    const roleMap = rowsToRoleMap(roleMapRows);
+    const agMap = rowsToAccessGroupMap(accessGroupMapRows);
+    if (Object.keys(roleMap).length) base.RoleMap = roleMap;
+    if (Object.keys(agMap).length) base.AccessGroupMap = agMap;
+    return Object.keys(base).length ? JSON.stringify(base) : "";
+  }
+
   useEffect(() => {
     if (!isEdit || !id) return;
     api.getSsoConfig(Number(id), effectiveTenantId)
-      .then(c => setForm({
-        providerName: c.providerName,
-        issuer: c.issuer,
-        clientId: c.clientId,
-        clientSecret: "",
-        tokenType: c.tokenType,
-        authority: c.authority ?? "",
-        authorizationEndpoint: c.authorizationEndpoint ?? "",
-        tokenEndpoint: c.tokenEndpoint ?? "",
-        userinfoEndpoint: c.userinfoEndpoint ?? "",
-        introspectionEndpoint: c.introspectionEndpoint ?? "",
-        audience: c.audience,
-        proxyBaseUrl: c.proxyBaseUrl,
-        proxyAdminEmail: c.proxyAdminEmail ?? "",
-        useRoleMappings: c.useRoleMappings,
-        useTeamMappings: c.useTeamMappings,
-        claimMappingsJson: c.claimMappingsJson ?? "",
-        logoutUrl: c.logoutUrl ?? "",
-        emailDomains: c.emailDomains ?? "",
-      }))
+      .then(c => {
+        // Split RoleMap / AccessGroupMap out of the raw JSON so they render in the structured editors,
+        // leaving only claim-name overrides in the JSON textarea.
+        const parsed = safeParseObject(c.claimMappingsJson);
+        setRoleMapRows(roleMapToRows(parsed.RoleMap));
+        setAccessGroupMapRows(accessGroupMapToRows(parsed.AccessGroupMap));
+        delete parsed.RoleMap;
+        delete parsed.AccessGroupMap;
+        const strippedJson = Object.keys(parsed).length ? JSON.stringify(parsed) : "";
+        setForm({
+          providerName: c.providerName,
+          issuer: c.issuer,
+          clientId: c.clientId,
+          clientSecret: "",
+          tokenType: c.tokenType,
+          authority: c.authority ?? "",
+          authorizationEndpoint: c.authorizationEndpoint ?? "",
+          tokenEndpoint: c.tokenEndpoint ?? "",
+          userinfoEndpoint: c.userinfoEndpoint ?? "",
+          introspectionEndpoint: c.introspectionEndpoint ?? "",
+          audience: c.audience,
+          proxyBaseUrl: c.proxyBaseUrl,
+          proxyAdminEmail: c.proxyAdminEmail ?? "",
+          useRoleMappings: c.useRoleMappings,
+          useTeamMappings: c.useTeamMappings,
+          claimMappingsJson: strippedJson,
+          logoutUrl: c.logoutUrl ?? "",
+          emailDomains: c.emailDomains ?? "",
+        });
+      })
       .catch(() => toast.error("Failed to load SSO config"))
       .finally(() => setLoading(false));
   }, [id, isEdit, effectiveTenantId]);
@@ -97,11 +169,12 @@ export function SsoConfigEditor({ tenantId = 1 }: { tenantId?: number }) {
   async function save() {
     setSaving(true);
     try {
+      const payload = { ...form, claimMappingsJson: buildMergedClaimMappings() };
       if (isEdit && id) {
-        await api.updateSsoConfig(Number(id), { ...form, isActive: true }, effectiveTenantId);
+        await api.updateSsoConfig(Number(id), { ...payload, isActive: true }, effectiveTenantId);
         toast.success("SSO config updated");
       } else {
-        await api.createSsoConfig(form, effectiveTenantId);
+        await api.createSsoConfig(payload, effectiveTenantId);
         toast.success("SSO config created");
       }
       navigate("/settings/sso");
@@ -271,6 +344,106 @@ export function SsoConfigEditor({ tenantId = 1 }: { tenantId?: number }) {
               <Switch checked={form.useTeamMappings} onCheckedChange={v => set("useTeamMappings", v)} />
               <Label>Map provider groups → teams</Label>
             </div>
+          </div>
+
+          {/* Role mapping editor */}
+          <div className="space-y-2">
+            <div>
+              <Label>Role Mapping</Label>
+              <p className="text-muted-foreground text-xs">
+                Translate an IdP role or group value into a Diva role (<code className="bg-muted rounded px-1">admin</code>,{" "}
+                <code className="bg-muted rounded px-1">viewer</code>, <code className="bg-muted rounded px-1">user</code>).
+                {!form.useRoleMappings && (
+                  <span className="text-amber-600 dark:text-amber-500"> Enable “Map provider roles → app roles” above for these to apply.</span>
+                )}
+              </p>
+            </div>
+            {roleMapRows.length === 0 && (
+              <p className="text-muted-foreground text-xs italic">
+                No role mappings — users default to the <code className="bg-muted rounded px-1">user</code> role.
+              </p>
+            )}
+            {roleMapRows.map((row, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <Input
+                  value={row.from}
+                  onChange={e => setRoleMapRows(rows => rows.map((r, j) => j === i ? { ...r, from: e.target.value } : r))}
+                  placeholder="IdP value (e.g. Diva-Admins)"
+                  className="flex-1"
+                />
+                <span className="text-muted-foreground text-sm">→</span>
+                <Input
+                  value={row.to}
+                  onChange={e => setRoleMapRows(rows => rows.map((r, j) => j === i ? { ...r, to: e.target.value } : r))}
+                  placeholder="Diva role (e.g. admin)"
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setRoleMapRows(rows => rows.filter((_, j) => j !== i))}
+                  aria-label="Remove role mapping"
+                >
+                  <X className="size-4" />
+                </Button>
+              </div>
+            ))}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1"
+              onClick={() => setRoleMapRows(rows => [...rows, { from: "", to: "" }])}
+            >
+              <Plus className="size-4" /> Add role mapping
+            </Button>
+          </div>
+
+          {/* Access-group mapping editor */}
+          <div className="space-y-2">
+            <div>
+              <Label>Access Group Mapping</Label>
+              <p className="text-muted-foreground text-xs">
+                Grant access-group IDs based on an IdP role or group value. Separate multiple IDs with commas.
+                Users with no matching access group can only invoke agents that are not group-restricted.
+              </p>
+            </div>
+            {accessGroupMapRows.map((row, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <Input
+                  value={row.from}
+                  onChange={e => setAccessGroupMapRows(rows => rows.map((r, j) => j === i ? { ...r, from: e.target.value } : r))}
+                  placeholder="IdP value (e.g. Sales-Team)"
+                  className="flex-1"
+                />
+                <span className="text-muted-foreground text-sm">→</span>
+                <Input
+                  value={row.to}
+                  onChange={e => setAccessGroupMapRows(rows => rows.map((r, j) => j === i ? { ...r, to: e.target.value } : r))}
+                  placeholder="access-group IDs (e.g. sales-agents, shared)"
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setAccessGroupMapRows(rows => rows.filter((_, j) => j !== i))}
+                  aria-label="Remove access group mapping"
+                >
+                  <X className="size-4" />
+                </Button>
+              </div>
+            ))}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1"
+              onClick={() => setAccessGroupMapRows(rows => [...rows, { from: "", to: "" }])}
+            >
+              <Plus className="size-4" /> Add access group mapping
+            </Button>
           </div>
 
           <div className="space-y-1.5">

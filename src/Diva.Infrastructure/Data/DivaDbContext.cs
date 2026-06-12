@@ -63,6 +63,9 @@ public class DivaDbContext : DbContext
     // ── Embeddable Chat Widgets ───────────────────────────────────────────────
     public DbSet<WidgetConfigEntity> WidgetConfigs => Set<WidgetConfigEntity>();
 
+    // ── Agent Access Groups (Phase 28) ────────────────────────────────────────
+    public DbSet<AgentGroupEntity> AgentGroups => Set<AgentGroupEntity>();
+
     // ── Phase 24: Agent Optimization ──────────────────────────────────────────
     public DbSet<AgentOptimizationRunEntity> OptimizationRuns => Set<AgentOptimizationRunEntity>();
     public DbSet<AgentOptimizationSuggestionEntity> OptimizationSuggestions => Set<AgentOptimizationSuggestionEntity>();
@@ -366,6 +369,14 @@ public class DivaDbContext : DbContext
             .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
         modelBuilder.Entity<WidgetConfigEntity>()
             .HasIndex(e => new { e.TenantId, e.IsActive });
+
+        // ── Agent Access Groups (Phase 28) ────────────────────
+        modelBuilder.Entity<AgentGroupEntity>()
+            .HasKey(e => e.Id);
+        modelBuilder.Entity<AgentGroupEntity>()
+            .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
+        modelBuilder.Entity<AgentGroupEntity>()
+            .HasIndex(e => e.TenantId);
 
         // ── Phase 24: Agent Optimization ─────────────────────
         modelBuilder.Entity<AgentOptimizationRunEntity>()

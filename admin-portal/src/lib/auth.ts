@@ -42,6 +42,13 @@ export const auth = {
     return localStorage.getItem(storageKey("is_master_admin")) === "true";
   },
 
+  /** True when the current user is a tenant admin (or master admin). */
+  isAdmin(): boolean
+  {
+    return localStorage.getItem(storageKey("is_admin")) === "true"
+      || localStorage.getItem(storageKey("is_master_admin")) === "true";
+  },
+
   /** The stored tenant ID as a number (0 = master admin, 1+ = regular tenant). */
   getTenantId(): number
   {
@@ -59,6 +66,7 @@ export const auth = {
     localStorage.removeItem(storageKey("user_id"));
     localStorage.removeItem(storageKey("logout_url"));
     localStorage.removeItem(storageKey("is_master_admin"));
+    localStorage.removeItem(storageKey("is_admin"));
 
     if (logoutUrl)
     {

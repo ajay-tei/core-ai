@@ -20,7 +20,7 @@ public sealed class TenantClaimsExtractor : ITenantClaimsExtractor
     public TenantClaimsExtractor(IOptions<OAuthOptions> options, ILogger<TenantClaimsExtractor> logger)
     {
         _options = options.Value;
-        _logger  = logger;
+        _logger = logger;
     }
 
     public TenantContext Extract(ClaimsPrincipal principal, string? accessToken, string? requestSiteId)
@@ -28,8 +28,9 @@ public sealed class TenantClaimsExtractor : ITenantClaimsExtractor
         var mappings = _options.ClaimMappings;
 
         var tenantId = ParseInt(principal.FindFirstValue(mappings.TenantId));
-        var siteIds  = ParseIntArray(principal.FindFirstValue(mappings.SiteIds));
-        var roles    = ParseStringArray(principal.FindFirstValue(mappings.Roles));
+        var siteIds = ParseIntArray(principal.FindFirstValue(mappings.SiteIds));
+        var roles = ParseStringArray(principal.FindFirstValue(mappings.Roles));
+        var groups = ParseStringArray(principal.FindFirstValue(mappings.Groups));
 
         // Determine current site: request header → first allowed site → 0
         var currentSiteId = ParseInt(requestSiteId);
@@ -42,7 +43,7 @@ public sealed class TenantClaimsExtractor : ITenantClaimsExtractor
         // servers in the same SSO ecosystem (PassSsoToken=true).
         // Local-auth users have no sso_token claim → AccessToken is null, so the Diva
         // JWT is never forwarded to external MCP servers (it is meaningless to them).
-        var ssoToken    = principal.FindFirstValue("sso_token");
+        var ssoToken = principal.FindFirstValue("sso_token");
         var propagToken = !string.IsNullOrEmpty(ssoToken) ? ssoToken : null;
 
         _logger.LogDebug(
@@ -54,23 +55,25 @@ public sealed class TenantClaimsExtractor : ITenantClaimsExtractor
 
         return new TenantContext
         {
-            TenantId      = tenantId,
-            TenantName    = principal.FindFirstValue(mappings.TenantName) ?? string.Empty,
-            UserId        = principal.FindFirstValue(mappings.UserId) ?? string.Empty,
-            UserEmail     = principal.FindFirstValue(mappings.Email)
+            TenantId = tenantId,
+            TenantName = principal.FindFirstValue(mappings.TenantName) ?? string.Empty,
+            UserId = principal.FindFirstValue(mappings.UserId) ?? string.Empty,
+            UserEmail = principal.FindFirstValue(mappings.Email)
                             ?? principal.FindFirstValue(ClaimTypes.Email)
                             ?? principal.FindFirstValue("email") ?? string.Empty,
-            UserName      = principal.FindFirstValue(mappings.DisplayName)
+            UserName = principal.FindFirstValue(mappings.DisplayName)
                             ?? principal.FindFirstValue(ClaimTypes.Name)
                             ?? principal.FindFirstValue("name") ?? string.Empty,
-            Role          = roles.FirstOrDefault() ?? string.Empty,
-            UserRoles     = roles,
-            AgentAccess   = ParseStringArray(principal.FindFirstValue(mappings.AgentAccess)),
-            SiteIds       = siteIds,
+            Role = roles.FirstOrDefault() ?? string.Empty,
+            UserRoles = roles,
+            UserGroups = groups,
+            AgentAccess = ParseStringArray(principal.FindFirstValue(mappings.AgentAccess)),
+            GroupAccess = ParseStringArray(principal.FindFirstValue(mappings.GroupAccess)),
+            SiteIds = siteIds,
             CurrentSiteId = currentSiteId,
-            AccessToken   = propagToken,
-            TokenExpiry   = ParseExpiry(principal),
-            TeamApiKey    = principal.FindFirstValue(mappings.TeamApiKey),
+            AccessToken = propagToken,
+            TokenExpiry = ParseExpiry(principal),
+            TeamApiKey = principal.FindFirstValue(mappings.TeamApiKey),
             CorrelationId = Guid.NewGuid().ToString()
         };
     }

@@ -1,4 +1,5 @@
 using Diva.Core.Models;
+using Diva.Host.Auth;
 using Diva.Infrastructure.Auth;
 using Diva.Infrastructure.Data;
 using Diva.Infrastructure.Optimization;
@@ -9,6 +10,7 @@ namespace Diva.Host.Controllers;
 
 [ApiController]
 [Route("api/admin")]
+[RequireTenantAdmin]
 public class AgentOptimizationController : ControllerBase
 {
     private readonly IAgentOptimizationService _service;
@@ -19,7 +21,7 @@ public class AgentOptimizationController : ControllerBase
         ILogger<AgentOptimizationController> logger)
     {
         _service = service;
-        _logger  = logger;
+        _logger = logger;
     }
 
     private int EffectiveTenantId(int requestedTenantId)
@@ -45,7 +47,7 @@ public class AgentOptimizationController : ControllerBase
     {
         try
         {
-            var tid   = EffectiveTenantId(tenantId);
+            var tid = EffectiveTenantId(tenantId);
             var runId = await _service.StartRunAsync(agentId, tid, request, CurrentUser(), ct);
             return Ok(new { runId });
         }
@@ -210,8 +212,8 @@ public class AgentOptimizationController : ControllerBase
         try
         {
             // Resolve the agentId from the trace session (AgentSessionEntity stores type, not agent ID)
-            await using var scope   = HttpContext.RequestServices.CreateAsyncScope();
-            var db      = scope.ServiceProvider.GetRequiredService<DivaDbContext>();
+            await using var scope = HttpContext.RequestServices.CreateAsyncScope();
+            var db = scope.ServiceProvider.GetRequiredService<DivaDbContext>();
             var traceDb = scope.ServiceProvider.GetRequiredService<SessionTraceDbContext>();
 
             var session = await db.Sessions
@@ -224,7 +226,7 @@ public class AgentOptimizationController : ControllerBase
                 ?? throw new InvalidOperationException("Session trace not found — cannot determine agent ID");
 
             var request = new TriggerOptimizationRequest { SessionId = sessionId };
-            var runId   = await _service.StartRunAsync(resolvedAgentId, tid, request, CurrentUser(), ct);
+            var runId = await _service.StartRunAsync(resolvedAgentId, tid, request, CurrentUser(), ct);
             return Ok(new { runId, agentId = resolvedAgentId });
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("already in progress"))
@@ -290,8 +292,8 @@ public class AgentOptimizationController : ControllerBase
     {
         var tid = EffectiveTenantId(tenantId);
 
-        await using var scope   = HttpContext.RequestServices.CreateAsyncScope();
-        var db      = scope.ServiceProvider.GetRequiredService<DivaDbContext>();
+        await using var scope = HttpContext.RequestServices.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<DivaDbContext>();
         var traceDb = scope.ServiceProvider.GetRequiredService<Diva.Infrastructure.Data.SessionTraceDbContext>();
 
         var session = await db.Sessions
@@ -309,14 +311,14 @@ public class AgentOptimizationController : ControllerBase
 
         var dto = new FewShotExampleDto
         {
-            AgentId          = agentId,
-            SourceSessionId  = sessionId,
+            AgentId = agentId,
+            SourceSessionId = sessionId,
             SourceTurnNumber = turnNumber,
-            UserMessage      = traceTurn.UserMessage,
+            UserMessage = traceTurn.UserMessage,
             AssistantMessage = traceTurn.AssistantMessage,
-            Description      = body?.Description,
-            IsEnabled        = true,
-            CreatedBy        = CurrentUser()
+            Description = body?.Description,
+            IsEnabled = true,
+            CreatedBy = CurrentUser()
         };
 
         var id = await _service.AddFewShotExampleAsync(agentId, tid, dto, ct);

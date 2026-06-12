@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router";
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router";
 import { RootLayout } from "@/components/layout/root-layout";
 import { Dashboard } from "@/components/Dashboard";
 import { AgentList } from "@/components/AgentList";
@@ -26,6 +26,7 @@ import { AuthCallback } from "@/components/AuthCallback";
 import { LoginPage } from "@/components/LoginPage";
 import { CredentialManager } from "@/components/CredentialManager";
 import { ApiKeyManager } from "@/components/ApiKeyManager";
+import { AgentGroups } from "@/components/AgentGroups";
 import { A2ASettings } from "@/components/A2ASettings";
 import { WidgetManager } from "@/components/WidgetManager";
 import SessionBrowser from "@/components/SessionBrowser";
@@ -45,9 +46,22 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-/** Default landing — master admin goes to tenant list, regular users to dashboard. */
+/** Redirects non-admin users (role "user" / "viewer") away from admin-only routes. */
+function AdminGuard() {
+  if (!auth.isAdmin()) {
+    return <Navigate to="/agents" replace />;
+  }
+  return <Outlet />;
+}
+
+/** Default landing — master admin → tenants, tenant admin → dashboard, chat users → agents. */
 function DefaultRedirect() {
-  return <Navigate to={auth.isMasterAdmin() ? "/platform/tenants" : "/dashboard"} replace />;
+  const to = auth.isMasterAdmin()
+    ? "/platform/tenants"
+    : auth.isAdmin()
+      ? "/dashboard"
+      : "/agents";
+  return <Navigate to={to} replace />;
 }
 
 export default function App() {
@@ -69,45 +83,51 @@ export default function App() {
         <Route element={<AuthGuard><RootLayout /></AuthGuard>}>
           <Route index element={<DefaultRedirect />} />
 
-          {/* Tenant-level routes (regular users) */}
-          <Route path="dashboard" element={<Dashboard />} />
+          {/* Open to all authenticated users (chat users + admins) */}
           <Route path="agents" element={<AgentList />} />
-          <Route path="agents/new" element={<AgentBuilder />} />
-          <Route path="agents/:id/edit" element={<AgentBuilder />} />
-          <Route path="agents/group/:templateId/overlay" element={<GroupAgentOverlayEditor />} />
           <Route path="agents/:id/chat" element={<AgentChat />} />
-          <Route path="agents/:id/optimize" element={<AgentOptimizer />} />
-          <Route path="agents/:id/optimize/suggestions" element={<AgentOptimizationSuggestions />} />
-          <Route path="agents/:id/examples" element={<AgentFewShotExamples />} />
-          <Route path="rules/learned" element={<PendingRules />} />
-          <Route path="rules/business" element={<BusinessRules />} />
-          <Route path="rules/business/new" element={<BusinessRuleEditor />} />
-          <Route path="rules/business/:id/edit" element={<BusinessRuleEditor />} />
-          <Route path="prompts" element={<PromptEditor />} />
-          <Route path="rules/packs" element={<RulePackManager />} />
-          <Route path="rules/packs/:id" element={<PackEditor />} />
           <Route path="sessions" element={<SessionBrowser />} />
           <Route path="sessions/:id" element={<SessionDetail />} />
-          <Route path="schedules" element={<ScheduledTasks />} />
-          <Route path="schedules/feedback" element={<SchedulerFeedbackReview />} />
-          <Route path="settings/sso" element={<SsoConfig />} />
-          <Route path="settings/sso/new" element={<SsoConfigEditor />} />
-          <Route path="settings/sso/:id/edit" element={<SsoConfigEditor />} />
-          <Route path="settings/users" element={<UserProfiles />} />
-          <Route path="settings/credentials" element={<CredentialManager />} />
-          <Route path="settings/api-keys" element={<ApiKeyManager />} />
-          <Route path="settings/a2a" element={<A2ASettings />} />
-          <Route path="settings/widgets" element={<WidgetManager />} />
 
-          {/* Platform-level routes (master admin only) */}
-          <Route path="platform/tenants" element={<TenantList />} />
-          <Route path="platform/tenants/:id" element={<TenantDetail />} />
-          <Route path="platform/groups" element={<GroupList />} />
-          <Route path="platform/groups/:id" element={<GroupDetail />} />
-          <Route path="platform/groups/:groupId/agents/new" element={<GroupAgentTemplateBuilder />} />
-          <Route path="platform/groups/:groupId/agents/:templateId/edit" element={<GroupAgentTemplateBuilder />} />
-          <Route path="platform/llm-config" element={<PlatformLlmConfig />} />
-          <Route path="platform/admins" element={<PlatformAdminsPage />} />
+          {/* Admin-only routes (tenant admin or master admin) */}
+          <Route element={<AdminGuard />}>
+            {/* Tenant-level routes */}
+            <Route path="dashboard" element={<Dashboard />} />
+            <Route path="agents/new" element={<AgentBuilder />} />
+            <Route path="agents/:id/edit" element={<AgentBuilder />} />
+            <Route path="agents/group/:templateId/overlay" element={<GroupAgentOverlayEditor />} />
+            <Route path="agents/:id/optimize" element={<AgentOptimizer />} />
+            <Route path="agents/:id/optimize/suggestions" element={<AgentOptimizationSuggestions />} />
+            <Route path="agents/:id/examples" element={<AgentFewShotExamples />} />
+            <Route path="agents/groups" element={<AgentGroups />} />
+            <Route path="rules/learned" element={<PendingRules />} />
+            <Route path="rules/business" element={<BusinessRules />} />
+            <Route path="rules/business/new" element={<BusinessRuleEditor />} />
+            <Route path="rules/business/:id/edit" element={<BusinessRuleEditor />} />
+            <Route path="prompts" element={<PromptEditor />} />
+            <Route path="rules/packs" element={<RulePackManager />} />
+            <Route path="rules/packs/:id" element={<PackEditor />} />
+            <Route path="schedules" element={<ScheduledTasks />} />
+            <Route path="schedules/feedback" element={<SchedulerFeedbackReview />} />
+            <Route path="settings/sso" element={<SsoConfig />} />
+            <Route path="settings/sso/new" element={<SsoConfigEditor />} />
+            <Route path="settings/sso/:id/edit" element={<SsoConfigEditor />} />
+            <Route path="settings/users" element={<UserProfiles />} />
+            <Route path="settings/credentials" element={<CredentialManager />} />
+            <Route path="settings/api-keys" element={<ApiKeyManager />} />
+            <Route path="settings/a2a" element={<A2ASettings />} />
+            <Route path="settings/widgets" element={<WidgetManager />} />
+
+            {/* Platform-level routes (master admin only) */}
+            <Route path="platform/tenants" element={<TenantList />} />
+            <Route path="platform/tenants/:id" element={<TenantDetail />} />
+            <Route path="platform/groups" element={<GroupList />} />
+            <Route path="platform/groups/:id" element={<GroupDetail />} />
+            <Route path="platform/groups/:groupId/agents/new" element={<GroupAgentTemplateBuilder />} />
+            <Route path="platform/groups/:groupId/agents/:templateId/edit" element={<GroupAgentTemplateBuilder />} />
+            <Route path="platform/llm-config" element={<PlatformLlmConfig />} />
+            <Route path="platform/admins" element={<PlatformAdminsPage />} />
+          </Route>
 
           <Route path="*" element={<DefaultRedirect />} />
         </Route>

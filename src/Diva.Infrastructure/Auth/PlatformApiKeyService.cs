@@ -27,9 +27,9 @@ public sealed class PlatformApiKeyService : IPlatformApiKeyService
         ILogger<PlatformApiKeyService> logger,
         IOptions<AppBrandingOptions> branding)
     {
-        _dbFactory  = dbFactory;
-        _logger     = logger;
-        _keyPrefix  = $"{branding.Value.Slug}_";
+        _dbFactory = dbFactory;
+        _logger = logger;
+        _keyPrefix = $"{branding.Value.Slug}_";
     }
 
     public async Task<ApiKeyCreatedResult> CreateAsync(int tenantId, string userId, CreateApiKeyRequest request, CancellationToken ct)
@@ -40,16 +40,19 @@ public sealed class PlatformApiKeyService : IPlatformApiKeyService
 
         var entity = new PlatformApiKeyEntity
         {
-            TenantId         = tenantId,
-            Name             = request.Name,
-            KeyHash          = hash,
-            KeyPrefix        = rawKey[..Math.Min(rawKey.Length, 12)], // "diva_" + first 7 chars of random part
-            Scope            = request.Scope,
+            TenantId = tenantId,
+            Name = request.Name,
+            KeyHash = hash,
+            KeyPrefix = rawKey[..Math.Min(rawKey.Length, 12)], // "diva_" + first 7 chars of random part
+            Scope = request.Scope,
             AllowedAgentIdsJson = request.AllowedAgentIds is { Length: > 0 }
                 ? JsonSerializer.Serialize(request.AllowedAgentIds)
                 : null,
-            ExpiresAt        = request.ExpiresAt,
-            CreatedByUserId  = userId
+            AllowedGroupIdsJson = request.AllowedGroupIds is { Length: > 0 }
+                ? JsonSerializer.Serialize(request.AllowedGroupIds)
+                : null,
+            ExpiresAt = request.ExpiresAt,
+            CreatedByUserId = userId
         };
 
         using var db = _dbFactory.CreateDbContext(TenantContext.System(tenantId));
@@ -115,7 +118,14 @@ public sealed class PlatformApiKeyService : IPlatformApiKeyService
             catch { /* ignore malformed JSON */ }
         }
 
-        return new ValidatedApiKey(entity.Id, entity.TenantId, entity.Name, entity.KeyPrefix, entity.Scope, allowedAgents);
+        string[]? allowedGroups = null;
+        if (!string.IsNullOrEmpty(entity.AllowedGroupIdsJson))
+        {
+            try { allowedGroups = JsonSerializer.Deserialize<string[]>(entity.AllowedGroupIdsJson); }
+            catch { /* ignore malformed JSON */ }
+        }
+
+        return new ValidatedApiKey(entity.Id, entity.TenantId, entity.Name, entity.KeyPrefix, entity.Scope, allowedAgents, allowedGroups);
     }
 
     public async Task<List<PlatformApiKeyInfo>> ListAsync(int tenantId, CancellationToken ct)
@@ -136,9 +146,16 @@ public sealed class PlatformApiKeyService : IPlatformApiKeyService
                 catch { /* ignore */ }
             }
 
+            string[]? allowedGroups = null;
+            if (!string.IsNullOrEmpty(e.AllowedGroupIdsJson))
+            {
+                try { allowedGroups = JsonSerializer.Deserialize<string[]>(e.AllowedGroupIdsJson); }
+                catch { /* ignore */ }
+            }
+
             return new PlatformApiKeyInfo(
                 e.Id, e.Name, e.KeyPrefix, e.Scope, allowedAgents,
-                e.CreatedAt, e.ExpiresAt, e.IsActive, e.LastUsedAt, e.CreatedByUserId);
+                e.CreatedAt, e.ExpiresAt, e.IsActive, e.LastUsedAt, e.CreatedByUserId, allowedGroups);
         }).ToList();
     }
 
@@ -167,14 +184,14 @@ public sealed class PlatformApiKeyService : IPlatformApiKeyService
         var rawKey = GenerateKey();
         var newEntity = new PlatformApiKeyEntity
         {
-            TenantId            = tenantId,
-            Name                = old.Name,
-            KeyHash             = HashKey(rawKey),
-            KeyPrefix           = rawKey[..Math.Min(rawKey.Length, 12)],
-            Scope               = old.Scope,
+            TenantId = tenantId,
+            Name = old.Name,
+            KeyHash = HashKey(rawKey),
+            KeyPrefix = rawKey[..Math.Min(rawKey.Length, 12)],
+            Scope = old.Scope,
             AllowedAgentIdsJson = old.AllowedAgentIdsJson,
-            ExpiresAt           = old.ExpiresAt,
-            CreatedByUserId     = userId
+            ExpiresAt = old.ExpiresAt,
+            CreatedByUserId = userId
         };
         db.PlatformApiKeys.Add(newEntity);
         await db.SaveChangesAsync(ct);

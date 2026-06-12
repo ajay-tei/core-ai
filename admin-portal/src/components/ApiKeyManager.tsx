@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { api, type PlatformApiKey, type ApiKeyCreatedResult, type CreateApiKeyDto } from "@/api";
+import { api, type PlatformApiKey, type ApiKeyCreatedResult, type CreateApiKeyDto, type AgentGroup } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,10 +18,15 @@ export function ApiKeyManager() {
   const [showCreate, setShowCreate] = useState(false);
   const [newKeyResult, setNewKeyResult] = useState<ApiKeyCreatedResult | null>(null);
   const [form, setForm] = useState<CreateApiKeyDto>({ name: "", scope: "invoke" });
+  const [groups, setGroups] = useState<AgentGroup[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
-    try { setKeys(await api.listApiKeys()); }
+    try {
+      const [keyList, groupList] = await Promise.all([api.listApiKeys(), api.listAgentGroups().catch(() => [])]);
+      setKeys(keyList);
+      setGroups(groupList);
+    }
     catch { toast.error("Failed to load API keys"); }
     finally { setLoading(false); }
   }, []);
@@ -114,6 +119,32 @@ export function ApiKeyManager() {
                 </Select>
               </div>
             </div>
+            {groups.length > 0 && (
+              <div className="space-y-1.5">
+                <Label>Allowed Agent Groups (optional)</Label>
+                <p className="text-xs text-muted-foreground">Grant this key access to agents in restricted groups. Leave empty for no extra grants.</p>
+                <div className="flex flex-wrap gap-2">
+                  {groups.map((g) => {
+                    const selected = (form.allowedGroupIds ?? []).includes(g.id);
+                    return (
+                      <Badge
+                        key={g.id}
+                        variant={selected ? "default" : "outline"}
+                        className="cursor-pointer"
+                        onClick={() => setForm({
+                          ...form,
+                          allowedGroupIds: selected
+                            ? (form.allowedGroupIds ?? []).filter((id) => id !== g.id)
+                            : [...(form.allowedGroupIds ?? []), g.id],
+                        })}
+                      >
+                        {g.name}
+                      </Badge>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             <Button onClick={handleCreate}><Plus className="h-4 w-4 mr-1" /> Generate Key</Button>
           </CardContent>
         </Card>
@@ -140,6 +171,7 @@ export function ApiKeyManager() {
                     {k.expiresAt && <span> · Expires {new Date(k.expiresAt).toLocaleDateString()}</span>}
                     {k.lastUsedAt && <span> · Last used {new Date(k.lastUsedAt).toLocaleDateString()}</span>}
                     {k.allowedAgentIds && k.allowedAgentIds.length > 0 && <span> · Restricted to {k.allowedAgentIds.length} agent(s)</span>}
+                    {k.allowedGroupIds && k.allowedGroupIds.length > 0 && <span> · Grants {k.allowedGroupIds.length} group(s)</span>}
                   </div>
                 </div>
                 <div className="flex gap-2">

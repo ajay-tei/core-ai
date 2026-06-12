@@ -18,6 +18,7 @@ import {
   Upload,
 } from "lucide-react";
 import { api, type AgentSummary, type AgentImportResult } from "@/api";
+import { auth } from "@/lib/auth";
 import { triggerJsonDownload } from "@/lib/download";
 import { AgentImportDialog } from "@/components/AgentImportDialog";
 import { Label } from "@/components/ui/label";
@@ -87,6 +88,7 @@ function SharedBadge({ agent }: { agent: AgentSummary }) {
 
 export function AgentList() {
   const navigate = useNavigate();
+  const isAdmin = auth.isAdmin();
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -214,20 +216,24 @@ export function AgentList() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Agents</h1>
-          <p className="text-sm text-muted-foreground">Manage your AI agent configurations</p>
+          <p className="text-sm text-muted-foreground">
+            {isAdmin ? "Manage your AI agent configurations" : "Select an agent to start chatting"}
+          </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => setImportOpen(true)}>
-            <Upload className="mr-2 size-4" />
-            Import
-          </Button>
-          <Button asChild>
-            <Link to="/agents/new">
-              <Plus className="mr-2 size-4" />
-              New Agent
-            </Link>
-          </Button>
-        </div>
+        {isAdmin && (
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setImportOpen(true)}>
+              <Upload className="mr-2 size-4" />
+              Import
+            </Button>
+            <Button asChild>
+              <Link to="/agents/new">
+                <Plus className="mr-2 size-4" />
+                New Agent
+              </Link>
+            </Button>
+          </div>
+        )}
       </div>
 
       <Card>
@@ -268,9 +274,9 @@ export function AgentList() {
             <EmptyState
               icon={Bot}
               title={search ? "No agents match your search" : "No agents yet"}
-              description={search ? "Try a different search term" : "Create your first AI agent to get started"}
+              description={search ? "Try a different search term" : isAdmin ? "Create your first AI agent to get started" : "No agents have been shared with you yet"}
               action={
-                !search ? (
+                !search && isAdmin ? (
                   <Button asChild>
                     <Link to="/agents/new"><Plus className="mr-2 size-4" />Create Agent</Link>
                   </Button>
@@ -292,8 +298,12 @@ export function AgentList() {
                 {filtered.map((agent) => (
                   <TableRow
                     key={agent.id}
-                    className={agent.isShared ? "opacity-80" : "cursor-pointer"}
-                    onClick={() => !agent.isShared && navigate(`/agents/${agent.id}/edit`)}
+                    className={agent.isShared || !isAdmin ? "opacity-100 cursor-pointer" : "cursor-pointer"}
+                    onClick={() =>
+                      isAdmin && !agent.isShared
+                        ? navigate(`/agents/${agent.id}/edit`)
+                        : navigate(`/agents/${agent.id}/chat`, { state: { agent } })
+                    }
                   >
                     <TableCell>
                       <div className="flex size-9 items-center justify-center rounded-lg bg-primary/10">
@@ -329,7 +339,7 @@ export function AgentList() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          {!agent.isShared && (
+                          {isAdmin && !agent.isShared && (
                             <>
                               <DropdownMenuItem onClick={() => navigate(`/agents/${agent.id}/edit`)}>
                                 <Edit className="mr-2 size-4" />
@@ -345,13 +355,13 @@ export function AgentList() {
                               </DropdownMenuItem>
                             </>
                           )}
-                          {agent.isShared && !agent.isActivated && (
+                          {isAdmin && agent.isShared && !agent.isActivated && (
                             <DropdownMenuItem onClick={() => handleActivate(agent)}>
                               <ToggleRight className="mr-2 size-4" />
                               Activate
                             </DropdownMenuItem>
                           )}
-                          {agent.isShared && agent.isActivated && (
+                          {isAdmin && agent.isShared && agent.isActivated && (
                             <>
                               <DropdownMenuItem onClick={() => navigate(`/agents/group/${agent.id}/overlay`)}>
                                 <Settings2 className="mr-2 size-4" />
@@ -365,9 +375,9 @@ export function AgentList() {
                           )}
                           <DropdownMenuItem onClick={() => navigate(`/agents/${agent.id}/chat`, { state: { agent } })}>
                             <MessageSquare className="mr-2 size-4" />
-                            Test Agent
+                            {isAdmin ? "Test Agent" : "Chat"}
                           </DropdownMenuItem>
-                          {!agent.isShared && (
+                          {isAdmin && !agent.isShared && (
                             <>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem

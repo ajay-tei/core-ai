@@ -72,13 +72,13 @@ public sealed class SsoTokenValidator : ISsoTokenValidator
             var parameters = new TokenValidationParameters
             {
                 ValidateIssuerSigningKey = true,
-                IssuerSigningKeys        = signingKeys,
-                ValidateIssuer           = !string.IsNullOrEmpty(config.Issuer),
-                ValidIssuer              = config.Issuer,
-                ValidateAudience         = !string.IsNullOrEmpty(config.Audience),
-                ValidAudience            = config.Audience,
-                ValidateLifetime         = true,
-                ClockSkew                = TimeSpan.FromSeconds(30)
+                IssuerSigningKeys = signingKeys,
+                ValidateIssuer = !string.IsNullOrEmpty(config.Issuer),
+                ValidIssuer = config.Issuer,
+                ValidateAudience = !string.IsNullOrEmpty(config.Audience),
+                ValidAudience = config.Audience,
+                ValidateLifetime = true,
+                ClockSkew = TimeSpan.FromSeconds(30)
             };
 
             var principal = _jwtHandler.ValidateToken(token, parameters, out _);
@@ -129,7 +129,7 @@ public sealed class SsoTokenValidator : ISsoTokenValidator
         string token, ISsoProviderConfig config, CancellationToken ct)
     {
         bool hasIntrospection = !string.IsNullOrEmpty(config.IntrospectionEndpoint);
-        bool hasUserinfo      = !string.IsNullOrEmpty(config.UserinfoEndpoint);
+        bool hasUserinfo = !string.IsNullOrEmpty(config.UserinfoEndpoint);
 
         if (!hasIntrospection && !hasUserinfo)
         {
@@ -140,8 +140,8 @@ public sealed class SsoTokenValidator : ISsoTokenValidator
         }
 
         // Cache by hash of token to avoid remote call on every request
-        var strategy  = hasIntrospection ? "introspect" : "userinfo";
-        var cacheKey  = $"sso:{strategy}:{config.ProviderName}:{HashToken(token)}";
+        var strategy = hasIntrospection ? "introspect" : "userinfo";
+        var cacheKey = $"sso:{strategy}:{config.ProviderName}:{HashToken(token)}";
         if (_cache.TryGetValue(cacheKey, out ClaimsPrincipal? cached))
             return cached;
 
@@ -242,6 +242,7 @@ public sealed class SsoTokenValidator : ISsoTokenValidator
         AddIfPresent(claims, "tenant_name", root);
         AddIfPresent(claims, "site_ids", root);
         AddIfPresent(claims, "roles", root);
+        AddIfPresent(claims, "groups", root);
         AddIfPresent(claims, "agent_access", root);
         AddIfPresent(claims, "litellm_team_key", root);
 

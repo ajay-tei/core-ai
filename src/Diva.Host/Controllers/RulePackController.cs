@@ -1,4 +1,5 @@
 using Diva.Core.Models;
+using Diva.Host.Auth;
 using Diva.Infrastructure.Auth;
 using Diva.TenantAdmin.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -7,6 +8,7 @@ namespace Diva.Host.Controllers;
 
 [ApiController]
 [Route("api/admin/rule-packs")]
+[RequireTenantAdmin]
 public class RulePackController : ControllerBase
 {
     private readonly IRulePackService _packs;

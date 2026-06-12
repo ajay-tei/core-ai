@@ -1,4 +1,5 @@
 using Diva.Core.Configuration;
+using Diva.Host.Auth;
 using Diva.Infrastructure.Auth;
 using Diva.Infrastructure.Scheduler;
 using Microsoft.AspNetCore.Mvc;
@@ -8,6 +9,7 @@ namespace Diva.Host.Controllers;
 
 [ApiController]
 [Route("api/schedules")]
+[RequireTenantAdmin]
 public class SchedulerController : ControllerBase
 {
     private readonly IScheduledTaskService _service;

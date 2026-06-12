@@ -43,6 +43,7 @@ export function AuthCallback() {
     const name     = params.get("name");
     const userId   = params.get("user_id");
     const logoutUrl = params.get("logout_url");
+    const isAdmin  = params.get("is_admin") === "true";
 
     if (token) {
       localStorage.setItem(storageKey("token"),     token);
@@ -51,11 +52,13 @@ export function AuthCallback() {
       if (name)      localStorage.setItem(storageKey("user_name"),   name);
       if (userId)    localStorage.setItem(storageKey("user_id"),     userId);
       if (logoutUrl) localStorage.setItem(storageKey("logout_url"),  logoutUrl);
+      if (isAdmin)   localStorage.setItem(storageKey("is_admin"),    "true");
+      else           localStorage.removeItem(storageKey("is_admin"));
 
       // Clear the fragment from the address bar so the token isn't visible
       window.history.replaceState(null, "", window.location.pathname);
 
-      navigate("/dashboard", { replace: true });
+      navigate(isAdmin ? "/dashboard" : "/agents", { replace: true });
     } else {
       // No token in fragment — show details to help debug
       const rawHash = window.location.hash || "(empty)";

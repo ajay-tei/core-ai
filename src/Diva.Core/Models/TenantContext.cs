@@ -16,7 +16,9 @@ public sealed class TenantContext
     // ── Authorization ─────────────────────────────────────────
     public string Role { get; init; } = string.Empty;
     public string[] UserRoles { get; init; } = [];
+    public string[] UserGroups { get; init; } = [];      // SSO groups (separate from roles)
     public string[] AgentAccess { get; init; } = [];       // which agent types this user can invoke
+    public string[] GroupAccess { get; init; } = [];       // agent-group IDs explicitly granted (API key / claim)
 
     // ── Site scoping ──────────────────────────────────────────
     public int[] SiteIds { get; init; } = [];              // all sites this user can access
@@ -77,7 +79,9 @@ public sealed class TenantContext
         UserName = UserName,
         Role = Role,
         UserRoles = UserRoles,
+        UserGroups = UserGroups,
         AgentAccess = AgentAccess,
+        GroupAccess = GroupAccess,
         SiteIds = SiteIds,
         CurrentSiteId = CurrentSiteId,
         AccessToken = AccessToken,

@@ -35,7 +35,7 @@ public interface ILocalAuthService
     /// When <paramref name="ssoAccessToken"/> is provided it is embedded as a "sso_token" claim
     /// so MCP servers with PassSsoToken=true receive the real provider token, not the Diva JWT.
     /// </summary>
-    string IssueSsoJwt(int tenantId, string userId, string email, string displayName, string[] roles, string? ssoAccessToken = null);
+    string IssueSsoJwt(int tenantId, string userId, string email, string displayName, string[] roles, string? ssoAccessToken = null, string[]? groups = null, string[]? agentAccess = null, string[]? groupAccess = null);
 
     /// <summary>
     /// Issues a short-lived, agent-scoped JWT for anonymous widget sessions.
@@ -236,7 +236,7 @@ public sealed class LocalAuthService : ILocalAuthService
     private string IssueJwt(LocalUserEntity user)
         => IssueSsoJwt(user.TenantId, user.Id.ToString(), user.Email, user.DisplayName, user.Roles);
 
-    public string IssueSsoJwt(int tenantId, string userId, string email, string displayName, string[] roles, string? ssoAccessToken = null)
+    public string IssueSsoJwt(int tenantId, string userId, string email, string displayName, string[] roles, string? ssoAccessToken = null, string[]? groups = null, string[]? agentAccess = null, string[]? groupAccess = null)
     {
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_opts.SigningKey));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
@@ -250,6 +250,18 @@ public sealed class LocalAuthService : ILocalAuthService
             new("tenant_id", tenantId.ToString()),
             new("roles",     string.Join(",", roles)),
         };
+
+        // SSO groups are emitted as a separate claim so group-based agent access
+        // control works even when the provider returns both roles and groups.
+        if (groups is { Length: > 0 })
+            claims.Add(new Claim("groups", string.Join(",", groups)));
+
+        // Explicit per-agent allow-list (agent IDs) and access-group IDs resolved during the
+        // SSO callback. These drive AgentGroupService access checks on every request.
+        if (agentAccess is { Length: > 0 })
+            claims.Add(new Claim("agent_access", string.Join(",", agentAccess)));
+        if (groupAccess is { Length: > 0 })
+            claims.Add(new Claim("group_access", string.Join(",", groupAccess)));
 
         // Embed the original SSO provider token so it can be propagated to MCP servers
         // that have PassSsoToken=true. Without this, only the Diva local JWT would be

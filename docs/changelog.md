@@ -4,6 +4,61 @@
 
 ---
 
+## [2026-06-12] RBAC enforcement + Agent Access Groups + SSO claim mapping
+
+Three related authorization features landed together: role-based access control on admin
+endpoints, per-agent access groups, and SSO claim → role/access-group mapping with a safe
+default-user fallback.
+
+### Role-based access control (admin / user / viewer)
+
+Admin-only mutations are now guarded so a plain `user`/`viewer` cannot create, update, delete,
+or configure platform resources. Invoke endpoints remain open to all authenticated users
+(scoped per-agent by the access-group check below).
+
+| File | Change |
+|------|--------|
+| `src/Diva.Host/Auth/RequireTenantAdminAttribute.cs` | New authorization filter — 403 unless `TenantContext.IsAdmin`/`IsMasterAdmin` |
+| `src/Diva.Host/Controllers/*.cs` | `[RequireTenantAdmin]` applied to admin mutations across Admin, Agents, ApiKeys, Credentials, LearnedRules, RulePack, Scheduler, Supervisor, AgentOptimization controllers |
+| `src/Diva.Host/Controllers/AgentsController.cs` | List/Get filter agents to those the caller may invoke; create/update/delete/prompt-improve admin-gated |
+| `src/Diva.Host/Controllers/SessionsController.cs` | User-scoped sessions (`IsRestrictedUser` helper); purge admin-gated |
+| `admin-portal/src/lib/auth.ts`, `App.tsx`, `components/layout/app-sidebar.tsx`, `AgentList.tsx`, `LoginPage.tsx`, `AuthCallback.tsx` | Frontend `isAdmin()` gating: `AdminGuard` routes, `DefaultRedirect`, chat-user nav group, hidden admin actions, `is_admin` stored from login/SSO |
+
+### Agent Access Groups (per-user / per-role authorization)
+
+See [phase-28-agent-access-groups.md](phase-28-agent-access-groups.md). Group a tenant's agents
+and grant invoke access to selected users/roles. Backward compatible — agents not in any
+restricted group stay open to all tenant users.
+
+| File | Change |
+|------|--------|
+| `src/Diva.Infrastructure/Data/Entities/AgentGroupEntity.cs` | New entity (`ITenantEntity`) — name, agent IDs, allowed user IDs/roles |
+| `src/Diva.Infrastructure/Data/Migrations/20260612181544_AddAgentGroups*.cs` | EF migration (+ Designer + snapshot) |
+| `src/Diva.TenantAdmin/Services/AgentGroupService.cs`, `IAgentGroupService.cs` | `CanInvokeAgentAsync`/`GetDeniedAgentIdsAsync`/`IsGranted`, 5-min `IMemoryCache` per-tenant map |
+| `src/Diva.Host/Controllers/AgentGroupsController.cs` | CRUD REST API |
+| `src/Diva.Host/Controllers/AgentsController.cs` | Invoke + InvokeStream call `CanInvokeAgentAsync` → 403 on denial |
+| `admin-portal/src/components/AgentGroups.tsx` | Admin UI |
+| `tests/Diva.TenantAdmin.Tests/AgentGroupServiceTests.cs` | Service tests |
+
+### SSO claim mapping (RoleMap / AccessGroupMap) + default-user fallback
+
+SSO providers rarely emit Diva's internal role names. A per-tenant mapping layer translates raw
+IdP role/group values into canonical Diva roles and access-group IDs. A user with no mapped
+roles defaults to the `user` role and (with no resolved access groups) can only invoke agents
+that are not group-restricted.
+
+| File | Change |
+|------|--------|
+| `src/Diva.Core/Configuration/OAuthOptions.cs` | `ClaimMappingsOptions` gains `Groups`, `GroupAccess`, `RoleMap` (`Dictionary<string,string>`), `AccessGroupMap` (`Dictionary<string,string[]>`) |
+| `src/Diva.Infrastructure/Auth/SsoClaimMapper.cs` | New helper — role normalization (when `UseRoleMappings` on), access-group resolution, dedupe, default `user` fallback |
+| `src/Diva.Host/Controllers/AuthController.cs` | Callback extracts `agent_access`/`group_access`, runs `SsoClaimMapper.Map`, passes results to `IssueSsoJwt` |
+| `src/Diva.Infrastructure/Auth/LocalAuthService.cs` | `IssueSsoJwt` emits `agent_access`/`group_access` claims |
+| `src/Diva.Infrastructure/Auth/TenantClaimsExtractor.cs` | Reads `group_access` claim into `TenantContext.GroupAccess` |
+| `admin-portal/src/components/SsoConfigEditor.tsx` | Structured Role Mapping + Access Group Mapping row editors (merge into `claimMappingsJson`) |
+| `tests/Diva.TenantAdmin.Tests/SsoClaimMapperTests.cs`, `TenantClaimsExtractorGroupTests.cs` | Mapper + fallback + claim-extraction tests |
+
+---
+
 ## [2026-06-11] Verification Auto-mode escalation + token-cost optimisations
 
 ### Auto mode now escalates low-confidence responses to an LLM cross-check

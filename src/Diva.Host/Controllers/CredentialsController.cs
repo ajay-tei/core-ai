@@ -1,4 +1,5 @@
 using Diva.Core.Configuration;
+using Diva.Host.Auth;
 using Diva.Infrastructure.Auth;
 using Diva.Infrastructure.Data;
 using Diva.Infrastructure.Data.Entities;
@@ -9,6 +10,7 @@ namespace Diva.Host.Controllers;
 
 [ApiController]
 [Route("api/admin/credentials")]
+[RequireTenantAdmin]
 public class CredentialsController : ControllerBase
 {
     private readonly IDatabaseProviderFactory _db;
@@ -20,9 +22,9 @@ public class CredentialsController : ControllerBase
         ICredentialEncryptor encryptor,
         ILogger<CredentialsController> logger)
     {
-        _db        = db;
+        _db = db;
         _encryptor = encryptor;
-        _logger    = logger;
+        _logger = logger;
     }
 
     private int EffectiveTenantId(int requestedTenantId)
@@ -43,9 +45,16 @@ public class CredentialsController : ControllerBase
             .AsNoTracking()
             .Select(c => new
             {
-                c.Id, c.Name, c.AuthScheme, c.CustomHeaderName,
-                c.Description, c.CreatedAt, c.ExpiresAt, c.IsActive,
-                c.LastUsedAt, c.CreatedByUserId
+                c.Id,
+                c.Name,
+                c.AuthScheme,
+                c.CustomHeaderName,
+                c.Description,
+                c.CreatedAt,
+                c.ExpiresAt,
+                c.IsActive,
+                c.LastUsedAt,
+                c.CreatedByUserId
             })
             .ToListAsync(ct);
 
@@ -63,14 +72,14 @@ public class CredentialsController : ControllerBase
 
         var entity = new McpCredentialEntity
         {
-            TenantId         = tid,
-            Name             = dto.Name,
-            EncryptedApiKey  = encrypted,
-            AuthScheme       = dto.AuthScheme ?? "Bearer",
+            TenantId = tid,
+            Name = dto.Name,
+            EncryptedApiKey = encrypted,
+            AuthScheme = dto.AuthScheme ?? "Bearer",
             CustomHeaderName = dto.CustomHeaderName,
-            Description      = dto.Description,
-            ExpiresAt        = dto.ExpiresAt,
-            CreatedByUserId  = ctx?.UserId
+            Description = dto.Description,
+            ExpiresAt = dto.ExpiresAt,
+            CreatedByUserId = ctx?.UserId
         };
 
         using var db = _db.CreateDbContext(Core.Models.TenantContext.System(tid));
