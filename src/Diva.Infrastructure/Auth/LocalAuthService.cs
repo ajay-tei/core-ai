@@ -34,8 +34,10 @@ public interface ILocalAuthService
     /// Issues a local JWT for an SSO-authenticated user (no local user record needed).
     /// When <paramref name="ssoAccessToken"/> is provided it is embedded as a "sso_token" claim
     /// so MCP servers with PassSsoToken=true receive the real provider token, not the Diva JWT.
+    /// When <paramref name="ssoForwardHeaders"/> is provided, the entries are serialised into an
+    /// "sso_fwd_headers" claim and later injected verbatim into MCP HTTP calls made with PassSsoToken=true.
     /// </summary>
-    string IssueSsoJwt(int tenantId, string userId, string email, string displayName, string[] roles, string? ssoAccessToken = null, string[]? groups = null, string[]? agentAccess = null, string[]? groupAccess = null);
+    string IssueSsoJwt(int tenantId, string userId, string email, string displayName, string[] roles, string? ssoAccessToken = null, string[]? groups = null, string[]? agentAccess = null, string[]? groupAccess = null, Dictionary<string, string>? ssoForwardHeaders = null);
 
     /// <summary>
     /// Issues a short-lived, agent-scoped JWT for anonymous widget sessions.
@@ -236,7 +238,7 @@ public sealed class LocalAuthService : ILocalAuthService
     private string IssueJwt(LocalUserEntity user)
         => IssueSsoJwt(user.TenantId, user.Id.ToString(), user.Email, user.DisplayName, user.Roles);
 
-    public string IssueSsoJwt(int tenantId, string userId, string email, string displayName, string[] roles, string? ssoAccessToken = null, string[]? groups = null, string[]? agentAccess = null, string[]? groupAccess = null)
+    public string IssueSsoJwt(int tenantId, string userId, string email, string displayName, string[] roles, string? ssoAccessToken = null, string[]? groups = null, string[]? agentAccess = null, string[]? groupAccess = null, Dictionary<string, string>? ssoForwardHeaders = null)
     {
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_opts.SigningKey));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
@@ -268,6 +270,11 @@ public sealed class LocalAuthService : ILocalAuthService
         // available and would be meaningless to SSO-protected tool backends.
         if (!string.IsNullOrEmpty(ssoAccessToken))
             claims.Add(new Claim("sso_token", ssoAccessToken));
+
+        // Embed SSO-configured forward headers as a JSON claim so McpConnectionManager can
+        // inject them into outbound HTTP calls when PassSsoToken=true is active.
+        if (ssoForwardHeaders is { Count: > 0 })
+            claims.Add(new Claim("sso_fwd_headers", System.Text.Json.JsonSerializer.Serialize(ssoForwardHeaders)));
 
         var jwt = new JwtSecurityToken(
             issuer: _branding.LocalIssuer,

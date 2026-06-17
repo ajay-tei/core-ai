@@ -46,6 +46,8 @@ public sealed class TenantClaimsExtractor : ITenantClaimsExtractor
         var ssoToken = principal.FindFirstValue("sso_token");
         var propagToken = !string.IsNullOrEmpty(ssoToken) ? ssoToken : null;
 
+        var ssoFwdHeaders = ParseSsoForwardHeaders(principal.FindFirstValue("sso_fwd_headers"));
+
         _logger.LogDebug(
             "TenantClaimsExtractor: tenant={TenantId} user={UserId} | sso_token claim={HasSsoToken} | AccessToken source={TokenSource}",
             tenantId,
@@ -74,7 +76,8 @@ public sealed class TenantClaimsExtractor : ITenantClaimsExtractor
             AccessToken = propagToken,
             TokenExpiry = ParseExpiry(principal),
             TeamApiKey = principal.FindFirstValue(mappings.TeamApiKey),
-            CorrelationId = Guid.NewGuid().ToString()
+            CorrelationId = Guid.NewGuid().ToString(),
+            SsoForwardHeaders = ssoFwdHeaders,
         };
     }
 
@@ -116,5 +119,12 @@ public sealed class TenantClaimsExtractor : ITenantClaimsExtractor
         if (long.TryParse(exp, out var unixSeconds))
             return DateTimeOffset.FromUnixTimeSeconds(unixSeconds);
         return DateTimeOffset.UtcNow.AddHours(1);
+    }
+
+    private static Dictionary<string, string> ParseSsoForwardHeaders(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return [];
+        try { return JsonSerializer.Deserialize<Dictionary<string, string>>(json) ?? []; }
+        catch { return []; }
     }
 }

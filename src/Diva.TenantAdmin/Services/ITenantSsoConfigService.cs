@@ -53,7 +53,8 @@ public record CreateSsoConfigDto(
     bool UseTeamMappings,
     string? ClaimMappingsJson,
     string? LogoutUrl,
-    string? EmailDomains);
+    string? EmailDomains,
+    string? SsoForwardHeadersJson = null);
 
 public record UpdateSsoConfigDto(
     string? ClientSecret,               // null = keep existing; supply to rotate
@@ -71,4 +72,5 @@ public record UpdateSsoConfigDto(
     bool UseTeamMappings,
     string? ClaimMappingsJson,
     string? LogoutUrl,
-    string? EmailDomains);
+    string? EmailDomains,
+    string? SsoForwardHeadersJson = null);

@@ -108,6 +108,7 @@ public sealed class TenantSsoConfigService : ITenantSsoConfigService, ISsoConfig
             ClaimMappingsJson      = dto.ClaimMappingsJson,
             LogoutUrl              = dto.LogoutUrl,
             EmailDomains           = dto.EmailDomains,
+            SsoForwardHeadersJson  = dto.SsoForwardHeadersJson,
             IsActive               = true,
             CreatedAt              = DateTime.UtcNow
         };
@@ -141,6 +142,7 @@ public sealed class TenantSsoConfigService : ITenantSsoConfigService, ISsoConfig
         entity.ClaimMappingsJson      = dto.ClaimMappingsJson;
         entity.LogoutUrl              = dto.LogoutUrl;
         entity.EmailDomains           = dto.EmailDomains;
+        entity.SsoForwardHeadersJson  = dto.SsoForwardHeadersJson;
         entity.UpdatedAt              = DateTime.UtcNow;
 
         await db.SaveChangesAsync(ct);

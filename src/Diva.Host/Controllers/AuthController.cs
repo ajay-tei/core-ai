@@ -298,7 +298,8 @@ public class AuthController : ControllerBase
             ssoAccessToken: accessToken,
             groups: groups ?? [],
             agentAccess: agentAccess ?? [],
-            groupAccess: groupAccess);
+            groupAccess: groupAccess,
+            ssoForwardHeaders: ParseSsoForwardHeaders(config.SsoForwardHeadersJson));
 
         // ── Step 4: Redirect browser to portal with local token in URL fragment ─
         // Fragment (#) is never sent to the server and doesn't appear in access logs.
@@ -677,5 +678,12 @@ public class AuthController : ControllerBase
             }
         }
         return null;
+    }
+
+    private static Dictionary<string, string>? ParseSsoForwardHeaders(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return null;
+        try { return JsonSerializer.Deserialize<Dictionary<string, string>>(json); }
+        catch { return null; }
     }
 }

@@ -202,6 +202,26 @@ public sealed class McpConnectionManager : IMcpConnectionManager
                                 CustomHeaders = tc.CustomHeaders
                             };
                         headers = mcpCtx.ToHeaders();
+
+                        // Inject SSO-configured forward headers (only when actively forwarding SSO token).
+                        // Authorization is reserved — skip silently to avoid clobbering the SSO bearer.
+                        if (includeBearerToken && hasToken && tc.SsoForwardHeaders.Count > 0)
+                        {
+                            foreach (var (hKey, hValue) in tc.SsoForwardHeaders)
+                            {
+                                if (hKey.Equals("Authorization", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    _logger.LogWarning(
+                                        "MCP binding '{Name}': SSO forward header 'Authorization' is reserved — skipping",
+                                        binding.Name);
+                                    continue;
+                                }
+                                headers[hKey] = hValue;
+                            }
+                            _logger.LogDebug(
+                                "MCP binding '{Name}': injected {Count} SSO forward header(s) from SSO config",
+                                binding.Name, tc.SsoForwardHeaders.Count);
+                        }
                     }
                     else
                     {

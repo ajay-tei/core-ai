@@ -76,6 +76,15 @@ public class TenantSsoConfigEntity : ITenantEntity, ISsoProviderConfig
     /// </summary>
     public string? EmailDomains { get; set; }
 
+    /// <summary>
+    /// Optional JSON object (Dictionary&lt;string, string&gt;) of additional HTTP headers to
+    /// forward verbatim to MCP servers when the SSO token is being forwarded
+    /// (i.e. the MCP binding has PassSsoToken=true AND the user has an active SSO session).
+    /// Reserved headers such as "Authorization" are silently skipped.
+    /// Example: {"X-Tenant-Domain":"contoso.com","X-App-Context":"diva"}
+    /// </summary>
+    public string? SsoForwardHeadersJson { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
 }

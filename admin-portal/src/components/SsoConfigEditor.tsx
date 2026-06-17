@@ -21,6 +21,9 @@ import { toast } from "sonner";
 /** A single IdP-value → target mapping row used by the RoleMap / AccessGroupMap editors. */
 type MapRow = { from: string; to: string };
 
+/** A single key → value header row for SSO forward headers. */
+type HeaderRow = { key: string; value: string };
+
 function safeParseObject(json: string | undefined): Record<string, unknown> {
   if (!json || !json.trim()) return {};
   try {
@@ -97,6 +100,7 @@ const emptyForm: CreateSsoConfigDto = {
   claimMappingsJson: "",
   logoutUrl: "",
   emailDomains: "",
+  ssoForwardHeadersJson: "",
 };
 
 export function SsoConfigEditor({ tenantId = 1 }: { tenantId?: number }) {
@@ -113,6 +117,7 @@ export function SsoConfigEditor({ tenantId = 1 }: { tenantId?: number }) {
   const [claimHelpOpen, setClaimHelpOpen] = useState(false);
   const [roleMapRows, setRoleMapRows] = useState<MapRow[]>([]);
   const [accessGroupMapRows, setAccessGroupMapRows] = useState<MapRow[]>([]);
+  const [ssoFwdHeaderRows, setSsoFwdHeaderRows] = useState<HeaderRow[]>([]);
 
   const set = (field: keyof CreateSsoConfigDto, value: unknown) =>
     setForm(f => ({ ...f, [field]: value }));
@@ -160,7 +165,16 @@ export function SsoConfigEditor({ tenantId = 1 }: { tenantId?: number }) {
           claimMappingsJson: strippedJson,
           logoutUrl: c.logoutUrl ?? "",
           emailDomains: c.emailDomains ?? "",
+          ssoForwardHeadersJson: "",  // managed via ssoFwdHeaderRows below
         });
+
+        // Parse ssoForwardHeadersJson into structured rows
+        try {
+          const hdrObj = c.ssoForwardHeadersJson ? JSON.parse(c.ssoForwardHeadersJson) : {};
+          setSsoFwdHeaderRows(Object.entries(hdrObj as Record<string, string>).map(([key, value]) => ({ key, value })));
+        } catch {
+          setSsoFwdHeaderRows([]);
+        }
       })
       .catch(() => toast.error("Failed to load SSO config"))
       .finally(() => setLoading(false));
@@ -169,7 +183,19 @@ export function SsoConfigEditor({ tenantId = 1 }: { tenantId?: number }) {
   async function save() {
     setSaving(true);
     try {
-      const payload = { ...form, claimMappingsJson: buildMergedClaimMappings() };
+      // Merge structured SSO forward header rows into JSON
+      const fwdHdrObj: Record<string, string> = {};
+      for (const row of ssoFwdHeaderRows) {
+        const k = row.key.trim();
+        if (k) fwdHdrObj[k] = row.value;
+      }
+      const ssoForwardHeadersJson = Object.keys(fwdHdrObj).length ? JSON.stringify(fwdHdrObj) : "";
+
+      const payload = {
+        ...form,
+        claimMappingsJson: buildMergedClaimMappings(),
+        ssoForwardHeadersJson,
+      };
       if (isEdit && id) {
         await api.updateSsoConfig(Number(id), { ...payload, isActive: true }, effectiveTenantId);
         toast.success("SSO config updated");
@@ -508,6 +534,59 @@ export function SsoConfigEditor({ tenantId = 1 }: { tenantId?: number }) {
               placeholder="example.com, contoso.com"
             />
           </div>
+        </CardContent>
+      </Card>
+
+      {/* SSO Forward Headers */}
+      <Card>
+        <CardHeader>
+          <CardTitle>MCP Forward Headers</CardTitle>
+          <CardDescription>
+            Additional HTTP headers to inject into MCP tool calls when{" "}
+            <span className="font-medium">Pass SSO Token to this MCP Server</span> is enabled on a binding.
+            Headers are forwarded verbatim alongside the SSO bearer token.{" "}
+            <code className="bg-muted rounded px-1 text-xs">Authorization</code> is reserved and will be ignored.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {ssoFwdHeaderRows.length === 0 && (
+            <p className="text-muted-foreground text-xs italic">No custom headers configured.</p>
+          )}
+          {ssoFwdHeaderRows.map((row, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <Input
+                value={row.key}
+                onChange={e => setSsoFwdHeaderRows(rows => rows.map((r, j) => j === i ? { ...r, key: e.target.value } : r))}
+                placeholder="Header name (e.g. X-Tenant-Domain)"
+                className="flex-1"
+              />
+              <span className="text-muted-foreground text-sm">:</span>
+              <Input
+                value={row.value}
+                onChange={e => setSsoFwdHeaderRows(rows => rows.map((r, j) => j === i ? { ...r, value: e.target.value } : r))}
+                placeholder="Header value"
+                className="flex-1"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => setSsoFwdHeaderRows(rows => rows.filter((_, j) => j !== i))}
+                aria-label="Remove header"
+              >
+                <X className="size-4" />
+              </Button>
+            </div>
+          ))}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-1"
+            onClick={() => setSsoFwdHeaderRows(rows => [...rows, { key: "", value: "" }])}
+          >
+            <Plus className="size-4" /> Add header
+          </Button>
         </CardContent>
       </Card>
 

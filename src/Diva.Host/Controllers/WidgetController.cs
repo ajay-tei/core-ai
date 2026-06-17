@@ -114,13 +114,15 @@ public class WidgetController : ControllerBase
         var tenantCtx = _claimsExtractor.Extract(principal, request.SsoToken, requestSiteId: null);
 
         // Issue a local Diva JWT (8 h, or widget expiry if sooner)
+        var ssoFwdHeaders = ParseSsoForwardHeaders(ssoConfig.SsoForwardHeadersJson);
         var token = _localAuth.IssueSsoJwt(
             widget.TenantId,
             tenantCtx.UserId ?? "unknown",
             tenantCtx.UserEmail ?? string.Empty,
             tenantCtx.UserName ?? "User",
             tenantCtx.UserRoles,
-            ssoAccessToken: request.SsoToken);
+            ssoAccessToken: request.SsoToken,
+            ssoForwardHeaders: ssoFwdHeaders);
 
         var expiresAt = DateTime.UtcNow.AddHours(8);
         return Ok(new WidgetAuthResponse(token, tenantCtx.UserId ?? "unknown", expiresAt));
@@ -170,5 +172,12 @@ public class WidgetController : ControllerBase
         if (string.IsNullOrWhiteSpace(json)) return WidgetTheme.Light;
         try { return System.Text.Json.JsonSerializer.Deserialize<WidgetTheme>(json) ?? WidgetTheme.Light; }
         catch { return WidgetTheme.Light; }
+    }
+
+    private static Dictionary<string, string>? ParseSsoForwardHeaders(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return null;
+        try { return System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json); }
+        catch { return null; }
     }
 }
