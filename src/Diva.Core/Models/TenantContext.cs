@@ -37,6 +37,13 @@ public sealed class TenantContext
     // ── Custom headers (propagated to MCP tools) ──────────────
     public Dictionary<string, string> CustomHeaders { get; init; } = [];
 
+    /// <summary>
+    /// SSO-configured forward headers to inject into MCP HTTP calls when the SSO token
+    /// is actively being forwarded (PassSsoToken=true AND user has an SSO session).
+    /// Populated from the "sso_fwd_headers" JWT claim; empty for local-auth users.
+    /// </summary>
+    public Dictionary<string, string> SsoForwardHeaders { get; init; } = [];
+
     // ── Helpers ───────────────────────────────────────────────
     public bool CanAccessSite(int siteId) =>
         SiteIds.Length == 0 || SiteIds.Contains(siteId);
@@ -91,6 +98,7 @@ public sealed class TenantContext
         CorrelationId = CorrelationId,
         SessionId = sessionId,
         CustomHeaders = CustomHeaders,
+        SsoForwardHeaders = SsoForwardHeaders,
     };
 
     /// <summary>

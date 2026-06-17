@@ -433,6 +433,7 @@ export interface SsoConfig
   claimMappingsJson?: string;
   logoutUrl?: string;
   emailDomains?: string;   // comma-separated: "contoso.com,contoso.onmicrosoft.com"
+  ssoForwardHeadersJson?: string;  // JSON object: additional headers forwarded to MCP when PassSsoToken=true
   isActive: boolean;
   createdAt: string;
   updatedAt?: string;
