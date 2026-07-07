@@ -27,9 +27,9 @@ public sealed class McpConnectionManager : IMcpConnectionManager
         ICredentialResolver? credentialResolver,
         ILogger<McpConnectionManager> logger)
     {
-        _httpCtx             = httpCtx;
-        _credentialResolver  = credentialResolver;
-        _logger              = logger;
+        _httpCtx = httpCtx;
+        _credentialResolver = credentialResolver;
+        _logger = logger;
     }
 
     /// <summary>
@@ -39,13 +39,15 @@ public sealed class McpConnectionManager : IMcpConnectionManager
     /// </summary>
     public async Task<Dictionary<string, McpClient>> ConnectAsync(
         AgentDefinitionEntity definition, CancellationToken ct,
-        TenantContext? fallbackTenant = null, bool forcePassSsoToken = false)
+        TenantContext? fallbackTenant = null, bool forcePassSsoToken = false,
+        string? effectiveBindingsJson = null)
     {
         var result = new Dictionary<string, McpClient>(StringComparer.OrdinalIgnoreCase);
-        if (string.IsNullOrEmpty(definition.ToolBindings)) return result;
+        var bindingsJson = effectiveBindingsJson ?? definition.ToolBindings;
+        if (string.IsNullOrEmpty(bindingsJson)) return result;
 
         List<McpToolBinding>? bindings;
-        try { bindings = JsonSerializer.Deserialize<List<McpToolBinding>>(definition.ToolBindings, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }); }
+        try { bindings = JsonSerializer.Deserialize<List<McpToolBinding>>(bindingsJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true }); }
         catch (Exception ex)
         {
             _logger.LogWarning(ex,
@@ -88,7 +90,7 @@ public sealed class McpConnectionManager : IMcpConnectionManager
     public async Task<(Dictionary<string, McpClient> Map, List<McpClientTool> Tools)> BuildToolDataAsync(
         Dictionary<string, McpClient> clients, CancellationToken ct)
     {
-        var map      = new Dictionary<string, McpClient>(StringComparer.OrdinalIgnoreCase);
+        var map = new Dictionary<string, McpClient>(StringComparer.OrdinalIgnoreCase);
         var allTools = new List<McpClientTool>();
         if (clients.Count == 0) return (map, allTools);
 
@@ -196,8 +198,8 @@ public sealed class McpConnectionManager : IMcpConnectionManager
                             ? McpRequestContext.FromTenant(tc)
                             : new McpRequestContext
                             {
-                                TenantId      = tc.TenantId,
-                                SiteId        = tc.CurrentSiteId,
+                                TenantId = tc.TenantId,
+                                SiteId = tc.CurrentSiteId,
                                 CorrelationId = tc.CorrelationId,
                                 CustomHeaders = tc.CustomHeaders
                             };
@@ -324,9 +326,9 @@ public sealed class McpConnectionManager : IMcpConnectionManager
 
         var stdioTransport = new StdioClientTransport(new StdioClientTransportOptions
         {
-            Name                 = binding.Name,
-            Command              = binding.Command,
-            Arguments            = binding.Args,
+            Name = binding.Name,
+            Command = binding.Command,
+            Arguments = binding.Args,
             EnvironmentVariables = envVars.Count > 0 ? envVars : null
         });
         return await McpClient.CreateAsync(stdioTransport, cancellationToken: ct);

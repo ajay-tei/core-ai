@@ -40,6 +40,7 @@ import { ArchetypeSelector } from "@/components/ArchetypeSelector";
 import { HookEditor } from "@/components/HookEditor";
 import { A2AConfigPanel } from "@/components/A2AConfigPanel";
 import { DelegateAgentSelector } from "@/components/DelegateAgentSelector";
+import { McpServerSelector } from "@/components/McpServerSelector";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -1444,6 +1445,11 @@ export function AgentBuilder() {
         </TabsContent>
 
         <TabsContent value="tools" className="mt-6 space-y-6">
+          <McpServerSelector
+            value={form.mcpServerRefsJson}
+            onChange={(json) => set("mcpServerRefsJson", json)}
+          />
+
           <DockerGatewayPanel onUse={(binding) => setBindings((bs) => {
             // Replace existing docker-mcp-gateway entry if present, otherwise append.
             // Always remove empty placeholder rows (name == "") so they don't clutter.

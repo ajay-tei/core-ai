@@ -30,6 +30,12 @@ public sealed class TenantContext
     public string? TeamApiKey { get; init; }               // LiteLLM team key for cost tracking
     public string? InboundApiKey { get; init; }            // Raw X-API-Key used to authenticate this request (for MCP forwarding)
 
+    /// <summary>
+    /// DB id of the platform API key used to authenticate this request, when authenticated via X-API-Key.
+    /// null for JWT/SSO callers. Drives per-API-key MCP credential selection for shared tool servers.
+    /// </summary>
+    public int? PlatformApiKeyId { get; init; }
+
     // ── Tracing ───────────────────────────────────────────────
     public string CorrelationId { get; init; } = Guid.NewGuid().ToString();
     public string? SessionId { get; init; }
@@ -95,6 +101,7 @@ public sealed class TenantContext
         TokenExpiry = TokenExpiry,
         TeamApiKey = TeamApiKey,
         InboundApiKey = InboundApiKey,
+        PlatformApiKeyId = PlatformApiKeyId,
         CorrelationId = CorrelationId,
         SessionId = sessionId,
         CustomHeaders = CustomHeaders,

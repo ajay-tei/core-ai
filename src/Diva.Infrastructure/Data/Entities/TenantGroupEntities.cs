@@ -66,8 +66,8 @@ public class GroupAgentTemplateEntity
     public string? A2ASecretRef { get; set; }
     public string? A2ARemoteAgentId { get; set; }
     public string ExecutionMode { get; set; } = "Full";
-    public string? ModelSwitchingJson { get; set; }
-    // ──────────────────────────────────────────────────────────────────────────
+    public string? ModelSwitchingJson { get; set; }    /// <summary>JSON string[] of shared TenantMcpServer names referenced by this template.</summary>
+    public string? McpServerRefsJson { get; set; }    // ──────────────────────────────────────────────────────────────────────────
     public bool IsEnabled { get; set; } = true;
     public string Status { get; set; } = "Published";
     public int Version { get; set; } = 1;

@@ -72,6 +72,7 @@ public sealed class AnthropicAgentRunner : IAgentRunner
     private readonly ModelSwitchCoordinator? _modelSwitchCoordinator;
     private readonly IArchetypeRegistry? _archetypeRegistry;
     private readonly IMcpConnectionManager _mcpConnector;
+    private readonly IMcpCredentialSelector? _mcpCredentialSelector;
     private readonly ToolExecutor _toolExecutor;
     private readonly AgentToolProvider? _agentToolProvider;
     private readonly AgentToolExecutor? _agentToolExecutor;
@@ -103,7 +104,8 @@ public sealed class AnthropicAgentRunner : IAgentRunner
         AgentToolProvider? agentToolProvider = null,
         AgentToolExecutor? agentToolExecutor = null,
         IServiceScopeFactory? scopeFactory = null,
-        IToolSelectionStrategy? toolSelector = null)
+        IToolSelectionStrategy? toolSelector = null,
+        IMcpCredentialSelector? mcpCredentialSelector = null)
     {
         _llmOptions = llmOptions.Value;
         _agentOpts = agentOptions.Value;
@@ -129,6 +131,7 @@ public sealed class AnthropicAgentRunner : IAgentRunner
         _logger = logger;
         _scopeFactory = scopeFactory;
         _toolSelector = toolSelector;
+        _mcpCredentialSelector = mcpCredentialSelector;
     }
 
     public async Task<AgentResponse> RunAsync(
@@ -320,8 +323,35 @@ public sealed class AnthropicAgentRunner : IAgentRunner
         // the Authorization header directly from the HttpContext per tool call.
         bool forwardSso = request.ForwardSsoToMcp;
         string? sslCacheSuffix = forwardSso ? ":sso" : null;
+
+        // ── Shared MCP servers: resolve referenced servers into per-API-key credential bindings ──
+        // Backward compatible: when an agent has no McpServerRefsJson, effectiveBindingsJson and
+        // cacheKeyDiscriminator stay null and the cache/connector behave exactly as before
+        // (inline definition.ToolBindings only, undiscriminated cache slot).
+        string? effectiveBindingsJson = null;
+        string? cacheKeyDiscriminator = null;
+        var sharedServerNames = ParseSharedServerRefs(definition.McpServerRefsJson);
+        if (sharedServerNames.Count > 0 && _mcpCredentialSelector is not null)
+        {
+            var sharedBindings = await _mcpCredentialSelector.ResolveBindingsAsync(
+                tenant.TenantId, tenant.PlatformApiKeyId, sharedServerNames, ct);
+            if (sharedBindings.Count > 0)
+            {
+                var inlineBindings = ParseInlineBindings(definition.ToolBindings);
+                var merged = new List<McpToolBinding>(inlineBindings);
+                merged.AddRange(sharedBindings);
+                effectiveBindingsJson = JsonSerializer.Serialize(merged);
+                // Different API keys may resolve different credentials for the same server, so
+                // isolate cache slots per invoking key. JWT/SSO callers (no key) share one slot.
+                cacheKeyDiscriminator = tenant.PlatformApiKeyId is int keyId ? $"k{keyId}" : null;
+            }
+        }
+
         var mcpClients = await _mcpCache.GetOrConnectAsync(
-            definition, ct2 => _mcpConnector.ConnectAsync(definition, ct2, tenant, forwardSso), ct, sslCacheSuffix);
+            definition,
+            ct2 => _mcpConnector.ConnectAsync(definition, ct2, tenant, forwardSso, effectiveBindingsJson),
+            ct, sslCacheSuffix, effectiveBindingsJson, cacheKeyDiscriminator);
+
 
         // ── Inject tool planning strategy when tools are connected ───────────────
         // Guard on our own injected marker to avoid double-injection across continuation windows.
@@ -377,7 +407,9 @@ public sealed class AnthropicAgentRunner : IAgentRunner
             {
                 _logger.LogWarning(ex, "Stale MCP session detected — evicting cache and reconnecting (agent={Agent})", definition.Name);
                 mcpClients = await _mcpCache.EvictAndReconnectAsync(
-                    definition, ct2 => _mcpConnector.ConnectAsync(definition, ct2, tenant, forwardSso), ct, sslCacheSuffix);
+                    definition,
+                    ct2 => _mcpConnector.ConnectAsync(definition, ct2, tenant, forwardSso, effectiveBindingsJson),
+                    ct, sslCacheSuffix, effectiveBindingsJson, cacheKeyDiscriminator);
                 toolData = await _mcpConnector.BuildToolDataAsync(mcpClients, ct);
             }
             var (toolClientMap, allMcpTools) = toolData;
@@ -1597,6 +1629,22 @@ public sealed class AnthropicAgentRunner : IAgentRunner
         return msg.Contains("429") || msg.Contains("503") || msg.Contains("502") ||
                ex is TimeoutException ||
                (ex is TaskCanceledException tce && !tce.CancellationToken.IsCancellationRequested);
+    }
+
+    private static readonly JsonSerializerOptions _bindingJsonOpts = new() { PropertyNameCaseInsensitive = true };
+
+    private static List<string> ParseSharedServerRefs(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try { return JsonSerializer.Deserialize<List<string>>(json, _bindingJsonOpts) ?? []; }
+        catch { return []; }
+    }
+
+    private static List<McpToolBinding> ParseInlineBindings(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json) || json.Trim() == "[]") return [];
+        try { return JsonSerializer.Deserialize<List<McpToolBinding>>(json, _bindingJsonOpts) ?? []; }
+        catch { return []; }
     }
 
     // Hook config merging: see AgentHookHelper.MergeVariables / AgentHookHelper.MergeHookConfig

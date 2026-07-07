@@ -60,6 +60,9 @@ public class DivaDbContext : DbContext
     public DbSet<McpCredentialEntity> McpCredentials => Set<McpCredentialEntity>();
     public DbSet<PlatformApiKeyEntity> PlatformApiKeys => Set<PlatformApiKeyEntity>();
 
+    // ── Shared MCP Tool Servers ───────────────────────────────────────────────
+    public DbSet<TenantMcpServerEntity> TenantMcpServers => Set<TenantMcpServerEntity>();
+
     // ── Embeddable Chat Widgets ───────────────────────────────────────────────
     public DbSet<WidgetConfigEntity> WidgetConfigs => Set<WidgetConfigEntity>();
 
@@ -361,6 +364,12 @@ public class DivaDbContext : DbContext
             .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
         modelBuilder.Entity<PlatformApiKeyEntity>()
             .HasIndex(e => e.KeyHash);
+
+        // ── Shared MCP Tool Servers ───────────────────────────
+        modelBuilder.Entity<TenantMcpServerEntity>()
+            .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
+        modelBuilder.Entity<TenantMcpServerEntity>()
+            .HasIndex(e => new { e.TenantId, e.Name }).IsUnique();
 
         // ── Widget Configs ────────────────────────────────────
         modelBuilder.Entity<WidgetConfigEntity>()

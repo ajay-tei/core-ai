@@ -134,6 +134,7 @@ public sealed class AgentExportService : IAgentExportService
             MaxIterations = a.MaxIterations,
             Capabilities = a.Capabilities,
             ToolBindings = a.ToolBindings,
+            McpServerRefsJson = a.McpServerRefsJson,
             VerificationMode = a.VerificationMode,
             ContextWindowJson = a.ContextWindowJson,
             OptimizationOverrideJson = a.OptimizationOverrideJson,
@@ -194,6 +195,7 @@ public sealed class AgentExportService : IAgentExportService
         target.MaxIterations = src.MaxIterations;
         target.Capabilities = src.Capabilities;
         target.ToolBindings = src.ToolBindings;
+        target.McpServerRefsJson = src.McpServerRefsJson;
         target.VerificationMode = src.VerificationMode;
         target.ContextWindowJson = src.ContextWindowJson;
         target.OptimizationOverrideJson = src.OptimizationOverrideJson;

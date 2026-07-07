@@ -218,6 +218,7 @@ builder.Services
 builder.Services.AddSingleton<AgentSessionService>();
 builder.Services.AddSingleton<McpClientCache>();
 builder.Services.AddSingleton<IMcpConnectionManager, McpConnectionManager>();
+builder.Services.AddSingleton<IMcpCredentialSelector, McpCredentialSelector>();
 builder.Services.AddSingleton<ToolExecutor>();
 builder.Services.AddSingleton<AgentToolProvider>();
 builder.Services.AddSingleton<AgentToolExecutor>();

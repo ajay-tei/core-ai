@@ -26,6 +26,7 @@ import { AuthCallback } from "@/components/AuthCallback";
 import { LoginPage } from "@/components/LoginPage";
 import { CredentialManager } from "@/components/CredentialManager";
 import { ApiKeyManager } from "@/components/ApiKeyManager";
+import { McpServerManager } from "@/components/McpServerManager";
 import { AgentGroups } from "@/components/AgentGroups";
 import { A2ASettings } from "@/components/A2ASettings";
 import { WidgetManager } from "@/components/WidgetManager";
@@ -114,6 +115,7 @@ export default function App() {
             <Route path="settings/sso/:id/edit" element={<SsoConfigEditor />} />
             <Route path="settings/users" element={<UserProfiles />} />
             <Route path="settings/credentials" element={<CredentialManager />} />
+            <Route path="settings/mcp-servers" element={<McpServerManager />} />
             <Route path="settings/api-keys" element={<ApiKeyManager />} />
             <Route path="settings/a2a" element={<A2ASettings />} />
             <Route path="settings/widgets" element={<WidgetManager />} />

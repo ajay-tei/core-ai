@@ -17,10 +17,13 @@ public interface IMcpConnectionManager
     /// Pass <paramref name="fallbackTenant"/> for background/scheduled runs where HttpContext is unavailable.
     /// Pass <paramref name="forcePassSsoToken"/> = true to forward the caller's Bearer token to all
     /// HTTP/SSE bindings regardless of their individual PassSsoToken setting (used by test chat).
+    /// Pass <paramref name="effectiveBindingsJson"/> to connect using a pre-merged binding set
+    /// (inline + resolved shared-server bindings) instead of <c>definition.ToolBindings</c>.
     /// </summary>
     Task<Dictionary<string, McpClient>> ConnectAsync(
         AgentDefinitionEntity definition, CancellationToken ct,
-        TenantContext? fallbackTenant = null, bool forcePassSsoToken = false);
+        TenantContext? fallbackTenant = null, bool forcePassSsoToken = false,
+        string? effectiveBindingsJson = null);
 
     /// <summary>
     /// Lists tools from all connected <paramref name="clients"/> in parallel and returns

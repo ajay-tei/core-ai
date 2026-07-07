@@ -75,4 +75,11 @@ public class AgentDefinitionEntity : ITenantEntity
     /// e.g. ["agent-1","agent-2"]. null = no delegation.
     /// </summary>
     public string? DelegateAgentIdsJson { get; set; }
+
+    /// <summary>
+    /// JSON string[] of shared <see cref="TenantMcpServerEntity.Name"/> values this agent references.
+    /// e.g. ["weather","reservations"]. null = none. These are merged with the inline
+    /// <see cref="ToolBindings"/> at runtime, with credentials selected per invoking API key.
+    /// </summary>
+    public string? McpServerRefsJson { get; set; }
 }

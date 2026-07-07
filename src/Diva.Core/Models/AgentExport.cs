@@ -36,6 +36,7 @@ public sealed record AgentExportDefinition
     public int MaxIterations { get; init; } = 10;
     public string? Capabilities { get; init; }
     public string? ToolBindings { get; init; }
+    public string? McpServerRefsJson { get; init; }
     public string? VerificationMode { get; init; }
     public string? ContextWindowJson { get; init; }
     public string? OptimizationOverrideJson { get; init; }

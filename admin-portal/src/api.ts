@@ -62,6 +62,7 @@ export interface AgentDefinition
   maxIterations: number;
   capabilities?: string;   // JSON array string
   toolBindings?: string;   // JSON array string
+  mcpServerRefsJson?: string;  // JSON string[] of shared MCP server names
   verificationMode?: string;       // Off|ToolGrounded|LlmVerifier|Strict|Auto
   contextWindowJson?: string;      // JSON ContextWindowOverrideOptions
   optimizationOverrideJson?: string; // JSON OptimizationOverrideOptions e.g. {"MergeMaxTokens":16384}
@@ -921,6 +922,66 @@ export interface UpdateCredentialDto
   tenantId?: number;
 }
 
+// ── Shared MCP Servers (tenant-scoped, reusable across agents) ────────────────
+
+/** A single per-API-key credential routing rule for a shared MCP server. */
+export interface ApiKeyCredentialMapping
+{
+  apiKeyId: number;
+  credentialRef: string;
+}
+
+export interface McpServer
+{
+  id: number;
+  name: string;
+  description?: string;
+  transport: string;               // "stdio" | "http" | "sse"
+  command?: string;
+  argsJson?: string;               // JSON string[]
+  envJson?: string;                // JSON Record<string,string>
+  endpoint?: string;
+  passSsoToken: boolean;
+  passTenantHeaders: boolean;
+  defaultCredentialRef?: string;
+  apiKeyCredentialMappingsJson?: string;  // JSON ApiKeyCredentialMapping[]
+  createdAt: string;
+  updatedAt?: string;
+  createdByUserId?: string;
+}
+
+export interface CreateMcpServerDto
+{
+  name: string;
+  description?: string;
+  transport?: string;
+  command?: string;
+  argsJson?: string;
+  envJson?: string;
+  endpoint?: string;
+  passSsoToken: boolean;
+  passTenantHeaders: boolean;
+  defaultCredentialRef?: string;
+  apiKeyCredentialMappingsJson?: string;
+  tenantId?: number;
+}
+
+export interface UpdateMcpServerDto
+{
+  name?: string;
+  description?: string;
+  transport?: string;
+  command?: string;
+  argsJson?: string;
+  envJson?: string;
+  endpoint?: string;
+  passSsoToken?: boolean;
+  passTenantHeaders?: boolean;
+  defaultCredentialRef?: string;
+  apiKeyCredentialMappingsJson?: string;
+  tenantId?: number;
+}
+
 // ── Platform API Keys ─────────────────────────────────────────────────────────
 
 export interface PlatformApiKey
@@ -1624,6 +1685,18 @@ export const api = {
     request<void>(`/api/admin/credentials/${ id }${ tenantId ? `?tenantId=${ tenantId }` : "" }`, { method: "DELETE" }),
   rotateCredential: (id: number, dto: { newApiKey: string; tenantId?: number; }) =>
     request<{ id: number; name: string; message: string; }>(`/api/admin/credentials/${ id }/rotate`, { method: "POST", body: JSON.stringify(dto) }),
+
+  // ── Shared MCP Servers ──────────────────────────────────────────────────────
+  listMcpServers: (tenantId?: number) =>
+    request<McpServer[]>(`/api/admin/mcp-servers${ tenantId ? `?tenantId=${ tenantId }` : "" }`),
+  getMcpServer: (id: number, tenantId?: number) =>
+    request<McpServer>(`/api/admin/mcp-servers/${ id }${ tenantId ? `?tenantId=${ tenantId }` : "" }`),
+  createMcpServer: (dto: CreateMcpServerDto) =>
+    request<McpServer>("/api/admin/mcp-servers", { method: "POST", body: JSON.stringify(dto) }),
+  updateMcpServer: (id: number, dto: UpdateMcpServerDto) =>
+    request<McpServer>(`/api/admin/mcp-servers/${ id }`, { method: "PUT", body: JSON.stringify(dto) }),
+  deleteMcpServer: (id: number, tenantId?: number) =>
+    request<void>(`/api/admin/mcp-servers/${ id }${ tenantId ? `?tenantId=${ tenantId }` : "" }`, { method: "DELETE" }),
 
   // ── Platform API Keys ───────────────────────────────────────────────────────
   listApiKeys: (tenantId?: number) =>
@@ -2352,7 +2425,7 @@ export async function generateSchedulerFeedbackLink(
 }
 
 /** Reject a feedback item with optional notes (admin auth required). */
-export async function rejectSchedulerFeedback(id: string, notes: string, tenantId = 1): Promise<void>
+export async function rejectSchedulerFeedback(id: string, notes?: string, tenantId = 1): Promise<void>
 {
   const r = await fetch(`${ BASE }/api/scheduler-feedback/${ id }/reject?tenantId=${ tenantId }`, {
     method: "PUT",

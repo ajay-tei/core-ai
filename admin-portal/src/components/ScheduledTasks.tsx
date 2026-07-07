@@ -1012,6 +1012,7 @@ function RunHistorySheet({ task, agentName, onClose }: RunHistorySheetProps) {
                           className="text-xs h-7"
                           disabled={copyingLink === run.id}
                           onClick={async () => {
+                            if (!task) return;
                             setCopyingLink(run.id);
                             try {
                               const url = await generateSchedulerFeedbackLink(

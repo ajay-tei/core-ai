@@ -28,15 +28,22 @@ public sealed class McpClientCache : IAsyncDisposable
     /// retry rather than inheriting a transient connection failure for the full TTL duration.
     /// Pass <paramref name="cacheKeySuffix"/> to create an isolated cache slot (e.g. ":sso" for
     /// SSO-forwarding connections so they don't collide with the non-forwarding entry).
+    /// Pass <paramref name="effectiveBindingsJson"/> (inline + resolved shared-server bindings) and
+    /// <paramref name="cacheKeyDiscriminator"/> (e.g. the invoking API key id) when an agent
+    /// references shared MCP servers, so per-API-key credential variants don't collide or
+    /// reuse a connection authenticated with another key's credential.
     /// </summary>
     public async Task<Dictionary<string, McpClient>> GetOrConnectAsync(
         AgentDefinitionEntity definition,
         Func<CancellationToken, Task<Dictionary<string, McpClient>>> connectFactory,
         CancellationToken ct,
-        string? cacheKeySuffix = null)
+        string? cacheKeySuffix = null,
+        string? effectiveBindingsJson = null,
+        string? cacheKeyDiscriminator = null)
     {
-        var cacheKey = definition.Id + cacheKeySuffix;
-        var hash = ComputeHash(definition.ToolBindings);
+        var bindingsForHash = effectiveBindingsJson ?? definition.ToolBindings;
+        var cacheKey = BuildCacheKey(definition.Id, cacheKeyDiscriminator, cacheKeySuffix);
+        var hash = ComputeHash(bindingsForHash);
 
         if (_cache.TryGetValue(cacheKey, out var entry)
             && entry.BindingsHash == hash
@@ -45,7 +52,7 @@ public sealed class McpClientCache : IAsyncDisposable
             return entry.Clients;
         }
 
-        return await ConnectAndCacheAsync(cacheKey, definition, hash, connectFactory, ct);
+        return await ConnectAndCacheAsync(cacheKey, bindingsForHash, hash, connectFactory, ct);
     }
 
     /// <summary>
@@ -56,19 +63,27 @@ public sealed class McpClientCache : IAsyncDisposable
         AgentDefinitionEntity definition,
         Func<CancellationToken, Task<Dictionary<string, McpClient>>> connectFactory,
         CancellationToken ct,
-        string? cacheKeySuffix = null)
+        string? cacheKeySuffix = null,
+        string? effectiveBindingsJson = null,
+        string? cacheKeyDiscriminator = null)
     {
-        var cacheKey = definition.Id + cacheKeySuffix;
-        var hash = ComputeHash(definition.ToolBindings);
+        var bindingsForHash = effectiveBindingsJson ?? definition.ToolBindings;
+        var cacheKey = BuildCacheKey(definition.Id, cacheKeyDiscriminator, cacheKeySuffix);
+        var hash = ComputeHash(bindingsForHash);
         if (_cache.TryRemove(cacheKey, out var dead))
             foreach (var c in dead.Clients.Values)
                 try { await c.DisposeAsync(); } catch { /* ignore */ }
-        return await ConnectAndCacheAsync(cacheKey, definition, hash, connectFactory, ct);
+        return await ConnectAndCacheAsync(cacheKey, bindingsForHash, hash, connectFactory, ct);
     }
+
+    private static string BuildCacheKey(string agentId, string? discriminator, string? suffix) =>
+        string.IsNullOrEmpty(discriminator)
+            ? agentId + suffix
+            : $"{agentId}:{discriminator}{suffix}";
 
     private async Task<Dictionary<string, McpClient>> ConnectAndCacheAsync(
         string cacheKey,
-        AgentDefinitionEntity definition,
+        string? effectiveBindingsJson,
         string hash,
         Func<CancellationToken, Task<Dictionary<string, McpClient>>> connectFactory,
         CancellationToken ct)
@@ -86,8 +101,8 @@ public sealed class McpClientCache : IAsyncDisposable
         // An empty map with active bindings means all connections failed — don't
         // cache it so the next request retries rather than inheriting the failure.
         // An empty map for an agent with no bindings (null / "" / "[]") is intentional and safe to cache.
-        bool hasBindings = !string.IsNullOrEmpty(definition.ToolBindings)
-                        && definition.ToolBindings.Trim() != "[]";
+        bool hasBindings = !string.IsNullOrEmpty(effectiveBindingsJson)
+                        && effectiveBindingsJson.Trim() != "[]";
         if (clients.Count > 0 || !hasBindings)
             _cache[cacheKey] = new CachedEntry(clients, hash, DateTime.UtcNow);
 
@@ -95,14 +110,20 @@ public sealed class McpClientCache : IAsyncDisposable
     }
 
     /// <summary>
-    /// Evicts the cached entry for an agent (e.g. after admin edits bindings).
+    /// Evicts all cached entries for an agent (e.g. after admin edits bindings).
+    /// Matches the base agent id plus any discriminator/suffix variants
+    /// (per-API-key credential slots, ":sso" forwarding slot, etc.).
     /// No-op if the agent has no cached entry.
     /// </summary>
     public async Task EvictAsync(string agentId)
     {
-        if (_cache.TryRemove(agentId, out var entry))
-            foreach (var c in entry.Clients.Values)
-                try { await c.DisposeAsync(); } catch { /* ignore */ }
+        var keys = _cache.Keys
+            .Where(k => k == agentId || k.StartsWith(agentId + ":", StringComparison.Ordinal))
+            .ToList();
+        foreach (var key in keys)
+            if (_cache.TryRemove(key, out var entry))
+                foreach (var c in entry.Clients.Values)
+                    try { await c.DisposeAsync(); } catch { /* ignore */ }
     }
 
     public async ValueTask DisposeAsync()

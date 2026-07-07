@@ -105,6 +105,7 @@ public sealed class TenantContextMiddleware
                 SiteIds = [],
                 CurrentSiteId = int.TryParse(context.Request.Headers["X-Site-ID"].FirstOrDefault(), out var sid) ? sid : 0,
                 InboundApiKey = apiKeyHeader,
+                PlatformApiKeyId = validatedKey.Id,
             };
 
             context.Items["TenantContext"] = apiKeyTenant;

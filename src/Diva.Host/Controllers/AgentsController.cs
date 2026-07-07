@@ -160,6 +160,7 @@ public class AgentsController : ControllerBase
         existing.MaxIterations = dto.MaxIterations;
         existing.Capabilities = dto.Capabilities;
         existing.ToolBindings = dto.ToolBindings;
+        existing.McpServerRefsJson = dto.McpServerRefsJson;
         existing.VerificationMode = dto.VerificationMode;
         existing.ContextWindowJson = dto.ContextWindowJson;
         existing.OptimizationOverrideJson = dto.OptimizationOverrideJson;

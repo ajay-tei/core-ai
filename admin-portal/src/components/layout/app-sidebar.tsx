@@ -13,6 +13,7 @@ import {
   Package,
   Plus,
   ScrollText,
+  Server,
   Shield,
   ShieldAlert,
   ShieldCheck,
@@ -38,10 +39,23 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { auth } from "@/lib/auth";
 import { APP_NAME } from "@/lib/brand";
+import type { LucideIcon } from "lucide-react";
+
+interface NavItem {
+  title: string;
+  url: string;
+  icon: LucideIcon;
+  badgeKey?: string;
+}
+
+interface NavGroup {
+  label: string;
+  items: NavItem[];
+}
 
 // ── Tenant-level navigation (regular users) ───────────────────────────────────
 
-const tenantNavGroups = [
+const tenantNavGroups: NavGroup[] = [
   {
     label: "Overview",
     items: [
@@ -74,6 +88,7 @@ const tenantNavGroups = [
       { title: "User Profiles", url: "/settings/users", icon: Users },
       { title: "SSO Configuration", url: "/settings/sso", icon: KeyRound },
       { title: "MCP Credentials", url: "/settings/credentials", icon: ShieldAlert },
+      { title: "MCP Servers", url: "/settings/mcp-servers", icon: Server },
       { title: "API Keys", url: "/settings/api-keys", icon: Zap },
       { title: "A2A Protocol", url: "/settings/a2a", icon: Network },
       { title: "Chat Widgets", url: "/settings/widgets", icon: Code2 },
@@ -83,7 +98,7 @@ const tenantNavGroups = [
 
 // ── Platform-level navigation (master admin only) ─────────────────────────────
 
-const platformNavGroups = [
+const platformNavGroups: NavGroup[] = [
   {
     label: "Platform Admin",
     items: [
@@ -97,7 +112,7 @@ const platformNavGroups = [
 
 // ── Chat-user navigation (role "user" / "viewer" — no admin functionality) ────────
 
-const chatUserNavGroups = [
+const chatUserNavGroups: NavGroup[] = [
   {
     label: "Workspace",
     items: [
