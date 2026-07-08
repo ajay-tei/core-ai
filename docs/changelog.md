@@ -4,6 +4,47 @@
 
 ---
 
+## [2026-07-07] External SQL Server support + scheduler leader election
+
+Two deployment features landed together: full external SQL Server support (multi-provider
+migrations + one-time data migration tool) and config-based scheduler leader election so the
+platform can be scaled to multiple API instances without double-executing scheduled tasks.
+
+### External SQL Server (multi-provider) + data migration
+
+SQL Server migrations live in a separate assembly (EF scans a whole assembly for `Migration`
+classes, so one assembly cannot hold two provider sets). Any schema change must be added to
+BOTH providers. Cascade-path differences are branched on `Database.IsSqlite()` in
+`OnModelCreating`.
+
+| File | Change |
+|------|--------|
+| `src/Diva.Infrastructure.SqlServer/` | New assembly — squashed `20260707195344_InitialCreate` migration (+ Designer + snapshot) for the SQL Server provider |
+| `src/Diva.Infrastructure/Data/DivaDbContext.cs` | `isSqlite` branch: group-overlay `GroupId` and self-ref hook-rule `OverridesParentRuleId` use `NoAction` on SQL Server (avoids multiple-cascade-path / self-ref cascade errors); Email filtered index syntax branched |
+| `src/Diva.Infrastructure/Data/DivaDbContextFactory.cs`, `DatabaseProviderFactory.cs`, `SessionTraceDbContextFactory.cs` | Provider selection via `-- --provider SqlServer`; `MigrationsAssembly` set to SqlServer assembly when `Database:Provider == "SqlServer"`; trace DB derived as `<Database>Trace` |
+| `tools/DbMigrate/` | New one-time SQLite → SQL Server data copy tool — system-tenant read, `SqlBulkCopy(KeepIdentity)` + `SET IDENTITY_INSERT`, single transaction with FK disable/re-enable, per-table row-count validation + rollback, `DBCC CHECKIDENT` reseed |
+| `Dockerfile` | `migrate` stage rebased on `aspnet:10.0` (DbMigrate transitively needs `Microsoft.AspNetCore.App`); placed before runtime stage so `build: .` still yields the API image |
+| `docker-compose.sqlserver.yml` | New overlay for an external SQL Server (no bundled DB container); profile-gated `dbmigrate` service |
+| `.env.example`, `docs/phase-04-database.md`, `docs/ref-config.md` | External SQL Server config + data-migration runbook |
+
+### Scheduler leader election (multi-instance safe) + manual run anywhere
+
+`TaskScheduler:AutoPollEnabled` (default `true`) controls whether an instance auto-polls due
+tasks and runs stuck-run recovery. Set `false` on all-but-one API replica so scheduled tasks
+fire exactly once cluster-wide. Manual "Run now" always executes on whichever instance
+receives the request, regardless of the flag.
+
+| File | Change |
+|------|--------|
+| `src/Diva.Core/Configuration/TaskSchedulerOptions.cs` | New `AutoPollEnabled` flag (separate from `IsEnabled` master switch) |
+| `src/Diva.Infrastructure/Scheduler/ISchedulerManualDispatch.cs` | New interface — immediate in-process dispatch of a manual run on the local instance |
+| `src/Diva.Infrastructure/Scheduler/SchedulerHostedService.cs` | Implements `ISchedulerManualDispatch`; semaphore initialised in ctor; non-leader mode skips polling + startup/timeout stuck-run recovery but stays alive for manual dispatch; `RequestManualDispatch` activates+dispatches the pending run locally (marking it `running` prevents the leader's orphaned-pending sweep from double-dispatching) |
+| `src/Diva.Host/Program.cs` | `SchedulerHostedService` registered once as singleton + `ISchedulerManualDispatch` + hosted service (shared instance) |
+| `src/Diva.Host/Controllers/SchedulerController.cs` | `TriggerNow` calls `RequestManualDispatch` after `TriggerNowAsync` (unless run `skipped`) |
+| `src/Diva.Host/appsettings.json`, `.env.example` | `AutoPollEnabled` default + `TaskScheduler__AutoPollEnabled` env var |
+
+---
+
 ## [2026-06-12] RBAC enforcement + Agent Access Groups + SSO claim mapping
 
 Three related authorization features landed together: role-based access control on admin
