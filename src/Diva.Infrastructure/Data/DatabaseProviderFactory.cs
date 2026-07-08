@@ -38,7 +38,11 @@ public sealed class DatabaseProviderFactory : IDatabaseProviderFactory
         {
             builder.UseSqlServer(
                 _options.SqlServer.ConnectionString,
-                opts => opts.EnableRetryOnFailure());
+                opts =>
+                {
+                    opts.EnableRetryOnFailure();
+                    opts.MigrationsAssembly(DivaDbContextFactory.SqlServerMigrationsAssembly);
+                });
         }
         else
         {

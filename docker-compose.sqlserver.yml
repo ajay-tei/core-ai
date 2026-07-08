@@ -1,0 +1,41 @@
+version: "3.9"
+
+# ── External SQL Server overlay ───────────────────────────────────────────────
+# Points the API (and the one-shot data-migration tool) at a SQL Server hosted on a
+# separate machine. Unlike docker-compose.enterprise.yml, this does NOT start a bundled
+# SQL Server container and adds no depends_on for it.
+#
+# Start the stack:
+#   docker compose -f docker-compose.tei.yml -f docker-compose.sqlserver.yml up -d
+#
+# One-time SQLite -> SQL Server data copy (provisions schema, then copies /data/diva.db):
+#   docker compose -f docker-compose.tei.yml -f docker-compose.sqlserver.yml \
+#     --profile migrate run --rm dbmigrate
+#
+# Set SQL_SERVER_HOST / SQL_DB_NAME / SQL_TRACE_DB_NAME / SQL_USER / SQL_PASSWORD in .env.
+
+services:
+
+  diva-api:
+    environment:
+      Database__Provider: SqlServer
+      Database__SqlServer__ConnectionString: "Server=${SQL_SERVER_HOST};Database=${SQL_DB_NAME:-Diva};User Id=${SQL_USER};Password=${SQL_PASSWORD};TrustServerCertificate=true"
+      # Session-trace store MUST be a SEPARATE database (EnsureCreated only provisions an empty DB).
+      ConnectionStrings__SessionTrace: "Server=${SQL_SERVER_HOST};Database=${SQL_TRACE_DB_NAME:-DivaTrace};User Id=${SQL_USER};Password=${SQL_PASSWORD};TrustServerCertificate=true"
+      # Native SQL Server RLS is not implemented — tenant isolation uses EF query filters. No-op.
+      Database__SqlServer__UseRls: "false"
+
+  # ── One-shot SQLite → SQL Server data migration ────────────────────────────
+  # Profile-gated so it never starts with `up`. --apply-migrations provisions the schema first.
+  dbmigrate:
+    build:
+      context: .
+      target: migrate
+    profiles: ["migrate"]
+    environment:
+      Database__SQLite__ConnectionString: "Data Source=/data/diva.db"
+      Database__SqlServer__ConnectionString: "Server=${SQL_SERVER_HOST};Database=${SQL_DB_NAME:-Diva};User Id=${SQL_USER};Password=${SQL_PASSWORD};TrustServerCertificate=true"
+    command: ["--apply-migrations"]
+    volumes:
+      - ./data:/data
+    restart: "no"

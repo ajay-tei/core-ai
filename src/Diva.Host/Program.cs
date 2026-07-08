@@ -86,17 +86,43 @@ var dbOptions = builder.Configuration
 builder.Services.AddDbContext<DivaDbContext>(opt =>
 {
     if (dbOptions.Provider == "SqlServer")
-        opt.UseSqlServer(dbOptions.SqlServer.ConnectionString, o => o.EnableRetryOnFailure());
+        opt.UseSqlServer(dbOptions.SqlServer.ConnectionString, o =>
+        {
+            o.EnableRetryOnFailure();
+            o.MigrationsAssembly(DivaDbContextFactory.SqlServerMigrationsAssembly);
+        });
     else
         opt.UseSqlite(dbOptions.SQLite.ConnectionString);
 }, ServiceLifetime.Scoped);
 
 builder.Services.AddSingleton<IDatabaseProviderFactory, DatabaseProviderFactory>();
 
-// ── Session Trace DB (separate SQLite file) ────────────────────────────────
-var traceConnStr = builder.Configuration.GetConnectionString("SessionTrace") ?? "Data Source=sessions-trace.db";
-builder.Services.AddDbContext<SessionTraceDbContext>(opt =>
-    opt.UseSqlite(traceConnStr), ServiceLifetime.Scoped);
+// ── Session Trace DB (separate database — SQLite file or SQL Server DB) ─────
+// In SQL Server mode the trace store MUST be a separate database: SessionTraceDbContext
+// uses EnsureCreated (not migrations), which only provisions tables when the database is
+// empty. Sharing the main DB would leave trace tables uncreated.
+var traceConnStr = builder.Configuration.GetConnectionString("SessionTrace");
+if (dbOptions.Provider == "SqlServer")
+{
+    if (string.IsNullOrWhiteSpace(traceConnStr))
+    {
+        // Derive a sibling "<Database>Trace" catalog from the main connection string.
+        var traceBuilder = new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(dbOptions.SqlServer.ConnectionString)
+        {
+            InitialCatalog = new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(dbOptions.SqlServer.ConnectionString)
+                .InitialCatalog is { Length: > 0 } cat ? cat + "Trace" : "DivaTrace"
+        };
+        traceConnStr = traceBuilder.ConnectionString;
+    }
+    builder.Services.AddDbContext<SessionTraceDbContext>(opt =>
+        opt.UseSqlServer(traceConnStr, o => o.EnableRetryOnFailure()), ServiceLifetime.Scoped);
+}
+else
+{
+    traceConnStr ??= "Data Source=sessions-trace.db";
+    builder.Services.AddDbContext<SessionTraceDbContext>(opt =>
+        opt.UseSqlite(traceConnStr), ServiceLifetime.Scoped);
+}
 builder.Services.AddScoped<SessionTraceWriter>();
 
 var traceCleanupOpts = builder.Configuration
@@ -275,7 +301,11 @@ builder.Services.AddSingleton<ISupervisorAgent, SupervisorAgent>();
 builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection(SmtpOptions.SectionName));
 builder.Services.AddSingleton<IEmailNotifier, SmtpEmailNotifier>();
 builder.Services.AddSingleton<IScheduledTaskService, ScheduledTaskService>();
-builder.Services.AddHostedService<SchedulerHostedService>();
+// Single instance shared as hosted service + manual-dispatch entry point so "Run now"
+// executes on whichever API instance receives the request (even non-leaders).
+builder.Services.AddSingleton<SchedulerHostedService>();
+builder.Services.AddSingleton<ISchedulerManualDispatch>(sp => sp.GetRequiredService<SchedulerHostedService>());
+builder.Services.AddHostedService(sp => sp.GetRequiredService<SchedulerHostedService>());
 // Feedback token service is singleton (pure crypto, no DB/tenant context)
 builder.Services.AddSingleton<ISchedulerFeedbackTokenService, SchedulerFeedbackTokenService>();
 builder.Services.AddScoped<ISchedulerFeedbackService, SchedulerFeedbackService>();
@@ -388,6 +418,9 @@ using (var scope = app.Services.CreateScope())
     // ── Idempotent column additions for migrations that ran as no-ops ─────────
     // AddLastRunStatus migration was generated empty due to a corrupted model snapshot.
     // Apply the column directly if it doesn't exist yet.
+    // SQLite-only: uses pragma_table_info + ALTER TABLE ADD COLUMN. On SQL Server these
+    // columns are provisioned by the squashed InitialCreate migration, so skip entirely.
+    if (db.Database.IsSqlite())
     {
         var mainConn = db.Database.GetDbConnection();
         if (mainConn.State != System.Data.ConnectionState.Open)
@@ -435,7 +468,7 @@ using (var scope = app.Services.CreateScope())
     // EnsureCreated creates tables if the DB is new; if the file already exists but
     // tables are missing (e.g. from a prior failed MigrateAsync), recreate.
     var created = await traceDb.Database.EnsureCreatedAsync();
-    if (!created)
+    if (!created && traceDb.Database.IsSqlite())
     {
         // File existed but may be empty (e.g. prior failed MigrateAsync).
         // Use raw ADO.NET — no EF pipeline wrapping, no error logging.
@@ -454,6 +487,9 @@ using (var scope = app.Services.CreateScope())
     }
 
     // ── Phase 24: Idempotent score column additions (EnsureCreated path) ──────
+    // SQLite-only: uses pragma_table_info + ALTER TABLE. On SQL Server these columns
+    // are provisioned when EnsureCreated builds the schema, so skip.
+    if (traceDb.Database.IsSqlite())
     {
         var conn = traceDb.Database.GetDbConnection();
         if (conn.State != System.Data.ConnectionState.Open)

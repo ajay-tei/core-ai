@@ -4,6 +4,7 @@
     <Project Path="src/Diva.Core/Diva.Core.csproj" />
     <Project Path="src/Diva.Host/Diva.Host.csproj" />
     <Project Path="src/Diva.Infrastructure/Diva.Infrastructure.csproj" />
+    <Project Path="src/Diva.Infrastructure.SqlServer/Diva.Infrastructure.SqlServer.csproj" />
     <Project Path="src/Diva.Sso/Diva.Sso.csproj" />
     <Project Path="src/Diva.TenantAdmin/Diva.TenantAdmin.csproj" />
     <Project Path="src/Diva.Tools/Diva.Tools.csproj" />
@@ -15,6 +16,7 @@
     <Project Path="tests/DivaFsMcpServer.Tests/DivaFsMcpServer.Tests.csproj" />
   </Folder>
   <Folder Name="/tools/">
+    <Project Path="tools/DbMigrate/DbMigrate.csproj" />
     <Project Path="tools/DivaFsMcpServer/DivaFsMcpServer.csproj" />
   </Folder>
 </Solution>

@@ -17,8 +17,24 @@ public sealed class SessionTraceDbContextFactory : IDesignTimeDbContextFactory<S
 {
     public SessionTraceDbContext CreateDbContext(string[] args)
     {
+        var provider = ParseProvider(args);
         var optionsBuilder = new DbContextOptionsBuilder<SessionTraceDbContext>();
-        optionsBuilder.UseSqlite("Data Source=sessions-trace.db");
+
+        if (string.Equals(provider, "SqlServer", StringComparison.OrdinalIgnoreCase))
+            optionsBuilder.UseSqlServer("Server=localhost;Database=DivaTrace;Trusted_Connection=True;TrustServerCertificate=true");
+        else
+            optionsBuilder.UseSqlite("Data Source=sessions-trace.db");
+
         return new SessionTraceDbContext(optionsBuilder.Options);
+    }
+
+    private static string ParseProvider(string[] args)
+    {
+        for (var i = 0; i < args.Length - 1; i++)
+        {
+            if (string.Equals(args[i], "--provider", StringComparison.OrdinalIgnoreCase))
+                return args[i + 1];
+        }
+        return "SQLite";
     }
 }

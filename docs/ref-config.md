@@ -117,18 +117,32 @@
 }
 ```
 
-**Production (SQL Server with RLS)**
+**Production (SQL Server)**
 ```json
 {
   "Database": {
     "Provider": "SqlServer",
     "SqlServer": {
       "ConnectionString": "Server=prod-sql.database.windows.net;Database=Diva;...",
-      "UseRls": true
+      "UseRls": false
     }
+  },
+  "ConnectionStrings": {
+    "SessionTrace": "Server=prod-sql.database.windows.net;Database=DivaTrace;..."
   }
 }
 ```
+
+> **Notes**
+> - Native SQL Server RLS is **not implemented**. `UseRls` is a no-op placeholder — tenant
+>   isolation uses EF global query filters for both providers. Leave it `false`.
+> - The session-trace store **must be a separate database** (`DivaTrace`). `SessionTraceDbContext`
+>   uses `EnsureCreated` (not migrations), which only provisions tables when the database is empty;
+>   pointing it at the main `Diva` DB would leave trace tables uncreated. If `ConnectionStrings:SessionTrace`
+>   is omitted in SQL Server mode, the host derives a sibling `<Database>Trace` catalog automatically.
+> - SQL Server migrations live in the **`Diva.Infrastructure.SqlServer`** assembly (a squashed
+>   `InitialCreate`); SQLite migrations remain in `Diva.Infrastructure`. Both are applied automatically
+>   on host startup via `MigrateAsync()`.
 
 **Multi-Tenant Dedicated Databases**
 ```json

@@ -394,3 +394,102 @@ src/Diva.Infrastructure/Data/
 └── Migrations/
     └── 20260322013535_InitialCreate     ✓ generated and applied
 ```
+
+---
+
+## As Built — SQL Server Support & Data Migration
+
+SQL Server is now a first-class opt-in provider alongside the default SQLite. Backward
+compatibility is preserved: existing SQLite deployments are unaffected (same migrations,
+same snapshot, same startup fixes).
+
+### Multi-provider migrations (one assembly per provider)
+
+EF Core scans the **entire** migrations assembly for `Migration` classes, so a single
+assembly cannot hold two provider migration sets. Therefore:
+
+| Provider | Migrations assembly | Notes |
+|----------|--------------------|-------|
+| SQLite (default) | `Diva.Infrastructure` | Original incremental migration history |
+| SQL Server (opt-in) | `Diva.Infrastructure.SqlServer` | Single squashed `InitialCreate` (no history port) |
+
+- Runtime selection: `Program.cs` / `DatabaseProviderFactory` set
+  `o.MigrationsAssembly("Diva.Infrastructure.SqlServer")` when `Database:Provider == "SqlServer"`.
+- Design-time selection: `DivaDbContextFactory` parses `-- --provider SqlServer` and targets the
+  SQL Server assembly; default is SQLite.
+- Provider-specific model config: filtered unique indexes branch on `Database.IsSqlite()` in
+  `OnModelCreating` (`[Email] <> ''` for SQL Server vs `"Email" != ''` for SQLite). The SQLite
+  filter strings are byte-identical to the original, so the SQLite snapshot does **not** drift.
+
+**Generate / regenerate the SQL Server migration:**
+```bash
+dotnet dotnet-ef migrations add InitialCreate \
+  --project src/Diva.Infrastructure.SqlServer \
+  --startup-project src/Diva.Host \
+  --context DivaDbContext -- --provider SqlServer
+```
+
+**Add a future SQLite migration (unchanged workflow):**
+```bash
+dotnet dotnet-ef migrations add <Name> \
+  --project src/Diva.Infrastructure \
+  --startup-project src/Diva.Host \
+  --context DivaDbContext -- --provider SQLite
+```
+
+> When schema changes land, **both** providers must be updated: add an incremental SQLite
+> migration in `Diva.Infrastructure`, and re-generate (or add to) the SQL Server migration in
+> `Diva.Infrastructure.SqlServer`.
+
+### Session-trace store
+
+`SessionTraceDbContext` uses `EnsureCreated` (not migrations) for both providers. In SQL Server
+mode it **must** target a separate database (`DivaTrace`) — `EnsureCreated` only provisions tables
+when the database is empty. If `ConnectionStrings:SessionTrace` is omitted, the host derives a
+sibling `<Database>Trace` catalog. Trace **data** is not migrated (recreated fresh).
+
+### SQLite-only startup fixes are guarded
+
+The idempotent `pragma_table_info` / `ALTER TABLE` column-repair blocks in `Program.cs` (main DB +
+trace DB) are now wrapped in `if (db.Database.IsSqlite())`. On SQL Server those columns come from
+the squashed `InitialCreate`, so the blocks are skipped.
+
+### Data migration tool — `tools/DbMigrate`
+
+One-way, one-shot copy of business data from an existing SQLite DB into a schema-provisioned
+SQL Server DB.
+
+- Reads the source with the **system tenant (TenantId = 0)** + `IgnoreQueryFilters()` so every
+  tenant's rows are copied.
+- Copies each table with `SqlBulkCopy(KeepIdentity)`; identity tables are wrapped in
+  `SET IDENTITY_INSERT ON/OFF`. Values go through EF value converters so JSON/bool/DateTime map
+  correctly (raw SQLite storage types would mismatch SQL Server column types).
+- Single transaction with FK constraints disabled → re-enabled `WITH CHECK`; per-table row-count
+  validation; any mismatch rolls back. Identity counters reseeded via `DBCC CHECKIDENT`.
+- Never touches `__EFMigrationsHistory` / `__EFMigrationsLock`; does not migrate trace data.
+- Secret columns (McpCredentials ciphertext, PlatformApiKeys.KeyHash, LocalUsers hashes) are copied
+  **verbatim** — keep `CREDENTIALS_MASTER_KEY`, `LOCAL_AUTH_SIGNING_KEY`, and
+  `SCHEDULER_FEEDBACK_TOKEN_SECRET` unchanged or those values become unusable.
+
+**Run locally:**
+```bash
+dotnet run --project tools/DbMigrate -- \
+  --source "Data Source=diva.db" \
+  --target "Server=localhost;Database=Diva;User Id=sa;Password=***;TrustServerCertificate=true" \
+  --apply-migrations
+```
+
+**Run in Docker (profile-gated one-shot service):**
+```bash
+docker compose -f docker-compose.tei.yml -f docker-compose.enterprise.yml \
+  --profile migrate run --rm dbmigrate
+```
+
+### Post-migration verification
+
+1. Tool prints per-table row counts and validates them inside the transaction (rollback on mismatch).
+2. Start the host against SQL Server; confirm `MigrateAsync` is a no-op (schema already applied).
+3. Local user login works (same `LOCAL_AUTH_SIGNING_KEY`).
+4. MCP credentials decrypt (same `CREDENTIALS_MASTER_KEY`).
+5. Platform API key (`X-API-Key`) validates.
+6. Emailed feedback links resolve (same `SCHEDULER_FEEDBACK_TOKEN_SECRET`).

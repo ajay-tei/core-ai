@@ -1,6 +1,7 @@
 using Diva.Core.Configuration;
 using Diva.Host.Auth;
 using Diva.Infrastructure.Auth;
+using Diva.Infrastructure.Data.Entities;
 using Diva.Infrastructure.Scheduler;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -15,15 +16,18 @@ public class SchedulerController : ControllerBase
     private readonly IScheduledTaskService _service;
     private readonly ILogger<SchedulerController> _logger;
     private readonly IOptions<TaskSchedulerOptions> _schedulerOpts;
+    private readonly ISchedulerManualDispatch _manualDispatch;
 
     public SchedulerController(
         IScheduledTaskService service,
         ILogger<SchedulerController> logger,
-        IOptions<TaskSchedulerOptions> schedulerOpts)
+        IOptions<TaskSchedulerOptions> schedulerOpts,
+        ISchedulerManualDispatch manualDispatch)
     {
         _service = service;
         _logger = logger;
         _schedulerOpts = schedulerOpts;
+        _manualDispatch = manualDispatch;
     }
 
     private int EffectiveTenantId(int requestedTenantId)
@@ -156,12 +160,18 @@ public class SchedulerController : ControllerBase
         CancellationToken ct = default)
     {
         Exception? ex = null;
-        object? run = null;
+        ScheduledTaskRunEntity? run = null;
         try { run = await _service.TriggerNowAsync(EffectiveTenantId(tenantId), id, ct); }
         catch (KeyNotFoundException) { return NotFound(); }
         catch (Exception e) { ex = e; }
 
         if (ex is not null) return StatusCode(500, new { error = ex.Message });
+
+        // Dispatch immediately on this instance so the manual run executes here regardless of
+        // whether this instance is the auto-poll leader (skipped runs are not dispatched).
+        if (run is not null && run.Status != "skipped")
+            _manualDispatch.RequestManualDispatch(id);
+
         return Ok(run);
     }
 

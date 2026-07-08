@@ -83,6 +83,10 @@ public class DivaDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
+        // Provider-specific SQL differs for filtered-index predicates (identifier quoting).
+        // SQLite uses double-quote/bracket identifiers; SQL Server uses brackets and <> for inequality.
+        var isSqlite = Database.IsSqlite();
+
         // ── Global query filters (tenant isolation) ───────────
         // Applied when _currentTenantId > 0; bypassed when 0 (system/admin context)
         modelBuilder.Entity<TenantBusinessRuleEntity>()
@@ -180,7 +184,7 @@ public class DivaDbContext : DbContext
         modelBuilder.Entity<UserProfileEntity>()
             .HasIndex(e => new { e.TenantId, e.Email })
             .IsUnique()
-            .HasFilter("\"Email\" != ''");
+            .HasFilter(isSqlite ? "\"Email\" != ''" : "[Email] <> ''");
         modelBuilder.Entity<UserProfileEntity>()
             .Property(e => e.Roles)
             .HasConversion(
@@ -272,7 +276,11 @@ public class DivaDbContext : DbContext
         modelBuilder.Entity<TenantGroupAgentOverlayEntity>()
             .HasOne(o => o.Group).WithMany()
             .HasForeignKey(o => o.GroupId)
-            .OnDelete(DeleteBehavior.Cascade);
+            // SQL Server rejects multiple cascade paths: TenantGroups already cascades to this
+            // table via GroupAgentTemplates (GroupTemplateId). Keep the direct Group FK as a
+            // no-op delete on SQL Server; overlays are still removed via the template cascade.
+            // SQLite tolerates multiple cascade paths, so keep Cascade there to avoid snapshot drift.
+            .OnDelete(isSqlite ? DeleteBehavior.Cascade : DeleteBehavior.NoAction);
         modelBuilder.Entity<TenantGroupAgentOverlayEntity>()
             .HasOne(o => o.Template).WithMany()
             .HasForeignKey(o => o.GroupTemplateId)
@@ -344,7 +352,10 @@ public class DivaDbContext : DbContext
             .HasOne(r => r.OverridesParentRule)
             .WithMany()
             .HasForeignKey(r => r.OverridesParentRuleId)
-            .OnDelete(DeleteBehavior.SetNull);
+            // Self-referencing FK: SQL Server forbids SET NULL / CASCADE on a table that
+            // references itself (cycle). Use NO ACTION there; SQLite keeps SET NULL to avoid
+            // snapshot drift. The parent ref is cleared in code before deletes.
+            .OnDelete(isSqlite ? DeleteBehavior.SetNull : DeleteBehavior.NoAction);
         modelBuilder.Entity<HookRuleEntity>()
             .HasIndex(e => new { e.PackId, e.OrderInPack });
 

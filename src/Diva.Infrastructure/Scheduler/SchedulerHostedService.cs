@@ -20,7 +20,7 @@ namespace Diva.Infrastructure.Scheduler;
 /// record is created. On completion of any run, the next pending run for that task is activated
 /// and dispatched in the same poll call.
 /// </summary>
-public sealed class SchedulerHostedService : BackgroundService
+public sealed class SchedulerHostedService : BackgroundService, ISchedulerManualDispatch
 {
     private readonly IScheduledTaskService _service;
     private readonly IDatabaseProviderFactory _db;
@@ -34,8 +34,11 @@ public sealed class SchedulerHostedService : BackgroundService
     // taskId → runId: which scheduled tasks are currently executing
     private readonly ConcurrentDictionary<string, string> _runningTasks = new();
 
-    // Concurrency gate
-    private SemaphoreSlim _semaphore = null!;
+    // Concurrency gate (initialised in ctor so manual dispatch works before ExecuteAsync runs)
+    private readonly SemaphoreSlim _semaphore;
+
+    // Captured from ExecuteAsync so manual dispatch honours host shutdown.
+    private CancellationToken _stoppingToken = CancellationToken.None;
 
     public SchedulerHostedService(
         IScheduledTaskService service,
@@ -55,12 +58,17 @@ public sealed class SchedulerHostedService : BackgroundService
         _logger = logger;
         _notifier = notifier;
         _feedbackTokenSvc = feedbackTokenSvc;
+
+        var max = Math.Max(1, opts.Value.MaxConcurrentRuns);
+        _semaphore = new SemaphoreSlim(max, max);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // Yield immediately so StartAsync returns and the host can finish startup.
         await Task.Yield();
+
+        _stoppingToken = stoppingToken;
 
         var options = _opts.Value;
         if (!options.IsEnabled)
@@ -69,10 +77,25 @@ public sealed class SchedulerHostedService : BackgroundService
             return;
         }
 
-        _semaphore = new SemaphoreSlim(options.MaxConcurrentRuns, options.MaxConcurrentRuns);
+        // Non-leader (manual-only) mode: do not poll for due tasks and do not run stuck-run
+        // recovery (that would mark another instance's in-flight runs as failed). The service
+        // stays alive so manual "Run now" requests received here dispatch locally.
+        if (!options.AutoPollEnabled)
+        {
+            _logger.LogInformation(
+                "Task Scheduler running in manual-only mode (AutoPollEnabled=false). " +
+                "Automatic due-task polling and stuck-run recovery are disabled on this instance; " +
+                "manual Trigger Now runs still execute locally.");
+
+            await Task.Delay(Timeout.Infinite, stoppingToken)
+                      .ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+
+            await DrainRunningTasksAsync();
+            return;
+        }
 
         _logger.LogInformation(
-            "Task Scheduler started. PollInterval={Sec}s MaxConcurrent={Max} StuckRunTimeout={Timeout}min.",
+            "Task Scheduler started (leader). PollInterval={Sec}s MaxConcurrent={Max} StuckRunTimeout={Timeout}min.",
             options.PollIntervalSeconds, options.MaxConcurrentRuns, options.StuckRunTimeoutMinutes);
 
         // Startup recovery: any run still "running" in the DB belongs to the previous process.
@@ -112,6 +135,11 @@ public sealed class SchedulerHostedService : BackgroundService
                       .ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
         }
 
+        await DrainRunningTasksAsync();
+    }
+
+    private async Task DrainRunningTasksAsync()
+    {
         _logger.LogInformation("Task Scheduler stopping — waiting for {Count} active run(s).",
             _runningTasks.Count);
 
@@ -177,6 +205,50 @@ public sealed class SchedulerHostedService : BackgroundService
                 activated.Id, task.Name);
             DispatchRun(task, activated, ct);
         }
+    }
+
+    // ── Manual dispatch (ISchedulerManualDispatch) ────────────────────────────
+    // Lets a "Run now" request execute on whichever instance received it, even when that
+    // instance is a non-leader (AutoPollEnabled=false). Activating the pending run to
+    // "running" here also prevents the leader's periodic orphaned-pending sweep from
+    // picking it up (that sweep only considers tasks with no running run).
+    public void RequestManualDispatch(string taskId)
+    {
+        if (!_opts.Value.IsEnabled) return;          // master switch off → nothing runs
+        if (string.IsNullOrWhiteSpace(taskId)) return;
+
+        _ = Task.Run(() => DispatchManualRunAsync(taskId, _stoppingToken), CancellationToken.None);
+    }
+
+    private async Task DispatchManualRunAsync(string taskId, CancellationToken ct)
+    {
+        // Already running on this instance — the queued pending run will be promoted on completion.
+        if (_runningTasks.ContainsKey(taskId)) return;
+
+        ScheduledTaskRunEntity? activated = null;
+        Exception? ex = null;
+        try { activated = await _service.ActivateOldestPendingRunAsync(taskId, ct); }
+        catch (Exception e) { ex = e; }
+        if (ex is not null)
+        {
+            _logger.LogError(ex, "Manual dispatch: ActivateOldestPendingRunAsync failed for task '{Id}'.", taskId);
+            return;
+        }
+        // No pending run (already claimed elsewhere, skipped, or none) — nothing to do.
+        if (activated is null) return;
+
+        ScheduledTaskEntity? task = null;
+        try { task = await _service.GetAsync(activated.TenantId, taskId, ct); }
+        catch (Exception e) { _logger.LogError(e, "Manual dispatch: GetAsync failed for task '{Id}'.", taskId); }
+        if (task is null)
+        {
+            _logger.LogWarning("Manual dispatch: task '{Id}' not found; run '{RunId}' left running.", taskId, activated.Id);
+            return;
+        }
+
+        _logger.LogInformation("Manual dispatch: executing run '{RunId}' for task '{TaskName}' on this instance.",
+            activated.Id, task.Name);
+        DispatchRun(task, activated, ct);
     }
 
     private async Task TryDispatchDueTaskAsync(

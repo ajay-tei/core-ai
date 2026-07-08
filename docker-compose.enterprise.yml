@@ -9,7 +9,12 @@ services:
     environment:
       Database__Provider: SqlServer
       Database__SqlServer__ConnectionString: "Server=sqlserver,1433;Database=Diva;User Id=sa;Password=${SQL_SA_PASSWORD};TrustServerCertificate=true"
-      Database__SqlServer__UseRls: "true"
+      # Native SQL Server RLS is NOT implemented — tenant isolation uses EF global query
+      # filters for both providers. Leave this false; it is a no-op placeholder.
+      Database__SqlServer__UseRls: "false"
+      # Session-trace store MUST be a SEPARATE database (SessionTraceDbContext uses
+      # EnsureCreated, which only provisions tables when the database is empty).
+      ConnectionStrings__SessionTrace: "Server=sqlserver,1433;Database=DivaTrace;User Id=sa;Password=${SQL_SA_PASSWORD};TrustServerCertificate=true"
       LLM__DirectProvider__Provider: OpenAI
       LLM__DirectProvider__ApiKey: "${LITELLM_MASTER_KEY}"
       LLM__DirectProvider__Endpoint: "http://litellm:4000/"
@@ -36,6 +41,28 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+
+  # ── One-shot SQLite → SQL Server data migration ────────────────────────────
+  # Copies existing /data/diva.db business data into the SQL Server database.
+  # Profile-gated so it never starts with `up`. Run explicitly:
+  #   docker compose -f docker-compose.tei.yml -f docker-compose.enterprise.yml \
+  #     --profile migrate run --rm dbmigrate
+  # --apply-migrations provisions the SQL Server schema before copying.
+  dbmigrate:
+    build:
+      context: .
+      target: migrate
+    profiles: ["migrate"]
+    environment:
+      Database__SQLite__ConnectionString: "Data Source=/data/diva.db"
+      Database__SqlServer__ConnectionString: "Server=sqlserver,1433;Database=Diva;User Id=sa;Password=${SQL_SA_PASSWORD};TrustServerCertificate=true"
+    command: ["--apply-migrations"]
+    volumes:
+      - ./data:/data
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    restart: "no"
 
   litellm:
     image: ghcr.io/berriai/litellm:main-latest

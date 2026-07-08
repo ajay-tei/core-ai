@@ -7,6 +7,17 @@ public sealed class TaskSchedulerOptions
     /// <summary>Master switch — set false to disable all scheduled execution without removing schedules.</summary>
     public bool IsEnabled { get; set; } = true;
 
+    /// <summary>
+    /// Config-based leader election for multi-instance deployments. When true (default) this
+    /// instance polls the database for due tasks, runs startup/timeout stuck-run recovery, and
+    /// dispatches scheduled runs. Set false on all-but-one API instance so scheduled tasks fire
+    /// exactly once across the cluster (avoids double-execution).
+    ///
+    /// Manual "Run now" (Trigger Now) always executes on whichever instance receives the request,
+    /// regardless of this flag — as long as <see cref="IsEnabled"/> is true.
+    /// </summary>
+    public bool AutoPollEnabled { get; set; } = true;
+
     /// <summary>How often the polling loop checks for due tasks (seconds).</summary>
     public int PollIntervalSeconds { get; set; } = 30;
 
