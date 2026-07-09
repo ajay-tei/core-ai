@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AgentStreamChunk, ChatMessage } from './types';
 import { storageKey } from '@/lib/brand';
+import { renderMarkdown } from './markdown';
 
 const API = window.location.origin;
 
@@ -178,6 +179,25 @@ export function WidgetChat({
 
   return (
     <div style={styles.root}>
+      <style>{`
+        .diva-md > *:first-child { margin-top: 0; }
+        .diva-md > *:last-child { margin-bottom: 0; }
+        .diva-md-p { margin: 0 0 8px; }
+        .diva-md-h { font-weight: 600; margin: 10px 0 6px; }
+        .diva-md-h1 { font-size: 1.15em; }
+        .diva-md-h2 { font-size: 1.08em; }
+        .diva-md-h3, .diva-md-h4, .diva-md-h5, .diva-md-h6 { font-size: 1em; }
+        .diva-md-ul, .diva-md-ol { margin: 0 0 8px; padding-left: 20px; }
+        .diva-md-ul li, .diva-md-ol li { margin: 2px 0; }
+        .diva-md-code { background: rgba(127,127,127,0.18); border-radius: 4px; padding: 1px 4px; font-family: ui-monospace, monospace; font-size: 0.85em; }
+        .diva-md-pre { background: rgba(127,127,127,0.14); border-radius: 6px; padding: 8px 10px; overflow-x: auto; margin: 0 0 8px; }
+        .diva-md-pre code { font-family: ui-monospace, monospace; font-size: 0.82em; white-space: pre; }
+        .diva-md-link { color: var(--diva-primary, #6366f1); text-decoration: underline; }
+        .diva-md-table-wrap { overflow-x: auto; margin: 0 0 8px; }
+        .diva-md-table { border-collapse: collapse; width: 100%; font-size: 0.9em; }
+        .diva-md-th, .diva-md-td { border: 1px solid rgba(127,127,127,0.3); padding: 4px 8px; text-align: left; }
+        .diva-md-th { font-weight: 600; background: rgba(127,127,127,0.1); }
+      `}</style>
       {/* Header */}
       <div style={styles.header}>
         <div style={styles.headerTitle}>
@@ -258,10 +278,17 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
             : 'var(--diva-agent-text, #111827)',
           lineHeight: 1.5,
           wordBreak: 'break-word',
-          whiteSpace: 'pre-wrap',
+          whiteSpace: isUser ? 'pre-wrap' : 'normal',
         }}
       >
-        {msg.content}
+        {isUser ? (
+          msg.content
+        ) : (
+          <span
+            className="diva-md"
+            dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
+          />
+        )}
         {msg.streaming && <span style={{ opacity: 0.5 }}>▍</span>}
       </div>
     </div>

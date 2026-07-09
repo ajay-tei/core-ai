@@ -92,7 +92,7 @@ internal sealed class OpenAiProviderStrategy : ILlmProviderStrategy
             _messages.Add(new ChatMessage(ChatRole.User, userQuery));
         }
 
-        _chatOptions = new ChatOptions { ModelId = _model, MaxOutputTokens = _maxOutputTokens };
+        _chatOptions = new ChatOptions { ModelId = _model, MaxOutputTokens = _maxOutputTokens, AllowMultipleToolCalls = true };
         if (mcpTools.Count > 0)
             _chatOptions.Tools = [.. mcpTools];
     }
@@ -461,7 +461,7 @@ internal sealed class OpenAiProviderStrategy : ILlmProviderStrategy
         }
 
         // Re-register tool definitions
-        _chatOptions = new ChatOptions { ModelId = _model, MaxOutputTokens = _maxOutputTokens };
+        _chatOptions = new ChatOptions { ModelId = _model, MaxOutputTokens = _maxOutputTokens, AllowMultipleToolCalls = true };
         if (tools.Count > 0)
             _chatOptions.Tools = [.. tools];
     }

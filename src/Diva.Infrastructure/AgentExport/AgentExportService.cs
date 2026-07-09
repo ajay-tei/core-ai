@@ -135,6 +135,7 @@ public sealed class AgentExportService : IAgentExportService
             Capabilities = a.Capabilities,
             ToolBindings = a.ToolBindings,
             McpServerRefsJson = a.McpServerRefsJson,
+            ConversationStartersJson = a.ConversationStartersJson,
             VerificationMode = a.VerificationMode,
             ContextWindowJson = a.ContextWindowJson,
             OptimizationOverrideJson = a.OptimizationOverrideJson,
@@ -143,6 +144,8 @@ public sealed class AgentExportService : IAgentExportService
             MaxToolResultChars = a.MaxToolResultChars,
             MaxOutputTokens = a.MaxOutputTokens,
             EnableHistoryCaching = a.EnableHistoryCaching,
+            EnableExtendedThinking = a.EnableExtendedThinking,
+            ThinkingBudgetTokens = a.ThinkingBudgetTokens,
             PipelineStagesJson = a.PipelineStagesJson,
             ToolFilterJson = a.ToolFilterJson,
             StageInstructionsJson = a.StageInstructionsJson,
@@ -196,6 +199,7 @@ public sealed class AgentExportService : IAgentExportService
         target.Capabilities = src.Capabilities;
         target.ToolBindings = src.ToolBindings;
         target.McpServerRefsJson = src.McpServerRefsJson;
+        target.ConversationStartersJson = src.ConversationStartersJson;
         target.VerificationMode = src.VerificationMode;
         target.ContextWindowJson = src.ContextWindowJson;
         target.OptimizationOverrideJson = src.OptimizationOverrideJson;
@@ -204,6 +208,8 @@ public sealed class AgentExportService : IAgentExportService
         target.MaxToolResultChars = src.MaxToolResultChars;
         target.MaxOutputTokens = src.MaxOutputTokens;
         target.EnableHistoryCaching = src.EnableHistoryCaching;
+        target.EnableExtendedThinking = src.EnableExtendedThinking;
+        target.ThinkingBudgetTokens = src.ThinkingBudgetTokens;
         target.PipelineStagesJson = src.PipelineStagesJson;
         target.ToolFilterJson = src.ToolFilterJson;
         target.StageInstructionsJson = src.StageInstructionsJson;

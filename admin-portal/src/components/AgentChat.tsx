@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from "react";
 import { Link, useNavigate, useParams, useLocation, useSearchParams } from "react-router";
-import DOMPurify from "dompurify";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -8,6 +7,7 @@ import {
   ChevronDown,
   ChevronRight,
   History,
+  Mic,
   RotateCcw,
   Send,
   User,
@@ -44,6 +44,10 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { MarkdownMessage } from "@/components/chat/MarkdownMessage";
+import { ToolResultTable } from "@/components/chat/ToolResultTable";
+import { SqlBlock } from "@/components/chat/SqlBlock";
+import { auth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -81,6 +85,30 @@ interface Message {
   verification?: VerificationResult;
   followUpQuestions?: FollowUpQuestion[];
   error?: boolean;
+}
+
+// Minimal Web Speech API typings (webkitSpeechRecognition is not in lib.dom).
+interface SpeechAlternativeLike {
+  transcript: string;
+}
+interface SpeechResultLike {
+  isFinal: boolean;
+  length: number;
+  0: SpeechAlternativeLike;
+}
+interface SpeechRecognitionEventLike {
+  resultIndex: number;
+  results: { length: number; [i: number]: SpeechResultLike };
+}
+interface SpeechRecognitionLike {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  start(): void;
+  stop(): void;
+  onresult: ((e: SpeechRecognitionEventLike) => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
 }
 
 // Maps a stored turn's iteration detail into the chat's iteration trace,
@@ -149,6 +177,33 @@ function VerificationBadge({ v }: { v: VerificationResult }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Tool I/O rendering helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Extracts a SQL string from an execute_sql_query tool input (accepts several
+// common parameter names). Returns null when the input isn't SQL-shaped.
+function extractSql(name: string, input: string): string | null {
+  if (!/sql|query/i.test(name)) return null;
+  try {
+    const obj = JSON.parse(input) as Record<string, unknown>;
+    const sql = obj.query ?? obj.sql ?? obj.statement;
+    return typeof sql === "string" ? sql : null;
+  } catch {
+    return null;
+  }
+}
+
+function ToolInput({ name, input }: { name: string; input: string }) {
+  const sql = extractSql(name, input);
+  if (sql) return <SqlBlock sql={sql} />;
+  return (
+    <pre className="text-[11px] text-foreground/70 whitespace-pre-wrap break-words bg-background/50 rounded p-1.5 overflow-auto max-h-24">
+      {input}
+    </pre>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Iteration Trace
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -187,13 +242,9 @@ function IterationTrace({ iterations, detailed }: { iterations: Iteration[]; det
                       </Link>
                     )}
                   </div>
-                  <pre className="text-[11px] text-foreground/70 whitespace-pre-wrap break-words bg-background/50 rounded p-1.5 overflow-auto max-h-24">
-                    {tc.input}
-                  </pre>
+                  <ToolInput name={tc.name} input={tc.input} />
                   {tc.output !== undefined && (
-                    <pre className="text-[11px] text-emerald-400 whitespace-pre-wrap break-words bg-background/50 rounded p-1.5 overflow-auto max-h-28">
-                      {tc.output}
-                    </pre>
+                    <ToolResultTable output={tc.output} />
                   )}
                 </div>
               ))}
@@ -209,18 +260,31 @@ function IterationTrace({ iterations, detailed }: { iterations: Iteration[]; det
 // Live streaming indicator
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Animated three-dot "typing" indicator, like a standard chat agent thinking.
+function TypingDots() {
+  return (
+    <span className="inline-flex items-center gap-1" role="status" aria-label="Thinking">
+      <span className="size-1.5 rounded-full bg-muted-foreground/60 animate-bounce [animation-delay:-0.3s]" />
+      <span className="size-1.5 rounded-full bg-muted-foreground/60 animate-bounce [animation-delay:-0.15s]" />
+      <span className="size-1.5 rounded-full bg-muted-foreground/60 animate-bounce" />
+    </span>
+  );
+}
+
 function LiveFeed({
   iterations,
   status,
   plan,
   timeline,
   detailed,
+  answer,
 }: {
   iterations: Iteration[];
   status: string;
   plan: { steps: string[]; revised: boolean } | null;
   timeline: TimelineEntry[];
   detailed: boolean;
+  answer: string;
 }) {
   return (
     <div className="flex flex-col items-start gap-3">
@@ -231,8 +295,6 @@ function LiveFeed({
           </AvatarFallback>
         </Avatar>
         <div className="rounded-2xl rounded-tl-sm bg-muted px-4 py-3 max-w-[85%] min-w-64 space-y-2">
-          <p className="text-sm text-muted-foreground">{status || "Thinking..."}</p>
-
           {plan && plan.steps.length > 0 && (
             <div className="rounded border border-indigo-500/30 bg-indigo-500/5 p-2.5 space-y-1">
               <p className="text-[11px] font-semibold text-indigo-400">
@@ -244,12 +306,15 @@ function LiveFeed({
             </div>
           )}
 
-          {iterations.map((iter) => (
+          {/* Full per-iteration thinking + tool I/O only in Detailed mode. When
+              off, the running `status` line already conveys the current action
+              (e.g. "Calling execute_sql_query…") without exposing tool details. */}
+          {detailed && iterations.map((iter) => (
             <div key={iter.number} className="space-y-1.5">
               <p className="text-[11px] font-semibold text-indigo-400">Iteration {iter.number}</p>
               {iter.thinking && (
                 <p className="text-[11px] italic text-muted-foreground pl-2 border-l-2 border-muted-foreground/30">
-                  {detailed ? iter.thinking : iter.thinking.slice(0, 200) + (iter.thinking.length > 200 ? "…" : "")}
+                  {iter.thinking}
                 </p>
               )}
               {iter.toolCalls.map((tc, ti) => (
@@ -257,18 +322,33 @@ function LiveFeed({
                   <p className="text-[11px] font-medium text-amber-400 flex items-center gap-1">
                     <Wrench className="size-2.5" />{tc.name} {tc.output === undefined ? "⏳" : "✓"}
                   </p>
-                  <pre className="text-[10px] text-foreground/60 whitespace-pre-wrap break-words bg-background/30 rounded px-1.5 py-1 overflow-auto max-h-16">
-                    {tc.input}
-                  </pre>
+                  <ToolInput name={tc.name} input={tc.input} />
                   {tc.output !== undefined && (
-                    <pre className="text-[10px] text-emerald-400 whitespace-pre-wrap break-words bg-background/30 rounded px-1.5 py-1 overflow-auto max-h-20">
-                      {tc.output}
-                    </pre>
+                    <ToolResultTable output={tc.output} />
                   )}
                 </div>
               ))}
             </div>
           ))}
+
+          {answer && (
+            <div className="pt-1">
+              <MarkdownMessage content={answer} />
+            </div>
+          )}
+
+          {/* Persistent activity indicator while streaming. Sits below any
+              streamed text so the current action (e.g. "Calling execute_sql_query…")
+              stays visible during tool execution. Generic phases show dots only. */}
+          {(() => {
+            const generic = !status || ["thinking...", "analyzing…", "analyzing...", "connecting..."].includes(status.toLowerCase());
+            return (
+              <div className="flex items-center gap-2 pt-0.5 text-sm text-muted-foreground">
+                <TypingDots />
+                {!generic && <span>{status}</span>}
+              </div>
+            );
+          })()}
         </div>
       </div>
 
@@ -317,12 +397,39 @@ function LiveFeed({
 // Main AgentChat component
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Parses the agent's conversationStartersJson (a JSON string[]) into a clean,
+// de-duplicated list of non-empty example questions shown as clickable chips.
+function parseStarters(json?: string): string[] {
+  if (!json) return [];
+  try {
+    const v = JSON.parse(json);
+    if (!Array.isArray(v)) return [];
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const x of v) {
+      if (typeof x !== "string") continue;
+      const t = x.trim();
+      if (!t || seen.has(t)) continue;
+      seen.add(t);
+      out.push(t);
+      if (out.length >= 8) break;
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 export function AgentChat() {
   const { id: agentId } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const agentFromState = (location.state as { agent?: AgentSummary } | null)?.agent;
+
+  // Viewer (non-admin) users get a simplified chat: no LLM config/model picker
+  // and no Detailed trace toggle — those are authoring/debug controls.
+  const isAdmin = auth.isAdmin();
 
   const [agent, setAgent] = useState<AgentSummary | undefined>(agentFromState);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -335,15 +442,61 @@ export function AgentChat() {
   const [availableLlmConfigs, setAvailableLlmConfigs] = useState<AvailableLlmConfig[]>([]);
   const [selectedConfigId, setSelectedConfigId] = useState<number | undefined>(undefined);
   const [detailedMode, setDetailedMode] = useState(false);
+  const [starters, setStarters] = useState<string[]>([]);
 
   const [liveIterations, setLiveIterations] = useState<Iteration[]>([]);
   const [liveStatus, setLiveStatus] = useState<string>("");
   const [livePlan, setLivePlan] = useState<{ steps: string[]; revised: boolean } | null>(null);
   const [liveTimeline, setLiveTimeline] = useState<TimelineEntry[]>([]);
+  const [liveAnswer, setLiveAnswer] = useState<string>("");
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const hydratedRef = useRef<string | null>(null);
+
+  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const voiceBaseRef = useRef("");
+  const speechSupported =
+    typeof window !== "undefined" &&
+    ("webkitSpeechRecognition" in window || "SpeechRecognition" in window);
+
+  // Toggles browser speech-to-text, appending the transcript to the input box.
+  const toggleVoice = () => {
+    if (listening) {
+      recognitionRef.current?.stop();
+      return;
+    }
+    const w = window as unknown as {
+      webkitSpeechRecognition?: new () => SpeechRecognitionLike;
+      SpeechRecognition?: new () => SpeechRecognitionLike;
+    };
+    const Ctor = w.SpeechRecognition ?? w.webkitSpeechRecognition;
+    if (!Ctor) return;
+    const rec = new Ctor();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = "en-US";
+    voiceBaseRef.current = input ? input.trimEnd() + " " : "";
+    let finalText = "";
+    rec.onresult = (e) => {
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const res = e.results[i];
+        if (res.isFinal) finalText += res[0].transcript;
+        else interim += res[0].transcript;
+      }
+      setInput(voiceBaseRef.current + finalText + interim);
+    };
+    rec.onerror = () => setListening(false);
+    rec.onend = () => {
+      setListening(false);
+      recognitionRef.current = null;
+    };
+    recognitionRef.current = rec;
+    rec.start();
+    setListening(true);
+  };
 
   // Load agent definition (needed for llmConfigId) and available configs for the tenant
   useEffect(() => {
@@ -354,10 +507,17 @@ export function AgentChat() {
           setAgent(agentSummary);
           // Initialize config selector to agent's pinned config
           setSelectedConfigId(a.llmConfigId ?? undefined);
+          setStarters(parseStarters(a.conversationStartersJson));
         })
         .catch((e: Error) => toast.error("Failed to load agent", { description: e.message }));
     } else if (agentFromState) {
       setSelectedConfigId(agentFromState.llmConfigId ?? undefined);
+      // The navigation state only carries a summary; fetch the definition for starters.
+      if (agentId) {
+        api.getAgent(agentId)
+          .then((a) => setStarters(parseStarters(a.conversationStartersJson)))
+          .catch(() => {});
+      }
     }
   }, [agentId, agentFromState]);
 
@@ -410,6 +570,7 @@ export function AgentChat() {
     setLiveTimeline([]);
     setLiveStatus("");
     setLivePlan(null);
+    setLiveAnswer("");
     if (searchParams.has("sessionId")) {
       setSearchParams((p) => { p.delete("sessionId"); return p; }, { replace: true });
     }
@@ -418,11 +579,18 @@ export function AgentChat() {
   const send = async () => {
     const query = input.trim();
     if (!query || loading || !agent) return;
+    await sendQuery(query);
+  };
+
+  const sendQuery = async (query: string) => {
+    if (!query || loading || !agent) return;
+    if (listening) recognitionRef.current?.stop();
     setInput("");
     setMessages((m) => [...m, { role: "user", text: query }]);
     setLoading(true);
     setLiveIterations([]);
     setLiveTimeline([]);
+    setLiveAnswer("");
     setLiveStatus("Connecting...");
 
     const abort = new AbortController();
@@ -432,6 +600,11 @@ export function AgentChat() {
     const timelineRef: TimelineEntry[] = [];
     const streamStart = Date.now();
     let pendingMsg: Message | null = null;
+    let answerAccum = "";
+    // Tracks whether the current iteration streamed token-level text_delta
+    // chunks. If not (buffered/non-streaming providers), the `thinking` chunk
+    // carries the authoritative full text and we surface it in the live bubble.
+    let iterationHadDelta = false;
 
     const logEvent = (type: string, detail: string, iteration?: number) => {
       timelineRef.push({ time: Date.now() - streamStart, type, iteration, detail });
@@ -458,15 +631,28 @@ export function AgentChat() {
           logEvent("iteration_start", `Iteration ${chunk.iteration}`, chunk.iteration);
           itersRef.push({ number: chunk.iteration!, toolCalls: [] });
           setLiveIterations([...itersRef]);
-          setLiveStatus(`Iteration ${chunk.iteration}...`);
+          iterationHadDelta = false;
+          // In Detailed mode each iteration's live text renders under its own
+          // iteration block, so reset the bottom bubble per iteration. In the
+          // simplified (non-detailed) view the streamed text is the only thing
+          // shown, so preserve it across iterations — otherwise prior thinking
+          // text is wiped when the next iteration starts (flicker / "comes and
+          // goes"). A blank-line separator keeps iterations visually distinct.
+          if (detailedMode) {
+            answerAccum = "";
+            setLiveAnswer("");
+          } else if (answerAccum && !answerAccum.endsWith("\n\n")) {
+            answerAccum += "\n\n";
+            setLiveAnswer(answerAccum);
+          }
+          setLiveStatus("Analyzing…");
           break;
         case "text_delta": {
-          // Accumulate streaming tokens into the current iteration's thinking text
-          const iter = itersRef.find((i) => i.number === chunk.iteration);
-          if (iter) {
-            iter.thinking = (iter.thinking ?? "") + (chunk.content ?? "");
-            setLiveIterations([...itersRef]);
-          }
+          // Accumulate streaming tokens into the live answer bubble. The full
+          // per-iteration text is confirmed later by the `thinking` chunk (trace).
+          iterationHadDelta = true;
+          answerAccum += chunk.content ?? "";
+          setLiveAnswer(answerAccum);
           break;
         }
         case "thinking": {
@@ -474,6 +660,13 @@ export function AgentChat() {
           const iter = itersRef.find((i) => i.number === chunk.iteration);
           // Replace with full text from server (confirms accumulated text_delta content)
           if (iter) { iter.thinking = chunk.content; setLiveIterations([...itersRef]); }
+          // Non-streaming providers don't emit text_delta — the `thinking` chunk
+          // carries the iteration's full text. In the simplified view surface it
+          // in the live bubble so the user actually sees the response building up.
+          if (!detailedMode && !iterationHadDelta && chunk.content) {
+            answerAccum += chunk.content;
+            setLiveAnswer(answerAccum);
+          }
           break;
         }
         case "tool_call": {
@@ -493,7 +686,7 @@ export function AgentChat() {
             const call = [...iter.toolCalls].reverse().find((c) => c.name === chunk.toolName && c.output === undefined);
             if (call) { call.output = chunk.toolOutput; setLiveIterations([...itersRef]); }
           }
-          setLiveStatus(`Iteration ${chunk.iteration}...`);
+          setLiveStatus("Reviewing results…");
           break;
         }
         case "final_response":
@@ -568,13 +761,13 @@ export function AgentChat() {
       setLiveIterations([]);
       setLiveStatus("");
       setLivePlan(null);
+      setLiveAnswer("");
     }
   };
 
   const renderContent = (message: Message) => {
     if (message.role !== "agent" || message.error) return message.text;
-    const sanitized = DOMPurify.sanitize(message.text, { USE_PROFILES: { html: true } });
-    return <div dangerouslySetInnerHTML={{ __html: sanitized }} />;
+    return <MarkdownMessage content={message.text} />;
   };
 
   return (
@@ -593,6 +786,9 @@ export function AgentChat() {
           </p>
         </div>
         <div className="flex items-center gap-3 shrink-0">
+          {/* LLM config/model pickers and Detailed toggle are admin-only. */}
+          {isAdmin && (
+            <>
           {/* LLM Config picker — lets user test agent against different providers */}
           {availableLlmConfigs.length > 0 && (
             <Select
@@ -632,6 +828,8 @@ export function AgentChat() {
             <Switch id="detailed" checked={detailedMode} onCheckedChange={setDetailedMode} />
             <Label htmlFor="detailed" className="text-xs cursor-pointer">Detailed</Label>
           </div>
+            </>
+          )}
           <Button variant="ghost" size="icon" onClick={clearChat} title="Clear chat">
             <RotateCcw className="size-4" />
           </Button>
@@ -659,6 +857,20 @@ export function AgentChat() {
                 <Bot className="size-8 text-muted-foreground" />
               </div>
               <p className="text-sm text-muted-foreground">Send a message to start the conversation</p>
+              {starters.length > 0 && (
+                <div className="mt-2 flex flex-wrap justify-center gap-2 max-w-2xl px-4">
+                  {starters.map((s, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => { void sendQuery(s); }}
+                      className="rounded-full border border-border bg-background px-3.5 py-1.5 text-sm text-foreground/80 transition-colors hover:bg-muted hover:text-foreground"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -675,11 +887,11 @@ export function AgentChat() {
               <div className={cn("flex flex-col max-w-[80%]", m.role === "user" ? "items-end" : "items-start")}>
                 {/* Bubble */}
                 <div className={cn(
-                  "rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap",
+                  "rounded-2xl px-4 py-3 text-sm leading-relaxed",
                   m.role === "user"
-                    ? "rounded-tr-sm bg-primary text-primary-foreground"
+                    ? "rounded-tr-sm bg-primary text-primary-foreground whitespace-pre-wrap"
                     : m.error
-                      ? "rounded-tl-sm bg-destructive/10 text-destructive border border-destructive/20"
+                      ? "rounded-tl-sm bg-destructive/10 text-destructive border border-destructive/20 whitespace-pre-wrap"
                       : "rounded-tl-sm bg-muted"
                 )}>
                   {renderContent(m)}
@@ -700,8 +912,8 @@ export function AgentChat() {
                   </div>
                 )}
 
-                {/* Iteration trace */}
-                {m.role === "agent" && m.iterations && m.iterations.length > 0 && (
+                {/* Iteration trace (tool call details) — only in Detailed mode */}
+                {m.role === "agent" && m.iterations && m.iterations.length > 0 && detailedMode && (
                   <IterationTrace iterations={m.iterations} detailed={detailedMode} />
                 )}
 
@@ -736,6 +948,7 @@ export function AgentChat() {
               plan={livePlan}
               timeline={liveTimeline}
               detailed={detailedMode}
+              answer={liveAnswer}
             />
           )}
 
@@ -761,14 +974,29 @@ export function AgentChat() {
             rows={3}
             className="resize-none flex-1"
           />
-          <Button
-            onClick={send}
-            disabled={loading || !input.trim() || !agent}
-            size="icon"
-            className="h-[88px] w-11 shrink-0"
-          >
-            <Send className="size-4" />
-          </Button>
+          <div className="flex flex-col gap-2 shrink-0">
+            {speechSupported && (
+              <Button
+                onClick={toggleVoice}
+                disabled={loading}
+                size="icon"
+                variant={listening ? "default" : "outline"}
+                className={cn("w-11", listening && "animate-pulse bg-red-600 hover:bg-red-600")}
+                title={listening ? "Stop dictation" : "Voice input"}
+                aria-label={listening ? "Stop dictation" : "Voice input"}
+              >
+                <Mic className="size-4" />
+              </Button>
+            )}
+            <Button
+              onClick={send}
+              disabled={loading || !input.trim() || !agent}
+              size="icon"
+              className={cn("w-11 shrink-0", speechSupported ? "h-11 flex-1" : "h-[88px]")}
+            >
+              <Send className="size-4" />
+            </Button>
+          </div>
         </div>
         <p className="text-[11px] text-muted-foreground mt-1.5">
           Enter to send · Shift+Enter for new line

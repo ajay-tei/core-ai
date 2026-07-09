@@ -15,6 +15,13 @@ public class TraceSessionEntity
     public string AgentId { get; set; } = string.Empty;
     public string AgentName { get; set; } = string.Empty;
     public string UserId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Human-readable session title used to identify the session in history lists.
+    /// Auto-derived from the first user question on the first turn. null until the first turn is flushed.
+    /// </summary>
+    public string? Title { get; set; }
+
     public bool IsSupervisor { get; set; }
     public string Status { get; set; } = "active";    // "active" | "completed" | "failed" | "deleted"
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ChevronDown, ChevronRight, Bot, Wrench, ExternalLink, Maximize2 } from "lucide-react";
 import type { ToolCallDetail } from "../api";
+import { ToolResultTable } from "./chat/ToolResultTable";
+import { SqlBlock } from "./chat/SqlBlock";
 
 interface Props {
   toolCall: ToolCallDetail;
@@ -73,9 +75,13 @@ export default function SessionToolCallCard({ toolCall }: Props) {
               )}
             </div>
             {inputExpanded ? (
-              <pre className="mt-1 text-xs bg-muted rounded p-2 overflow-x-auto whitespace-pre-wrap break-all max-h-64">
-                {tryFormat(toolCall.toolInput)}
-              </pre>
+              extractSql(toolCall.toolName, toolCall.toolInput) ? (
+                <SqlBlock sql={extractSql(toolCall.toolName, toolCall.toolInput)!} />
+              ) : (
+                <pre className="mt-1 text-xs bg-muted rounded p-2 overflow-x-auto whitespace-pre-wrap break-all max-h-64">
+                  {tryFormat(toolCall.toolInput)}
+                </pre>
+              )
             ) : (
               <p className="text-xs text-muted-foreground truncate pl-1">{toolCall.toolInput.slice(0, 120)}</p>
             )}
@@ -107,9 +113,9 @@ export default function SessionToolCallCard({ toolCall }: Props) {
               )}
             </div>
             {outputExpanded ? (
-              <pre className="mt-1 text-xs bg-muted rounded p-2 overflow-x-auto whitespace-pre-wrap break-all max-h-64">
-                {toolCall.toolOutput}
-              </pre>
+              <div className="mt-1">
+                <ToolResultTable output={toolCall.toolOutput} />
+              </div>
             ) : (
               <p className="text-xs text-muted-foreground truncate pl-1">{toolCall.toolOutput.slice(0, 120)}</p>
             )}
@@ -135,4 +141,16 @@ export default function SessionToolCallCard({ toolCall }: Props) {
 function tryFormat(s: string): string {
   try { return JSON.stringify(JSON.parse(s), null, 2); }
   catch { return s; }
+}
+
+// Extracts a SQL string from an execute_sql_query-style tool input.
+function extractSql(name: string, input: string): string | null {
+  if (!/sql|query/i.test(name)) return null;
+  try {
+    const obj = JSON.parse(input) as Record<string, unknown>;
+    const sql = obj.query ?? obj.sql ?? obj.statement;
+    return typeof sql === "string" ? sql : null;
+  } catch {
+    return null;
+  }
 }

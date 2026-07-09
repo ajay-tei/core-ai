@@ -521,6 +521,32 @@ using (var scope = app.Services.CreateScope())
         Log.Information("Phase 24: Turn scoring columns verified/added to TraceSessionTurns");
     }
 
+    // ── Session Title column (EnsureCreated path — both providers) ────────────
+    // TraceSessions.Title is added idempotently for existing trace DBs, since
+    // EnsureCreated only provisions columns when the DB is first created. This runs
+    // on both SQLite and SQL Server because the shared trace DB predates this column.
+    {
+        var conn = traceDb.Database.GetDbConnection();
+        if (conn.State != System.Data.ConnectionState.Open)
+            await conn.OpenAsync();
+        var isSqliteTrace = traceDb.Database.IsSqlite();
+        await using var checkTitle = conn.CreateCommand();
+        checkTitle.CommandText = isSqliteTrace
+            ? "SELECT COUNT(*) FROM pragma_table_info('TraceSessions') WHERE name='Title'"
+            : "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='TraceSessions' AND COLUMN_NAME='Title'";
+        var titleExists = Convert.ToInt64(await checkTitle.ExecuteScalarAsync() ?? 0L);
+        if (titleExists == 0)
+        {
+            await using var alterTitle = conn.CreateCommand();
+            alterTitle.CommandText = isSqliteTrace
+                ? "ALTER TABLE TraceSessions ADD COLUMN Title TEXT"
+                : "ALTER TABLE TraceSessions ADD Title NVARCHAR(120) NULL";
+            await alterTitle.ExecuteNonQueryAsync();
+            Log.Information("Session trace: added Title column to TraceSessions");
+        }
+        await conn.CloseAsync();
+    }
+
     // ── Seed/sync platform LLM config from env vars ───────────────────────────
     // Creates the row on first startup; updates Provider/Model/Endpoint/ApiKey
     // when env vars are changed (so updating docker-compose.yml takes effect on restart).

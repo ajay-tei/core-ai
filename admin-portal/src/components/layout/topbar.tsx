@@ -20,7 +20,7 @@ const routeLabels: Record<string, string> = {
   agents: "Agents",
   new: "New Agent",
   edit: "Edit Agent",
-  chat: "Test Agent",
+  chat: "Agent Chat",
   rules: "Rules",
   learned: "Learned Rules",
   business: "Business Rules",

@@ -37,6 +37,7 @@ public sealed record AgentExportDefinition
     public string? Capabilities { get; init; }
     public string? ToolBindings { get; init; }
     public string? McpServerRefsJson { get; init; }
+    public string? ConversationStartersJson { get; init; }
     public string? VerificationMode { get; init; }
     public string? ContextWindowJson { get; init; }
     public string? OptimizationOverrideJson { get; init; }
@@ -45,6 +46,8 @@ public sealed record AgentExportDefinition
     public int? MaxToolResultChars { get; init; }
     public int? MaxOutputTokens { get; init; }
     public bool? EnableHistoryCaching { get; init; }
+    public bool? EnableExtendedThinking { get; init; }
+    public int? ThinkingBudgetTokens { get; init; }
     public string? PipelineStagesJson { get; init; }
     public string? ToolFilterJson { get; init; }
     public string? StageInstructionsJson { get; init; }

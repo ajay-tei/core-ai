@@ -161,6 +161,7 @@ public class AgentsController : ControllerBase
         existing.Capabilities = dto.Capabilities;
         existing.ToolBindings = dto.ToolBindings;
         existing.McpServerRefsJson = dto.McpServerRefsJson;
+        existing.ConversationStartersJson = dto.ConversationStartersJson;
         existing.VerificationMode = dto.VerificationMode;
         existing.ContextWindowJson = dto.ContextWindowJson;
         existing.OptimizationOverrideJson = dto.OptimizationOverrideJson;
@@ -169,6 +170,8 @@ public class AgentsController : ControllerBase
         existing.MaxToolResultChars = dto.MaxToolResultChars;
         existing.MaxOutputTokens = dto.MaxOutputTokens;
         existing.EnableHistoryCaching = dto.EnableHistoryCaching;
+        existing.EnableExtendedThinking = dto.EnableExtendedThinking;
+        existing.ThinkingBudgetTokens = dto.ThinkingBudgetTokens;
         existing.PipelineStagesJson = dto.PipelineStagesJson;
         existing.ToolFilterJson = dto.ToolFilterJson;
         existing.StageInstructionsJson = dto.StageInstructionsJson;

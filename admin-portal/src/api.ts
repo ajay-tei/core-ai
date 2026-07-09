@@ -63,6 +63,7 @@ export interface AgentDefinition
   capabilities?: string;   // JSON array string
   toolBindings?: string;   // JSON array string
   mcpServerRefsJson?: string;  // JSON string[] of shared MCP server names
+  conversationStartersJson?: string; // JSON string[] of example questions shown as clickable chips in chat (display-only, never sent to the LLM)
   verificationMode?: string;       // Off|ToolGrounded|LlmVerifier|Strict|Auto
   contextWindowJson?: string;      // JSON ContextWindowOverrideOptions
   optimizationOverrideJson?: string; // JSON OptimizationOverrideOptions e.g. {"MergeMaxTokens":16384}
@@ -71,6 +72,8 @@ export interface AgentDefinition
   maxToolResultChars?: number;     // null = global default (AgentOptions.MaxToolResultChars)
   maxOutputTokens?: number;        // null = global default (AgentOptions.MaxOutputTokens)
   enableHistoryCaching?: boolean;  // null = global default (AgentOptions.EnableHistoryCaching); Anthropic only
+  enableExtendedThinking?: boolean; // null/false = disabled; Anthropic only (Claude 3.7+/4.x/sonnet-5)
+  thinkingBudgetTokens?: number;   // null = global default budget when extended thinking is enabled
   pipelineStagesJson?: string;     // JSON {"Decompose":true,"Verify":false,...}
   toolFilterJson?: string;         // JSON {"mode":"allow","tools":[...]}
   stageInstructionsJson?: string;  // JSON {"Decompose":"...","Integrate":"..."}
@@ -106,6 +109,7 @@ export interface AgentDefaults
   maxToolResultChars: number;
   maxOutputTokens: number;
   enableHistoryCaching: boolean;
+  thinkingBudgetTokens: number;
   injectToolStrategy: boolean;
   verificationMode: string;
   confidenceThreshold: number;
@@ -1946,6 +1950,7 @@ export interface SessionSummary
   userId?: string;
   agentId: string;
   agentName: string;
+  title?: string;
   isSupervisor: boolean;
   status: string;
   createdAt: string;

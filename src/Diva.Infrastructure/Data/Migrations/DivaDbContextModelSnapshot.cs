@@ -15,7 +15,7 @@ namespace Diva.Infrastructure.Data.Migrations
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "10.0.8");
+            modelBuilder.HasAnnotation("ProductVersion", "10.0.9");
 
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.AgentDefinitionEntity", b =>
                 {
@@ -51,6 +51,9 @@ namespace Diva.Infrastructure.Data.Migrations
                     b.Property<string>("ContextWindowJson")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("ConversationStartersJson")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
@@ -67,6 +70,9 @@ namespace Diva.Infrastructure.Data.Migrations
                     b.Property<string>("DisplayName")
                         .IsRequired()
                         .HasColumnType("TEXT");
+
+                    b.Property<bool?>("EnableExtendedThinking")
+                        .HasColumnType("INTEGER");
 
                     b.Property<bool?>("EnableHistoryCaching")
                         .HasColumnType("INTEGER");
@@ -132,6 +138,9 @@ namespace Diva.Infrastructure.Data.Migrations
                         .HasColumnType("REAL");
 
                     b.Property<int>("TenantId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("ThinkingBudgetTokens")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("ToolBindings")

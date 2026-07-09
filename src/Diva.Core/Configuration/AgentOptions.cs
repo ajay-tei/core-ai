@@ -21,6 +21,14 @@ public sealed class AgentOptions
     public bool InjectToolStrategy { get; set; } = true;
 
     /// <summary>
+    /// Default Anthropic extended-thinking token budget used when an agent enables extended
+    /// thinking without specifying its own budget. Anthropic-only; ignored by OpenAI-compatible
+    /// providers. Must be &lt; the effective MaxOutputTokens (the runner bumps MaxOutputTokens up
+    /// with a reserve for the visible answer when necessary). Minimum enforced budget is 1024.
+    /// </summary>
+    public int ThinkingBudgetTokens { get; set; } = 8000;
+
+    /// <summary>
     /// Enable token-level response streaming via <c>StreamLlmAsync</c>.
     /// When true, text tokens arrive as <c>text_delta</c> SSE events during LLM generation
     /// instead of waiting for the full response. The <c>thinking</c> event still fires after

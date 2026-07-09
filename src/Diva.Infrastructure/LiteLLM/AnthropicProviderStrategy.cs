@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Anthropic.SDK.Messaging;
@@ -6,6 +7,7 @@ using Diva.Core.Models;
 using Diva.Infrastructure.Context;
 using Diva.Infrastructure.Sessions;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Client;
 
 namespace Diva.Infrastructure.LiteLLM;
@@ -28,8 +30,11 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
     private string _model;
     private int _maxTokens;
     private readonly bool _enableHistoryCaching;
+    private readonly bool _enableThinking;
+    private readonly int _thinkingBudget;
     private string? _apiKeyOverride;
     private readonly Func<Func<Task<MessageResponse>>, CancellationToken, Task<MessageResponse>> _retry;
+    private readonly Microsoft.Extensions.Logging.ILogger? _logger;
 
     // System prompt split: static (cacheable across sessions) + dynamic (volatile per session).
     private string _staticSystemPrompt;    // stable: base + group/tenant overrides + group rules
@@ -44,6 +49,21 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
     // Tracks the tool-results message that currently holds the sliding BP4 cache breakpoint.
     private Message? _slidingCacheBoundary;
 
+    // Newer Claude models (e.g. sonnet-5) reject "thinking.type.enabled"/budget_tokens and require
+    // "thinking.type.adaptive" + output_config.effort. We default to the budget API (Claude 3.7/4.x)
+    // and flip this flag on the first adaptive-required error, self-healing for the rest of the run.
+    private bool _useAdaptiveThinking;
+
+    // Set by SuppressThinkingForRun(): disables thinking for the rest of the run (and strips thinking
+    // blocks from history so requests stay valid). Sticky — must NOT re-enable, or a tool call would
+    // let the following turn go thinking-only again. Used to force a plain-text answer out of a model
+    // that keeps ending its turn with thinking only.
+    private bool _suppressThinkingSticky;
+
+    // Extended-thinking text accumulated on the most recent streamed call (null when none), surfaced
+    // as a last-resort answer when a turn ends with reasoning only and no visible text.
+    private string? _lastThinkingText;
+
     public AnthropicProviderStrategy(
         IAnthropicProvider anthropic,
         IContextWindowManager ctx,
@@ -53,18 +73,85 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
         string dynamicSystemPrompt,
         Func<Func<Task<MessageResponse>>, CancellationToken, Task<MessageResponse>> retry,
         bool enableHistoryCaching = true,
-        string? apiKeyOverride = null)
+        string? apiKeyOverride = null,
+        bool enableThinking = false,
+        int thinkingBudget = 0,
+        Microsoft.Extensions.Logging.ILogger? logger = null)
     {
-        _anthropic            = anthropic;
-        _ctx                  = ctx;
-        _model                = model;
-        _maxTokens            = maxTokens;
-        _staticSystemPrompt   = staticSystemPrompt;
-        _dynamicSystemPrompt  = dynamicSystemPrompt;
+        _anthropic = anthropic;
+        _ctx = ctx;
+        _model = model;
+        _maxTokens = maxTokens;
+        _staticSystemPrompt = staticSystemPrompt;
+        _dynamicSystemPrompt = dynamicSystemPrompt;
         _enableHistoryCaching = enableHistoryCaching;
-        _apiKeyOverride       = apiKeyOverride;
-        _retry                = retry;
+        _enableThinking = enableThinking;
+        _thinkingBudget = thinkingBudget;
+        _apiKeyOverride = apiKeyOverride;
+        _retry = retry;
+        _logger = logger;
     }
+
+    /// <summary>
+    /// Applies extended-thinking parameters to <paramref name="p"/>, or leaves them unset when
+    /// thinking is disabled. Uses the budget-based API (Claude 3.7/4.x) by default and switches to
+    /// the adaptive + effort API (newer models) once <see cref="_useAdaptiveThinking"/> is set.
+    /// </summary>
+    private void ApplyThinking(MessageParameters p)
+    {
+        if (_suppressThinkingSticky)
+        {
+            // Thinking disabled for the rest of the run — the API rejects thinking blocks in history
+            // when thinking is off, so strip them. History always ends on a user message, so stripping
+            // thinking blocks from prior assistant (tool_use) turns still yields a valid sequence.
+            StripThinkingBlocks();
+            return;
+        }
+
+        if (!_enableThinking || _thinkingBudget <= 0)
+            return;
+
+        if (_useAdaptiveThinking)
+        {
+            // Adaptive thinking carries no budget_tokens; effort lives on output_config.
+            // UseInterleavedThinking makes the SDK send the interleaved-thinking-2025-05-14 beta header,
+            // which lets the model emit plaintext thinking blocks *between* tool calls (streamed as
+            // thinking_delta events) instead of a single opaque, signature-only block.
+            p.Thinking = new ThinkingParameters { Type = ThinkingType.adaptive, UseInterleavedThinking = true };
+            p.OutputConfig = new OutputConfig { Effort = MapBudgetToEffort() };
+        }
+        else
+        {
+            p.Thinking = new ThinkingParameters { Type = ThinkingType.enabled, BudgetTokens = _thinkingBudget, UseInterleavedThinking = true };
+        }
+    }
+
+    /// <summary>Removes thinking / redacted-thinking blocks from every message in history.</summary>
+    private void StripThinkingBlocks()
+    {
+        foreach (var m in _messages)
+            m.Content?.RemoveAll(b => b is ThinkingContent or RedactedThinkingContent);
+    }
+
+    /// <summary>Maps the configured token budget onto the coarse adaptive effort levels.</summary>
+    private ThinkingEffort MapBudgetToEffort() => _thinkingBudget switch
+    {
+        <= 4096 => ThinkingEffort.low,
+        <= 12000 => ThinkingEffort.medium,
+        <= 24000 => ThinkingEffort.high,
+        _ => ThinkingEffort.max,
+    };
+
+    /// <summary>True when the API rejected budget-based thinking and asked for the adaptive + effort API.</summary>
+    private static bool IsAdaptiveThinkingError(Exception ex) =>
+        ex.Message.Contains("thinking.type.adaptive", StringComparison.OrdinalIgnoreCase)
+        || ex.Message.Contains("output_config.effort", StringComparison.OrdinalIgnoreCase);
+
+    /// <inheritdoc/>
+    public void SuppressThinkingForRun() => _suppressThinkingSticky = true;
+
+    /// <inheritdoc/>
+    public string? LastThinkingText => _lastThinkingText;
 
     // ── System block builder ──────────────────────────────────────────────────
 
@@ -109,13 +196,13 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
         List<McpClientTool> mcpTools,
         IReadOnlyList<ContentPart>? attachments = null)
     {
-        _messages             = new List<Message>();
+        _messages = new List<Message>();
         _slidingCacheBoundary = null;
 
         foreach (var turn in history)
             _messages.Add(new Message
             {
-                Role    = turn.Role == "assistant" ? RoleType.Assistant : RoleType.User,
+                Role = turn.Role == "assistant" ? RoleType.Assistant : RoleType.User,
                 Content = [new Anthropic.SDK.Messaging.TextContent { Text = turn.Content }]
             });
 
@@ -139,23 +226,23 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
                     {
                         Source = new ImageSource
                         {
-                            Type      = img.Data is not null ? SourceType.base64 : SourceType.url,
+                            Type = img.Data is not null ? SourceType.base64 : SourceType.url,
                             MediaType = img.MediaType,
-                            Data      = img.Data,
-                            Url       = img.Url
+                            Data = img.Data,
+                            Url = img.Url
                         }
                     });
                     break;
                 case DocumentContentPart doc:
                     userContent.Add(new DocumentContent
                     {
-                        Title  = doc.Title,
+                        Title = doc.Title,
                         Source = new DocumentSource
                         {
-                            Type      = doc.Data is not null ? SourceType.base64 : SourceType.url,
+                            Type = doc.Data is not null ? SourceType.base64 : SourceType.url,
                             MediaType = doc.MediaType,
-                            Data      = doc.Data,
-                            Url       = doc.Url
+                            Data = doc.Data,
+                            Url = doc.Url
                         }
                     });
                     break;
@@ -187,23 +274,36 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
 
         var parameters = new MessageParameters
         {
-            Model         = _model,
-            MaxTokens     = _maxTokens,
-            System        = BuildSystemBlocks(),
-            Messages      = _messages,
-            Tools         = _tools,
-            ToolChoice    = _tools is { Count: > 0 }
+            Model = _model,
+            MaxTokens = _maxTokens,
+            System = BuildSystemBlocks(),
+            Messages = _messages,
+            Tools = _tools,
+            ToolChoice = _tools is { Count: > 0 }
                 ? new ToolChoice { Type = ToolChoiceType.Auto, DisableParallelToolUse = false }
                 : null,
             PromptCaching = PromptCacheType.FineGrained   // respects CacheControl on individual blocks
         };
+        ApplyThinking(parameters);
 
-        var response = await _retry(() => _anthropic.GetClaudeMessageAsync(parameters, ct, _apiKeyOverride), ct);
+        MessageResponse response;
+        try
+        {
+            response = await _retry(() => _anthropic.GetClaudeMessageAsync(parameters, ct, _apiKeyOverride), ct);
+        }
+        catch (Exception ex) when (_enableThinking && !_useAdaptiveThinking && IsAdaptiveThinkingError(ex))
+        {
+            _logger?.LogInformation(
+                "Model '{Model}' requires adaptive extended thinking — switching from budget to effort mode.", _model);
+            _useAdaptiveThinking = true;
+            ApplyThinking(parameters);   // rebuild thinking + output_config on the same params object
+            response = await _retry(() => _anthropic.GetClaudeMessageAsync(parameters, ct, _apiKeyOverride), ct);
+        }
         _lastResponse = response;
         _lastTokenUsage = new TokenUsage(
-            response.Usage?.InputTokens              ?? 0,
-            response.Usage?.OutputTokens             ?? 0,
-            response.Usage?.CacheReadInputTokens     ?? 0,
+            response.Usage?.InputTokens ?? 0,
+            response.Usage?.OutputTokens ?? 0,
+            response.Usage?.CacheReadInputTokens ?? 0,
             response.Usage?.CacheCreationInputTokens ?? 0);
 
         var text = string.Join("\n", response.Content
@@ -216,6 +316,13 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
                 .ToList()
             : [];
 
+        _logger?.LogInformation(
+            "[PARALLEL-DIAG buffered] stopReason={Stop} rawToolUseBlocks={Raw} capturedToolCalls={Captured} names=[{Names}]",
+            response.StopReason ?? "null",
+            response.Content.OfType<ToolUseContent>().Count(),
+            toolCalls.Count,
+            string.Join(", ", toolCalls.Select(t => t.Name)));
+
         return new UnifiedLlmResponse(text, toolCalls, toolCalls.Count > 0, response.StopReason);
     }
 
@@ -227,36 +334,150 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
     {
         var parameters = new MessageParameters
         {
-            Model         = _model,
-            MaxTokens     = _maxTokens,
-            System        = BuildSystemBlocks(),
-            Messages      = _messages,
-            Tools         = _tools,
-            ToolChoice    = _tools is { Count: > 0 }
+            Model = _model,
+            MaxTokens = _maxTokens,
+            System = BuildSystemBlocks(),
+            Messages = _messages,
+            Tools = _tools,
+            ToolChoice = _tools is { Count: > 0 }
                 ? new ToolChoice { Type = ToolChoiceType.Auto, DisableParallelToolUse = false }
                 : null,
             PromptCaching = PromptCacheType.FineGrained   // respects CacheControl on individual blocks
         };
+        ApplyThinking(parameters);
 
         // Clear stale state from any previous call so CommitAssistantResponse always reflects
         // this iteration. If the stream throws before we set _lastStreamedContent, the
         // fallback CallLlmAsync will set _lastResponse instead.
         _lastStreamedContent = null;
-        _lastResponse        = null;
+        _lastResponse = null;
 
         var outputs = new List<MessageResponse>();
         string accText = "";
+        string accThinking = "";      // accumulated extended-thinking (reasoning) text, all blocks concatenated
+
+        // Faithful ordered reconstruction of the assistant turn's content blocks. Interleaved thinking
+        // (beta) emits MULTIPLE thinking blocks — each with its own signature — interleaved with
+        // tool_use and text blocks. Anthropic requires every thinking block to be replayed with its
+        // signature and in original order relative to the tool_use blocks it precedes; otherwise the
+        // follow-up request carrying the tool results is rejected. We therefore rebuild blocks in the
+        // exact stream order (content_block_start → *_delta* → content_block_stop) instead of flattening
+        // thinking/text/tools into fixed positions.
+        var orderedBlocks = new List<ContentBase>();
+        var toolCalls = new List<UnifiedToolCall>();
+        var seenToolIds = new HashSet<string>(StringComparer.Ordinal);
+
+        // Current in-flight content block state.
+        string curBlockType = "";
+        var curText = new StringBuilder();
+        var curThinking = new StringBuilder();
+        string? curSignature = null;
+        string? curRedactedData = null;
+        string? curToolId = null;
+        string? curToolName = null;
+        var curToolJson = new StringBuilder();
+
+        // Finalises the in-flight block into orderedBlocks (and toolCalls for tool_use), then resets.
+        void FlushBlock()
+        {
+            switch (curBlockType)
+            {
+                case "thinking":
+                    // Preserve even a text-less thinking block when it carries a signature — the API
+                    // needs the signed block replayed to accept the tool-result follow-up.
+                    if (curThinking.Length > 0 || !string.IsNullOrEmpty(curSignature))
+                        orderedBlocks.Add(new ThinkingContent
+                        {
+                            Thinking = curThinking.ToString(),
+                            Signature = curSignature ?? string.Empty
+                        });
+                    break;
+                case "redacted_thinking":
+                    if (!string.IsNullOrEmpty(curRedactedData))
+                        orderedBlocks.Add(new RedactedThinkingContent { Data = curRedactedData! });
+                    break;
+                case "text":
+                    if (curText.Length > 0)
+                        orderedBlocks.Add(new Anthropic.SDK.Messaging.TextContent { Text = curText.ToString() });
+                    break;
+                case "tool_use":
+                    if (!string.IsNullOrEmpty(curToolId) && seenToolIds.Add(curToolId!))
+                    {
+                        var rawArgs = curToolJson.Length == 0 ? "{}" : curToolJson.ToString();
+                        JsonNode? inputNode;
+                        try { inputNode = JsonNode.Parse(rawArgs); }
+                        catch (JsonException) { inputNode = null; }
+                        if (inputNode is null) { inputNode = new JsonObject(); rawArgs = "{}"; }
+                        orderedBlocks.Add(new ToolUseContent { Id = curToolId!, Name = curToolName ?? string.Empty, Input = inputNode });
+                        toolCalls.Add(new UnifiedToolCall(curToolId!, curToolName ?? string.Empty, rawArgs));
+                    }
+                    break;
+            }
+            curBlockType = "";
+            curText.Clear();
+            curThinking.Clear();
+            curSignature = null;
+            curRedactedData = null;
+            curToolId = null;
+            curToolName = null;
+            curToolJson.Clear();
+        }
 
         await foreach (var response in _anthropic.StreamClaudeMessageAsync(parameters, ct, _apiKeyOverride))
         {
             outputs.Add(response);
-            var deltaText = response.Delta?.Text;
-            if (!string.IsNullOrEmpty(deltaText))
+
+            // content_block_start — close the previous block (safety) and open a new one.
+            if (response.ContentBlock is { } cb)
             {
-                accText += deltaText;
-                yield return new UnifiedStreamDelta(deltaText, false, null);
+                FlushBlock();
+                curBlockType = cb.Type ?? string.Empty;
+                if (curBlockType == "tool_use")
+                {
+                    curToolId = cb.Id;
+                    curToolName = cb.Name;
+                }
+                else if (curBlockType == "redacted_thinking")
+                {
+                    curRedactedData = cb.Data;
+                }
             }
+
+            var delta = response.Delta;
+            if (delta is not null)
+            {
+                if (!string.IsNullOrEmpty(delta.Text))
+                {
+                    accText += delta.Text;
+                    curText.Append(delta.Text);
+                    yield return new UnifiedStreamDelta(delta.Text, false, null);
+                }
+                // Extended-thinking (reasoning) deltas. With interleaved thinking these carry plaintext
+                // and stream live to the UI. Inert for non-thinking turns (Delta.Thinking null).
+                if (!string.IsNullOrEmpty(delta.Thinking))
+                {
+                    accThinking += delta.Thinking;
+                    curThinking.Append(delta.Thinking);
+                    yield return new UnifiedStreamDelta(null, false, null, ThinkingDelta: delta.Thinking);
+                }
+                if (!string.IsNullOrEmpty(delta.Signature))
+                    curSignature = delta.Signature;
+                if (curBlockType == "tool_use"
+                    && string.Equals(delta.Type, "input_json_delta", StringComparison.Ordinal)
+                    && !string.IsNullOrEmpty(delta.PartialJson))
+                    curToolJson.Append(delta.PartialJson);
+            }
+
+            // content_block_stop — finalise the current block.
+            if (string.Equals(response.Type, "content_block_stop", StringComparison.Ordinal))
+                FlushBlock();
         }
+
+        // Finalise any trailing block (content_block_stop normally handles this).
+        FlushBlock();
+
+        // Preserve reasoning text for a last-resort answer if this turn ends thinking-only.
+        _lastThinkingText = string.IsNullOrEmpty(accThinking) ? null : accThinking;
 
         // ── Token usage ───────────────────────────────────────────────────────
         // input tokens are on the message_start event (StreamStartMessage.Usage);
@@ -264,30 +485,28 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
         var startEvent = outputs.FirstOrDefault(r => r.StreamStartMessage?.Usage is not null);
         var finalUsage = outputs.LastOrDefault(r => r.Usage?.OutputTokens > 0);
         _lastTokenUsage = new TokenUsage(
-            startEvent?.StreamStartMessage?.Usage?.InputTokens              ?? 0,
-            finalUsage?.Usage?.OutputTokens                                 ?? 0,
-            startEvent?.StreamStartMessage?.Usage?.CacheReadInputTokens     ?? 0,
+            startEvent?.StreamStartMessage?.Usage?.InputTokens ?? 0,
+            finalUsage?.Usage?.OutputTokens ?? 0,
+            startEvent?.StreamStartMessage?.Usage?.CacheReadInputTokens ?? 0,
             startEvent?.StreamStartMessage?.Usage?.CacheCreationInputTokens ?? 0);
 
-        // ── Build content list for CommitAssistantResponse ────────────────────
-        // Scan ALL outputs and collect tool calls deduplicated by ID.
-        // The Anthropic SDK streaming state machine puts ToolCalls on the message_delta
-        // event but NOT on the final message_stop event, so outputs[^1].ToolCalls is null
-        // when parallel tool calls are returned. Scanning all outputs and deduping by ID
-        // captures every tool call regardless of which event it appears on.
+        // ── Assistant turn content already reconstructed in stream order above ──
+        // orderedBlocks holds thinking/redacted/text/tool_use blocks in their original sequence and
+        // toolCalls holds the parsed tool calls. Fall back to the SDK's parsed ToolCalls only when
+        // in-loop reconstruction captured no tools at all (defensive; the raw path is authoritative).
         var last = outputs.Count > 0 ? outputs[^1] : null;
-        var contentBlocks = new List<ContentBase>();
-        if (!string.IsNullOrEmpty(accText))
-            contentBlocks.Add(new Anthropic.SDK.Messaging.TextContent { Text = accText });
 
-        var toolCalls  = new List<UnifiedToolCall>();
-        var seenIds    = new HashSet<string>(StringComparer.Ordinal);
+        int eventsWithTools = 0;  // number of stream events that carried SDK-parsed tool calls (diagnostic)
+        int maxPerEvent = 0;      // largest ToolCalls.Count seen on any single stream event (diagnostic)
         foreach (var resp in outputs)
         {
             if (resp.ToolCalls is not { Count: > 0 } funcs) continue;
+            eventsWithTools++;
+            if (funcs.Count > maxPerEvent) maxPerEvent = funcs.Count;
+            if (toolCalls.Count > 0) continue;   // raw reconstruction already won — diagnostics only
             foreach (var f in funcs)
             {
-                if (string.IsNullOrEmpty(f.Id) || !seenIds.Add(f.Id)) continue;
+                if (string.IsNullOrEmpty(f.Id) || !seenToolIds.Add(f.Id)) continue;
 
                 // f.Arguments from streaming is JsonValuePrimitive<string> — not a JsonObject.
                 // ToString() returns the raw JSON text; re-parse to get a proper JsonObject.
@@ -295,13 +514,39 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
                 var rawArgs = f.Arguments?.ToString();
                 if (string.IsNullOrWhiteSpace(rawArgs)) rawArgs = "{}";
                 var inputNode = JsonNode.Parse(rawArgs) ?? new JsonObject();
-                contentBlocks.Add(new ToolUseContent { Id = f.Id, Name = f.Name, Input = inputNode });
+                orderedBlocks.Add(new ToolUseContent { Id = f.Id, Name = f.Name, Input = inputNode });
                 toolCalls.Add(new UnifiedToolCall(f.Id, f.Name, rawArgs));
             }
         }
-        _lastStreamedContent = contentBlocks.Count > 0 ? contentBlocks : null;
+        _lastStreamedContent = orderedBlocks.Count > 0 ? orderedBlocks : null;
 
-        var stopReason = last?.StopReason ?? (toolCalls.Count > 0 ? "tool_use" : "end_turn");
+        // A turn with tool calls is a tool_use turn regardless of the SDK-reported stop reason
+        // (which is end_turn when thinking is interleaved with the tool calls).
+        var stopReason = toolCalls.Count > 0 ? "tool_use" : (last?.StopReason ?? "end_turn");
+
+        _logger?.LogInformation(
+            "[PARALLEL-DIAG streaming] stopReason={Stop} streamEvents={Events} eventsWithTools={EventsWithTools} maxToolsPerEvent={MaxPerEvent} capturedToolCalls={Captured} orderedBlocks={OrderedBlocks} thinkingBlocks={ThinkingBlocks} accText={AccText} accThinking={AccThinking} names=[{Names}]",
+            stopReason, outputs.Count, eventsWithTools, maxPerEvent, toolCalls.Count,
+            orderedBlocks.Count, orderedBlocks.OfType<ThinkingContent>().Count(), accText.Length, accThinking.Length,
+            string.Join(", ", toolCalls.Select(t => t.Name)));
+
+        // When a turn ends with no captured text, thinking, or tools, dump the raw event shape so we
+        // can see where the output tokens went (delta types / content-block types / event types).
+        if (accText.Length == 0 && accThinking.Length == 0 && toolCalls.Count == 0)
+        {
+            string GroupCounts(IEnumerable<string?> items) => string.Join(", ",
+                items.Select(x => string.IsNullOrEmpty(x) ? "<null>" : x)
+                     .GroupBy(x => x)
+                     .Select(g => $"{g.Key}={g.Count()}"));
+
+            _logger?.LogWarning(
+                "[PARALLEL-DIAG EMPTY] deltaTypes=[{DeltaTypes}] eventTypes=[{EventTypes}] blockTypes=[{BlockTypes}] partialJsonLen={PartialJson}",
+                GroupCounts(outputs.Select(o => o.Delta?.Type)),
+                GroupCounts(outputs.Select(o => o.Type)),
+                GroupCounts(outputs.Select(o => o.ContentBlock?.Type)),
+                outputs.Sum(o => o.Delta?.PartialJson?.Length ?? 0));
+        }
+
         yield return new UnifiedStreamDelta(null, true,
             new UnifiedLlmResponse(accText, toolCalls, toolCalls.Count > 0, stopReason));
     }
@@ -310,11 +555,11 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
     {
         var parameters = new MessageParameters
         {
-            Model         = _model,
-            MaxTokens     = 2048,
-            System        = BuildSystemBlocks(),
-            Messages      = _messages,
-            Tools         = null,
+            Model = _model,
+            MaxTokens = 2048,
+            System = BuildSystemBlocks(),
+            Messages = _messages,
+            Tools = null,
             PromptCaching = PromptCacheType.FineGrained   // respects CacheControl on individual blocks
         };
 
@@ -354,10 +599,10 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
                     {
                         Source = new ImageSource
                         {
-                            Type      = img.Data is not null ? SourceType.base64 : SourceType.url,
+                            Type = img.Data is not null ? SourceType.base64 : SourceType.url,
                             MediaType = img.MediaType,
-                            Data      = img.Data,
-                            Url       = img.Url
+                            Data = img.Data,
+                            Url = img.Url
                         }
                     });
                     break;
@@ -377,8 +622,8 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
         var toolResults = results.Select(r => (ContentBase)new Anthropic.SDK.Messaging.ToolResultContent
         {
             ToolUseId = r.ToolCallId,
-            Content   = BuildToolResultContent(r),
-            IsError   = r.IsError
+            Content = BuildToolResultContent(r),
+            IsError = r.IsError
         }).ToList();
 
         var newMessage = new Message { Role = RoleType.User, Content = toolResults };
@@ -401,7 +646,7 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
     public void AddUserMessage(string text) =>
         _messages.Add(new Message
         {
-            Role    = RoleType.User,
+            Role = RoleType.User,
             Content = [new Anthropic.SDK.Messaging.TextContent { Text = text }]
         });
 
@@ -409,12 +654,12 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
     {
         _messages.Add(new Message
         {
-            Role    = RoleType.Assistant,
+            Role = RoleType.Assistant,
             Content = [new Anthropic.SDK.Messaging.TextContent { Text = assistantText }]
         });
         _messages.Add(new Message
         {
-            Role    = RoleType.User,
+            Role = RoleType.User,
             Content = [new Anthropic.SDK.Messaging.TextContent { Text = userText }]
         });
     }
@@ -430,7 +675,7 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
 
     public void CompactHistory(string systemPrompt, ContextWindowOverrideOptions? agentOverride)
     {
-        _messages             = _ctx.MaybeCompactAnthropicMessages(_messages, systemPrompt, agentOverride);
+        _messages = _ctx.MaybeCompactAnthropicMessages(_messages, systemPrompt, agentOverride);
         _slidingCacheBoundary = null;   // _messages is a new allocation; old refs are stale
 
         // After compaction, orphaned CacheControl markers from BP3/BP4 may survive on kept
@@ -442,7 +687,7 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
 
     public void PrepareNewWindow(string continuationContext, string systemPrompt, ContextWindowOverrideOptions? agentOverride)
     {
-        _messages             = _ctx.MaybeCompactAnthropicMessages(_messages, systemPrompt, agentOverride);
+        _messages = _ctx.MaybeCompactAnthropicMessages(_messages, systemPrompt, agentOverride);
         _slidingCacheBoundary = null;
 
         if (_enableHistoryCaching)
@@ -450,7 +695,7 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
 
         _messages.Add(new Message
         {
-            Role    = RoleType.User,
+            Role = RoleType.User,
             Content = [new Anthropic.SDK.Messaging.TextContent { Text = continuationContext }]
         });
         // No cache_control on the continuation context message — it is short, changes every
@@ -531,7 +776,7 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
             if (parts.Count > 0)
                 result.Add(new UnifiedHistoryEntry
                 {
-                    Role  = msg.Role == RoleType.Assistant ? "assistant" : "user",
+                    Role = msg.Role == RoleType.Assistant ? "assistant" : "user",
                     Parts = parts
                 });
         }
@@ -543,15 +788,15 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
     {
         // After a cross-provider model switch the coordinator only has the combined system prompt.
         // Treat it as the static block; dynamic starts empty (hooks will re-inject at OnBeforeIteration).
-        _staticSystemPrompt   = systemPrompt;
-        _dynamicSystemPrompt  = string.Empty;
-        _messages             = new List<Message>();
-        _lastResponse         = null;
+        _staticSystemPrompt = systemPrompt;
+        _dynamicSystemPrompt = string.Empty;
+        _messages = new List<Message>();
+        _lastResponse = null;
         _slidingCacheBoundary = null;
 
         foreach (var entry in history)
         {
-            var role    = entry.Role == "assistant" ? RoleType.Assistant : RoleType.User;
+            var role = entry.Role == "assistant" ? RoleType.Assistant : RoleType.User;
             var content = new List<ContentBase>();
 
             foreach (var part in entry.Parts)
@@ -564,8 +809,8 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
                     case ToolCallHistoryPart tc:
                         content.Add(new ToolUseContent
                         {
-                            Id    = tc.Id,
-                            Name  = tc.Name,
+                            Id = tc.Id,
+                            Name = tc.Name,
                             Input = JsonNode.Parse(tc.InputJson)
                         });
                         break;
@@ -573,8 +818,8 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
                         content.Add(new Anthropic.SDK.Messaging.ToolResultContent
                         {
                             ToolUseId = tr.ToolCallId,
-                            Content   = [new Anthropic.SDK.Messaging.TextContent { Text = tr.Output }],
-                            IsError   = tr.IsError
+                            Content = [new Anthropic.SDK.Messaging.TextContent { Text = tr.Output }],
+                            IsError = tr.IsError
                         });
                         break;
                 }

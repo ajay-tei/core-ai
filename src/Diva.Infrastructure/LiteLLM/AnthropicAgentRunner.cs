@@ -445,13 +445,30 @@ public sealed class AnthropicAgentRunner : IAgentRunner
             bool useAnthropic = resolvedProvider.Equals("Anthropic", StringComparison.OrdinalIgnoreCase);
             var effectiveMaxOutputTokens = definition.MaxOutputTokens ?? _agentOpts.MaxOutputTokens;
 
+            // Extended thinking is Anthropic-only and opt-in per agent. When enabled we must
+            // guarantee MaxTokens > BudgetTokens (thinking tokens count toward max_tokens), so we
+            // bump the effective output ceiling up with a reserve for the visible answer.
+            bool enableThinking = useAnthropic && (definition.EnableExtendedThinking ?? false);
+            int thinkingBudget = 0;
+            if (enableThinking)
+            {
+                thinkingBudget = definition.ThinkingBudgetTokens ?? _agentOpts.ThinkingBudgetTokens;
+                if (thinkingBudget < 1024) thinkingBudget = 1024;   // Anthropic minimum
+                const int answerReserve = 4096;
+                if (effectiveMaxOutputTokens <= thinkingBudget)
+                    effectiveMaxOutputTokens = thinkingBudget + answerReserve;
+            }
+
             ILlmProviderStrategy strategy = useAnthropic
                 ? new AnthropicProviderStrategy(_anthropic, _ctx, effectiveModel, effectiveMaxOutputTokens,
                     staticSystemPrompt,
                     dynamicSystemPrompt,
                     (call, retCt) => CallWithRetryAsync(call, retCt),
                     enableHistoryCaching: enableHistoryCaching,
-                    apiKeyOverride: resolvedApiKey != opts.ApiKey ? resolvedApiKey : null)
+                    apiKeyOverride: resolvedApiKey != opts.ApiKey ? resolvedApiKey : null,
+                    enableThinking: enableThinking,
+                    thinkingBudget: thinkingBudget,
+                    logger: _logger)
                 : new OpenAiProviderStrategy(_openAi, _ctx, effectiveModel,
                     (call, retCt) => CallWithRetryAsync(call, retCt),
                     maxOutputTokens: effectiveMaxOutputTokens,
@@ -624,6 +641,8 @@ public sealed class AnthropicAgentRunner : IAgentRunner
         var executionLog = new List<(string ToolName, string InputJson, string Output, bool Success)>();
         VerificationResult? lastVerification = null;
         int verificationRetries = _verificationOpts.MaxVerificationRetries;
+        int preambleNudgeRetries = 2;   // nudge a stalled "let me gather…" preamble back into calling tools
+        int emptyResponseRetries = 1;   // reasoning models can end a turn with thinking only, no visible text
 
         // ── Model switching state ─────────────────────────────────────────────
         string currentModel = effectiveModel;
@@ -670,6 +689,8 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                 executionLog.Clear();
                 planEmitted = false;
                 verificationRetries = _verificationOpts.MaxVerificationRetries;
+                preambleNudgeRetries = 2;
+                emptyResponseRetries = 1;
                 fallbackModel = currentModel;
                 fallbackProvider = currentProvider;
                 fallbackEndpoint = currentEndpoint;
@@ -794,11 +815,14 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                     hookCtx.LlmConfigIdOverride?.ToString() ?? "(default)");
 
                 // ── LLM call (streaming with non-streaming fallback) ───────────
-                var llmCall = await CallLlmForIterationAsync(strategy, hookCtx, iterationBase + i + 1, definition.Name, ct);
-                foreach (var delta in llmCall.TextDeltas)
+                // Text deltas are yielded live (as they arrive from the provider) so the UI
+                // renders token-by-token; the response/error are returned via the outcome holder.
+                var llmOutcome = new LlmCallOutcome();
+                await foreach (var delta in CallLlmForIterationAsync(
+                    strategy, hookCtx, iterationBase + i + 1, definition.Name, llmOutcome, ct))
                     yield return delta;
-                UnifiedLlmResponse? response = llmCall.Response;
-                var llmEx = llmCall.Error;
+                UnifiedLlmResponse? response = llmOutcome.Response;
+                var llmEx = llmOutcome.Error;
 
                 if (llmEx is not null)
                 {
@@ -969,6 +993,38 @@ public sealed class AnthropicAgentRunner : IAgentRunner
 
                     hookCtx.WasTruncated = false;
 
+                    // Empty end_turn: reasoning models (e.g. Claude sonnet-5 with adaptive thinking)
+                    // sometimes finish a turn with only thinking content and no visible text answer.
+                    // Keeping thinking enabled and re-prompting just makes it think again, so disable
+                    // thinking for the REST of the run and re-answer. History already ends on a user
+                    // message (query or tool_result), so the model simply re-answers it — with no
+                    // thinking channel it must emit text (or a tool call, handled normally). Suppression
+                    // is sticky: if the retry produces a tool call, thinking must not re-enable or the
+                    // following turn would go thinking-only again.
+                    if (string.IsNullOrWhiteSpace(finalResponse))
+                    {
+                        if (emptyResponseRetries > 0)
+                        {
+                            emptyResponseRetries--;
+                            _logger.LogWarning(
+                                "Empty end_turn response (reasoning-only) — disabling thinking for the rest of the run and re-answering ({R} retries left, iter={Iter}, agent={Agent})",
+                                emptyResponseRetries, iterationBase + i + 1, definition.Name);
+                            strategy.SuppressThinkingForRun();
+                            continue;
+                        }
+
+                        // Retries exhausted and still empty — surface the accumulated reasoning as a
+                        // last resort so the user gets a substantive answer instead of a blank reply.
+                        var reasoning = strategy.LastThinkingText;
+                        if (!string.IsNullOrWhiteSpace(reasoning))
+                        {
+                            _logger.LogWarning(
+                                "Empty end_turn after retries — surfacing reasoning text as the answer ({Chars} chars, iter={Iter}, agent={Agent})",
+                                reasoning.Length, iterationBase + i + 1, definition.Name);
+                            finalResponse = reasoning;
+                        }
+                    }
+
                     // Tool error retry: LLM acknowledged errors but didn't retry — nudge it
                     if (hadToolErrors)
                     {
@@ -978,6 +1034,25 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                         hadToolErrors = false;
                         lastToolBreakdown = null;
                         strategy.AddAssistantThenUser(finalResponse, retryPrompt);
+                        continue;
+                    }
+
+                    // Preamble / plan stall: model announced imminent tool use ("Let me
+                    // gather the data…") OR emitted a multi-step numbered plan as text, but
+                    // ended its turn with NO tool call. Both patterns make execution look
+                    // sequential (or stall entirely) because the model never batches the
+                    // independent tool calls it just described. Nudge it to emit them all
+                    // now, in parallel, instead of accepting the plan text as the answer.
+                    if (toolClientMap.Count > 0
+                        && preambleNudgeRetries > 0
+                        && (ReActToolHelper.LooksLikeToolPreamble(finalResponse)
+                            || (toolsUsed.Count == 0 && ReActPlanParser.ParsePlanSteps(finalResponse).Length >= 2)))
+                    {
+                        preambleNudgeRetries--;
+                        _logger.LogInformation(
+                            "Tool preamble stall detected — nudging model to call tools ({R} retries left, iter={Iter}, agent={Agent})",
+                            preambleNudgeRetries, iterationBase + i + 1, definition.Name);
+                        strategy.AddAssistantThenUser(finalResponse, ReActToolHelper.ToolPreambleNudgePrompt);
                         continue;
                     }
 
@@ -1156,14 +1231,14 @@ public sealed class AnthropicAgentRunner : IAgentRunner
     /// Applies per-iteration timeouts: absolute for buffered calls, idle-reset for streaming.
     /// Falls back to buffered CallLlmAsync (with retry) on both start and mid-stream failures.
     /// </summary>
-    private async Task<LlmCallResult> CallLlmForIterationAsync(
+    private async IAsyncEnumerable<AgentStreamChunk> CallLlmForIterationAsync(
         ILlmProviderStrategy strategy,
         AgentHookContext hookCtx,
         int iteration,
         string agentName,
-        CancellationToken ct)
+        LlmCallOutcome outcome,
+        [EnumeratorCancellation] CancellationToken ct)
     {
-        var textDeltas = new List<AgentStreamChunk>();
         UnifiedLlmResponse? response = null;
         Exception? llmEx = null;
         bool needBufferedFallback = false;
@@ -1206,13 +1281,25 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                 {
                     var delta = streamEnumerator.Current;
                     if (delta.IsDone) { response = delta.Final; break; }
+                    // Yield each token the instant it arrives so the UI renders it live.
+                    // yield return sits OUTSIDE the try/catch below (async-iterator rule).
                     if (delta.TextDelta is not null)
-                        textDeltas.Add(new AgentStreamChunk
+                        yield return new AgentStreamChunk
                         {
                             Type = "text_delta",
                             Iteration = iteration,
                             Content = delta.TextDelta,
-                        });
+                        };
+                    else if (delta.ThinkingDelta is not null)
+                        // Extended-thinking (reasoning) tokens — streamed live so the UI can show
+                        // the model's reasoning as it happens. Only produced when the model emits
+                        // extended thinking; null (and thus skipped) for all other providers/turns.
+                        yield return new AgentStreamChunk
+                        {
+                            Type = "thinking",
+                            Iteration = iteration,
+                            Content = delta.ThinkingDelta,
+                        };
                     Exception? iterEx = null;
                     try
                     {
@@ -1222,12 +1309,13 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                     catch (Exception ex) { iterEx = ex; }
                     if (iterEx is not null)
                     {
-                        // Mid-stream failure (connection drop, idle timeout, etc.)
-                        // Discard partial deltas and fall back to buffered call with retry.
+                        // Mid-stream failure (connection drop, idle timeout, etc.). Any partial
+                        // text_delta chunks were already streamed to the client; the subsequent
+                        // `thinking`/`final_response` chunks carry the authoritative full text and
+                        // supersede them in the UI. Fall back to the buffered call with retry.
                         _logger.LogWarning(iterEx,
                             "StreamLlmAsync failed mid-stream (iter={Iter}, agent={Agent}) — falling back to CallLlmAsync{Detail}",
                             iteration, agentName, GetLlmErrorDetail(iterEx));
-                        textDeltas.Clear();
                         needBufferedFallback = true;
                         break;
                     }
@@ -1255,7 +1343,8 @@ public sealed class AnthropicAgentRunner : IAgentRunner
             catch (Exception ex) { llmEx = ex; }
         }
 
-        return new LlmCallResult(response, llmEx, textDeltas);
+        outcome.Response = response;
+        outcome.Error = llmEx;
     }
 
     // ── Tool pipeline extraction ──────────────────────────────────────────────
@@ -1704,13 +1793,15 @@ public sealed class McpToolBinding
 // ── Extracted method result records ──────────────────────────────────────────
 
 /// <summary>
-/// Result of a single LLM call iteration: the response (or error) plus any
-/// text-delta chunks accumulated during streaming.
+/// Mutable holder used to return the response (or error) from the
+/// <c>CallLlmForIterationAsync</c> async iterator, which yields text-delta chunks
+/// live and therefore cannot also return a value directly.
 /// </summary>
-internal sealed record LlmCallResult(
-    UnifiedLlmResponse? Response,
-    Exception? Error,
-    IReadOnlyList<AgentStreamChunk> TextDeltas);
+internal sealed class LlmCallOutcome
+{
+    public UnifiedLlmResponse? Response { get; set; }
+    public Exception? Error { get; set; }
+}
 
 /// <summary>
 /// Result of the tool pipeline for one ReAct iteration: updated loop state

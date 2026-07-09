@@ -375,7 +375,7 @@ export function AgentList() {
                           )}
                           <DropdownMenuItem onClick={() => navigate(`/agents/${agent.id}/chat`, { state: { agent } })}>
                             <MessageSquare className="mr-2 size-4" />
-                            {isAdmin ? "Test Agent" : "Chat"}
+                            {isAdmin ? "Agent Chat" : "Chat"}
                           </DropdownMenuItem>
                           {isAdmin && !agent.isShared && (
                             <>

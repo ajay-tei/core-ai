@@ -4,6 +4,63 @@
 
 ---
 
+## [2026-07-09] Per-agent extended thinking + streaming block reconstruction + rich chat rendering
+
+Three features landed together: per-agent extended ("chain-of-thought") thinking with automatic
+adaptive-mode fallback for newer models, a rewrite of the Anthropic streaming assistant-turn
+reconstruction that faithfully preserves thinking/tool_use block order, and a richer chat UI
+(markdown, charts, SQL blocks, tool-result tables) plus configurable conversation starters.
+
+### Extended thinking (per-agent, adaptive-aware)
+
+Extended thinking is now a per-agent toggle with an optional token budget. Because newer models
+(e.g. `claude-sonnet-5`) reject budget-based thinking, the strategy self-heals: on the
+`"thinking.type.enabled" is not supported` error it switches to `adaptive` thinking + an
+`output_config.effort` level mapped from the configured budget, and retries once. Interleaved
+thinking (`interleaved-thinking-2025-05-14` beta) is enabled on thinking requests via a dedicated
+beta client so non-thinking agents are never affected.
+
+> Note: `claude-sonnet-5` adaptive/effort thinking returns an **encrypted, signature-only**
+> thinking block — no plaintext reasoning is streamed. The block is still preserved (with its
+> signature) in message history so follow-up tool-result turns are accepted; there is simply no
+> plaintext to display for that model.
+
+| File | Change |
+|------|--------|
+| `src/Diva.Infrastructure/Data/Entities/AgentDefinitionEntity.cs` | New `EnableExtendedThinking` (bool?) + `ThinkingBudgetTokens` (int?) fields |
+| `src/Diva.Infrastructure/Data/Migrations/20260708211559_AddAgentExtendedThinking.*` + `src/Diva.Infrastructure.SqlServer/Migrations/20260708211643_AddAgentExtendedThinking.*` | Schema for both providers |
+| `src/Diva.Core/Configuration/AgentOptions.cs` | Global `ThinkingBudgetTokens` default (8000) |
+| `src/Diva.Infrastructure/LiteLLM/AnthropicProviderStrategy.cs` | `ApplyThinking` (budget vs adaptive + `UseInterleavedThinking`), `MapBudgetToEffort`, adaptive self-heal, sticky `SuppressThinkingForRun`, `LastThinkingText` reasoning fallback, `StripThinkingBlocks` |
+| `src/Diva.Infrastructure/LiteLLM/AnthropicProvider.cs` | Dedicated `_betaClient` (interleaved-thinking beta header) selected only when `UseInterleavedThinking` is set |
+| `src/Diva.Infrastructure/LiteLLM/AnthropicAgentRunner.cs`, `ILlmProviderStrategy.cs` | Strategy wiring, per-agent thinking config, empty-response safety net |
+| `src/Diva.Host/Controllers/AgentsController.cs`, `ConfigController.cs`, `src/Diva.Core/Models/AgentExport.cs`, `src/Diva.Infrastructure/AgentExport/AgentExportService.cs` | Field wiring through API + agent export/import |
+| `admin-portal/src/api.ts`, `AgentBuilder.tsx` | Extended-thinking toggle + budget input in Agent Builder |
+
+### Streaming assistant-turn reconstruction (ordered, signature-preserving)
+
+The Anthropic streaming path previously flattened the assistant turn into a fixed
+`[thinking, text, tool_use…]` shape using a single merged thinking block. That corrupts history
+when a model interleaves **multiple** signed thinking blocks with tool calls (the SDK reports
+`stopReason=end_turn` with an empty `ToolCalls` list on those turns). The loop now rebuilds
+content blocks in exact stream order (`content_block_start → *_delta* → content_block_stop`),
+preserving each thinking block with its own signature and each `tool_use` in position, and
+reconstructs tool calls directly from `input_json_delta` events (with an SDK-`ToolCalls` fallback).
+
+| File | Change |
+|------|--------|
+| `src/Diva.Infrastructure/LiteLLM/AnthropicProviderStrategy.cs` | Ordered `FlushBlock` reconstruction of thinking/redacted/text/tool_use blocks; `stopReason` override to `tool_use` when tools are captured; diagnostic logging |
+
+### Rich chat rendering + conversation starters
+
+| File | Change |
+|------|--------|
+| `admin-portal/src/components/chat/` | New `MarkdownMessage`, `ChartRenderer`, `SqlBlock`, `ToolResultTable` renderers |
+| `admin-portal/src/widget/markdown.ts`, `WidgetChat.tsx` | Markdown rendering in the embeddable widget |
+| `admin-portal/src/components/AgentChat.tsx`, `AgentList.tsx`, `SessionBrowser.tsx`, `SessionToolCallCard.tsx`, `layout/topbar.tsx` | Chat + session UI enhancements |
+| `AgentDefinitionEntity.cs` + `20260708182506_AddConversationStarters.*` (both providers) | `ConversationStartersJson` field + migrations |
+
+---
+
 ## [2026-07-07] External SQL Server support + scheduler leader election
 
 Two deployment features landed together: full external SQL Server support (multi-provider

@@ -4,6 +4,7 @@ using Diva.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Diva.Infrastructure.SqlServer.Migrations
 {
     [DbContext(typeof(DivaDbContext))]
-    partial class DivaDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260708183134_AddConversationStarters")]
+    partial class AddConversationStarters
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -75,9 +78,6 @@ namespace Diva.Infrastructure.SqlServer.Migrations
                     b.Property<string>("DisplayName")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
-
-                    b.Property<bool?>("EnableExtendedThinking")
-                        .HasColumnType("bit");
 
                     b.Property<bool?>("EnableHistoryCaching")
                         .HasColumnType("bit");
@@ -143,9 +143,6 @@ namespace Diva.Infrastructure.SqlServer.Migrations
                         .HasColumnType("float");
 
                     b.Property<int>("TenantId")
-                        .HasColumnType("int");
-
-                    b.Property<int?>("ThinkingBudgetTokens")
                         .HasColumnType("int");
 
                     b.Property<string>("ToolBindings")

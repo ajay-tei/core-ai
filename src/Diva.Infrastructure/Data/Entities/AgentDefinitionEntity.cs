@@ -27,6 +27,11 @@ public class AgentDefinitionEntity : ITenantEntity
     public int? MaxOutputTokens { get; set; }               // null = use global AgentOptions.MaxOutputTokens
     /// <summary>Override Anthropic prompt-caching per agent. null = use global AgentOptions.EnableHistoryCaching (default true).</summary>
     public bool? EnableHistoryCaching { get; set; }         // null = use global AgentOptions.EnableHistoryCaching
+
+    /// <summary>Enable Anthropic extended thinking (reasoning) per agent. null/false = disabled. Anthropic-only; ignored by OpenAI-compatible providers and unsupported models.</summary>
+    public bool? EnableExtendedThinking { get; set; }       // null/false = disabled
+    /// <summary>Extended-thinking token budget. null = use default when thinking is enabled. Must be &lt; MaxOutputTokens.</summary>
+    public int? ThinkingBudgetTokens { get; set; }          // null = default budget when EnableExtendedThinking is true
     public string? PipelineStagesJson { get; set; }         // null = all stages enabled; JSON {"Decompose":true,"Verify":false,...}
     public string? ToolFilterJson { get; set; }             // null = all tools allowed; JSON {"mode":"allow","tools":["tool1"]}
     public string? StageInstructionsJson { get; set; }      // null = no per-stage instructions; JSON {"Decompose":"...","Integrate":"..."}
@@ -82,4 +87,11 @@ public class AgentDefinitionEntity : ITenantEntity
     /// <see cref="ToolBindings"/> at runtime, with credentials selected per invoking API key.
     /// </summary>
     public string? McpServerRefsJson { get; set; }
+
+    /// <summary>
+    /// JSON string[] of example questions ("conversation starters") shown as clickable chips
+    /// in the chat/widget UI when a conversation is empty. e.g. ["What can you do?","Show sales for Q1"].
+    /// null = none. Display-only — never injected into the LLM prompt.
+    /// </summary>
+    public string? ConversationStartersJson { get; set; }
 }

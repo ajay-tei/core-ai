@@ -203,15 +203,19 @@ export default function SessionBrowser() {
               {result?.items.map(s => (
                 <TableRow key={s.sessionId}>
                   <TableCell>
-                    <div className="flex items-center gap-1.5">
-                      <Link to={`/sessions/${s.sessionId}`}
-                        className="text-primary hover:underline font-mono text-xs">
-                        {s.sessionId.slice(0, 8)}…
-                      </Link>
-                      {s.isSupervisor && <Badge variant="secondary" className="text-xs px-1">sup</Badge>}
-                      {s.parentSessionId && (
-                        <span className="text-xs text-muted-foreground" title={`Child of ${s.parentSessionId.slice(0, 8)}`}>↳</span>
-                      )}
+                    <div className="flex flex-col gap-0.5 max-w-[280px]">
+                      <div className="flex items-center gap-1.5">
+                        <Link to={`/sessions/${s.sessionId}`}
+                          className="text-primary hover:underline text-sm font-medium truncate"
+                          title={s.title?.trim() || undefined}>
+                          {s.title?.trim() || "Untitled session"}
+                        </Link>
+                        {s.isSupervisor && <Badge variant="secondary" className="text-xs px-1">sup</Badge>}
+                        {s.parentSessionId && (
+                          <span className="text-xs text-muted-foreground" title={`Child of ${s.parentSessionId.slice(0, 8)}`}>↳</span>
+                        )}
+                      </div>
+                      <span className="font-mono text-[11px] text-muted-foreground">{s.sessionId.slice(0, 8)}…</span>
                     </div>
                   </TableCell>
                   <TableCell className="text-sm">{s.agentName}</TableCell>

@@ -69,6 +69,22 @@ internal interface ILlmProviderStrategy
     /// <summary>Append an assistant message then a user message (used for error retry + verification correction).</summary>
     void AddAssistantThenUser(string assistantText, string userText);
 
+    /// <summary>
+    /// Disables extended thinking for the remainder of this run (and strips thinking blocks from
+    /// history so requests stay valid with thinking off). Used to force a plain-text final answer
+    /// when a reasoning model keeps ending its turn with thinking but no visible text — once off it
+    /// must not re-enable, otherwise a tool call would let the next turn go thinking-only again.
+    /// No-op for providers/agents without extended thinking.
+    /// </summary>
+    void SuppressThinkingForRun() { }
+
+    /// <summary>
+    /// The extended-thinking (reasoning) text accumulated on the most recent LLM call, or null when
+    /// the turn produced no thinking. Used as a last-resort answer when a turn ends with reasoning
+    /// only and no visible text. Null for providers without extended thinking.
+    /// </summary>
+    string? LastThinkingText => null;
+
     /// <summary>Point A: in-run context compaction. Modifies internal message list in place.</summary>
     void CompactHistory(string systemPrompt, ContextWindowOverrideOptions? agentOverride);
 

@@ -17,6 +17,45 @@ internal static class ReActToolHelper
         "The previous tool call failed. Please retry with corrected parameters — make the corrected tool call now.";
 
     /// <summary>
+    /// Prompt used when the model announced it would call tools but ended its turn
+    /// with only preamble text (no tool_use / tool_calls). Nudges it to actually
+    /// emit the tool calls it described instead of stalling.
+    /// </summary>
+    internal const string ToolPreambleNudgePrompt =
+        "You described the data you intend to gather but did not actually call any tools. " +
+        "Call those tools NOW in this turn — emit the tool calls directly, in parallel where independent, " +
+        "with no further preamble. Do not describe what you are about to do; just make the tool calls.";
+
+    // Phrases that strongly signal the model is announcing imminent tool use
+    // rather than delivering a final answer (case-insensitive substring match).
+    private static readonly string[] ToolPreambleMarkers =
+    {
+        "let me gather", "let me get", "let me query", "let me fetch", "let me pull",
+        "let me retrieve", "let me collect", "let me call", "let me use", "let me run",
+        "let me check", "let me look", "let me start by", "let me first", "let's gather",
+        "let's start by", "i'll gather", "i'll get", "i'll query", "i'll fetch",
+        "i'll retrieve", "i'll call", "i'll use", "i'll start by", "i'll first",
+        "i will gather", "i will query", "i will call", "i'm going to", "i am going to",
+        "in parallel", "gather all the data", "let me now", "now let me",
+    };
+
+    /// <summary>
+    /// Heuristic: returns true when the model's text reads like an announcement of
+    /// imminent tool use ("Let me gather the data…", "I'll query…") rather than a
+    /// final answer. Used to nudge providers (typically local/OpenAI-compatible
+    /// models) that emit a planning preamble and then stop without a tool call.
+    /// </summary>
+    internal static bool LooksLikeToolPreamble(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return false;
+        var lower = text.ToLowerInvariant();
+        foreach (var marker in ToolPreambleMarkers)
+            if (lower.Contains(marker, StringComparison.Ordinal))
+                return true;
+        return false;
+    }
+
+    /// <summary>
     /// Builds a selective retry prompt that tells the LLM exactly which tool calls failed
     /// and which succeeded, so it retries only the failed ones instead of re-executing the
     /// entire batch (which would cause duplicate side-effects for succeeded actions).
@@ -25,7 +64,7 @@ internal static class ReActToolHelper
     internal static string BuildSelectiveRetryPrompt(
         IReadOnlyList<(string ToolName, string InputJson, bool Failed)> results)
     {
-        var failed   = results.Where(r => r.Failed).ToList();
+        var failed = results.Where(r => r.Failed).ToList();
         var succeeded = results.Where(r => !r.Failed).ToList();
         if (failed.Count == 0) return ToolErrorRetryPrompt;
 
@@ -59,9 +98,9 @@ internal static class ReActToolHelper
         output.StartsWith("Error:") ||
         output.Contains("timed out") ||
         (output.TrimStart().StartsWith("{") &&
-         (output.Contains("\"status\":\"error\"")       || output.Contains("\"status\": \"error\"") ||
+         (output.Contains("\"status\":\"error\"") || output.Contains("\"status\": \"error\"") ||
           output.Contains("\"error\":\"AccessDenied\"") ||
-          output.Contains("\"error\":\"IoError\"")      ||
+          output.Contains("\"error\":\"IoError\"") ||
           output.Contains("\"error\":\"ToolDisabled\"") ||
           output.Contains("\"error\":\"WriteDisabled\"") ||
           output.Contains("\"error\":\"ScriptDisabled\"")));
@@ -165,7 +204,7 @@ internal static class ReActToolHelper
             IReadOnlyList<string>? neverDeduplicatePrefixes)
     {
         var groups = new List<(string Name, string InputJson, List<T> Originals)>();
-        var seen   = new Dictionary<(string, string), int>(calls.Count);
+        var seen = new Dictionary<(string, string), int>(calls.Count);
         foreach (var call in calls)
         {
             var (name, inputJson) = keySelector(call);

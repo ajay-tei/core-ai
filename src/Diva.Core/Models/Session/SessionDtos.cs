@@ -10,6 +10,7 @@ public sealed class SessionSummary
     public string? UserId { get; init; }
     public string AgentId { get; init; } = "";
     public string AgentName { get; init; } = "";
+    public string? Title { get; init; }
     public bool IsSupervisor { get; init; }
     public string Status { get; init; } = "";
     public DateTime CreatedAt { get; init; }
@@ -41,6 +42,7 @@ public sealed class SessionDetail
     public string? UserId { get; init; }
     public string AgentId { get; init; } = "";
     public string AgentName { get; init; } = "";
+    public string? Title { get; init; }
     public bool IsSupervisor { get; init; }
     public string Status { get; init; } = "";
     public DateTime CreatedAt { get; init; }

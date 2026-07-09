@@ -173,6 +173,86 @@ function parseJson<T>(json: string | undefined, fallback: T): T {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Conversation Starters Editor
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Manages the agent's conversationStartersJson — a JSON string[] of example
+// questions surfaced as clickable chips in the chat/widget empty state.
+// Display-only: these are never injected into the LLM prompt.
+function ConversationStartersEditor({
+  value,
+  onChange,
+}: {
+  value?: string;
+  onChange: (json: string | undefined) => void;
+}) {
+  const items = parseJson<string[]>(value, []).filter((s) => typeof s === "string" && s.trim() !== "");
+  const [draft, setDraft] = useState("");
+  const MAX = 8;
+
+  const commit = (next: string[]) => {
+    const cleaned = next.map((s) => s.trim()).filter((s) => s !== "");
+    onChange(cleaned.length ? JSON.stringify(cleaned) : undefined);
+  };
+
+  const add = () => {
+    const t = draft.trim();
+    if (!t || items.length >= MAX || items.includes(t)) { setDraft(""); return; }
+    commit([...items, t]);
+    setDraft("");
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Conversation Starters</CardTitle>
+        <CardDescription>
+          Example questions shown as clickable suggestions when a chat is empty. Display-only — never sent to the model. Up to {MAX}.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {items.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {items.map((item, i) => (
+              <span key={i} className="inline-flex items-center gap-1.5 rounded-full border bg-muted/50 px-3 py-1 text-sm">
+                {item}
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:text-foreground"
+                  onClick={() => commit(items.filter((_, j) => j !== i))}
+                  aria-label="Remove"
+                >
+                  <X className="size-3.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {items.length < MAX && (
+          <div className="flex items-center gap-2">
+            <Input
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  add();
+                }
+              }}
+              placeholder="Add an example question…"
+            />
+            <Button variant="outline" size="sm" className="shrink-0" onClick={add} disabled={!draft.trim()}>
+              <Plus className="mr-1 size-3.5" /> Add
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // MCP Binding Editor
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -663,6 +743,8 @@ function AdvancedConfigPanel({
     form.maxToolResultChars != null ||
     form.maxOutputTokens != null ||
     form.enableHistoryCaching != null ||
+    form.enableExtendedThinking != null ||
+    form.thinkingBudgetTokens != null ||
     form.contextWindowJson ||
     form.customVariablesJson ||
     form.pipelineStagesJson ||
@@ -799,6 +881,43 @@ function AdvancedConfigPanel({
               set("enableHistoryCaching", checked === (defaults?.enableHistoryCaching ?? true) ? undefined : checked)
             }
           />
+        </div>
+
+        <div className="rounded-lg border p-4 space-y-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1">
+              <Label htmlFor="enableExtendedThinking">Extended Thinking (Anthropic)</Label>
+              <p className="text-xs text-muted-foreground">
+                Lets the model reason step-by-step before answering, using a dedicated thinking-token
+                budget. Improves quality on complex, multi-step tasks. Requires a reasoning-capable
+                Claude model (3.7+, 4.x, sonnet-5); ignored by OpenAI-compatible providers and older
+                models. Off by default.
+              </p>
+            </div>
+            <Switch
+              id="enableExtendedThinking"
+              checked={form.enableExtendedThinking ?? false}
+              onCheckedChange={(checked) =>
+                set("enableExtendedThinking", checked ? true : undefined)
+              }
+            />
+          </div>
+          {form.enableExtendedThinking && (
+            <div className="space-y-2">
+              <Label>Thinking Budget (tokens)</Label>
+              <Input
+                type="number" min={1024} max={64000}
+                value={form.thinkingBudgetTokens ?? ""}
+                onChange={(e) => set("thinkingBudgetTokens", e.target.value ? parseInt(e.target.value) : undefined)}
+                placeholder={defaults ? `Default: ${defaults.thinkingBudgetTokens}` : "Default (global)"}
+                className="w-40"
+              />
+              <p className="text-xs text-muted-foreground">
+                Minimum 1024. Max Output Tokens is automatically raised above this budget to leave room
+                for the visible answer.
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="space-y-2">
@@ -1162,6 +1281,11 @@ export function AgentBuilder() {
               </div>
             </CardContent>
           </Card>
+
+          <ConversationStartersEditor
+            value={form.conversationStartersJson}
+            onChange={(json) => set("conversationStartersJson", json)}
+          />
 
           <Card>
             <CardHeader>

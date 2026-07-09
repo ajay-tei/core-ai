@@ -62,11 +62,11 @@ public sealed class SessionTraceWriter
         IHostApplicationLifetime appLifetime,
         ILogger<SessionTraceWriter> logger)
     {
-        _db             = db;
+        _db = db;
         _scoringService = scoringService;
-        _opts           = opts.Value;
-        _appLifetime    = appLifetime;
-        _logger         = logger;
+        _opts = opts.Value;
+        _appLifetime = appLifetime;
+        _logger = logger;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -377,6 +377,11 @@ public sealed class SessionTraceWriter
             var session = await _db.TraceSessions.FindAsync([sessionId], ct);
             if (session is not null)
             {
+                // Derive a human-readable title from the first user question so the session
+                // is identifiable in history lists. Only set once (on the first turn).
+                if (string.IsNullOrWhiteSpace(session.Title))
+                    session.Title = DeriveSessionTitle(userMessage);
+
                 session.TotalTurns++;
                 session.TotalIterations += _iterations.Count;
                 session.TotalToolCalls += totalToolCalls;
@@ -393,9 +398,9 @@ public sealed class SessionTraceWriter
             {
                 var toolEvidence = BuildToolEvidence(_iterations);
                 var capturedSessionId = sessionId;
-                var capturedAgentId   = agentId;
-                var capturedTurn      = turnNumber;
-                var capturedUser      = userMessage;
+                var capturedAgentId = agentId;
+                var capturedTurn = turnNumber;
+                var capturedUser = userMessage;
                 var capturedAssistant = assistantMessage;
                 _ = Task.Run(async () =>
                 {
@@ -561,6 +566,18 @@ public sealed class SessionTraceWriter
         }
         catch { /* not JSON */ }
         return Truncate(toolInput, 500) ?? "";
+    }
+
+    /// <summary>
+    /// Builds a short, single-line session title from the first user question.
+    /// Collapses whitespace and truncates to ~80 chars so it fits in history lists.
+    /// </summary>
+    private static string DeriveSessionTitle(string? userMessage)
+    {
+        if (string.IsNullOrWhiteSpace(userMessage))
+            return "New conversation";
+        var collapsed = System.Text.RegularExpressions.Regex.Replace(userMessage.Trim(), @"\s+", " ");
+        return collapsed.Length > 80 ? collapsed[..80].TrimEnd() + "…" : collapsed;
     }
 
     // ─────────────────────────────────────────────────────────────────────────

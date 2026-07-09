@@ -47,7 +47,7 @@ public class ConfigController : ControllerBase
             {
                 availableModels = resolvedModels,
                 currentProvider = resolved.Provider,
-                defaultModel    = resolved.Model,
+                defaultModel = resolved.Model,
             });
         }
 
@@ -63,7 +63,7 @@ public class ConfigController : ControllerBase
         {
             availableModels = defaultModels,
             currentProvider = defaultResolved.Provider,
-            defaultModel    = defaultResolved.Model,
+            defaultModel = defaultResolved.Model,
         });
     }
 
@@ -73,26 +73,27 @@ public class ConfigController : ControllerBase
     {
         return Ok(new
         {
-            maxIterations        = _agent.MaxIterations,
-            maxContinuations     = _agent.MaxContinuations,
-            defaultTemperature   = _agent.DefaultTemperature,
-            maxToolResultChars   = _agent.MaxToolResultChars,
-            maxOutputTokens      = _agent.MaxOutputTokens,
+            maxIterations = _agent.MaxIterations,
+            maxContinuations = _agent.MaxContinuations,
+            defaultTemperature = _agent.DefaultTemperature,
+            maxToolResultChars = _agent.MaxToolResultChars,
+            maxOutputTokens = _agent.MaxOutputTokens,
             enableHistoryCaching = _agent.EnableHistoryCaching,
-            injectToolStrategy   = _agent.InjectToolStrategy,
-            verificationMode     = _verification.Mode,
-            confidenceThreshold  = _verification.ConfidenceThreshold,
+            thinkingBudgetTokens = _agent.ThinkingBudgetTokens,
+            injectToolStrategy = _agent.InjectToolStrategy,
+            verificationMode = _verification.Mode,
+            confidenceThreshold = _verification.ConfidenceThreshold,
             maxVerificationRetries = _verification.MaxVerificationRetries,
             contextWindow = new
             {
-                budgetTokens         = _agent.ContextWindow.BudgetTokens,
-                compactionThreshold  = _agent.ContextWindow.CompactionThreshold,
-                keepLastRawMessages  = _agent.ContextWindow.KeepLastRawMessages,
-                maxHistoryTurns      = _agent.ContextWindow.MaxHistoryTurns,
+                budgetTokens = _agent.ContextWindow.BudgetTokens,
+                compactionThreshold = _agent.ContextWindow.CompactionThreshold,
+                keepLastRawMessages = _agent.ContextWindow.KeepLastRawMessages,
+                maxHistoryTurns = _agent.ContextWindow.MaxHistoryTurns,
             },
             retry = new
             {
-                maxRetries  = _agent.Retry.MaxRetries,
+                maxRetries = _agent.Retry.MaxRetries,
                 baseDelayMs = _agent.Retry.BaseDelayMs,
             },
         });
