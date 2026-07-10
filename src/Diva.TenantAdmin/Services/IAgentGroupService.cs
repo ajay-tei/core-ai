@@ -11,7 +11,8 @@ public sealed record AgentGroupDto(
     string? Description,
     string[] AgentIds,
     string[] AllowedUserIds,
-    string[] AllowedRoles);
+    string[] AllowedRoles,
+    int[] AllowedUserGroupIds);
 
 /// <summary>
 /// Manages tenant-scoped agent access groups and evaluates per-user / per-role
@@ -38,6 +39,13 @@ public interface IAgentGroupService
     /// (i.e. restricted agents the user/key has no grant for). Used to filter listings.
     /// </summary>
     Task<HashSet<string>> GetDeniedAgentIdsAsync(TenantContext tenant, CancellationToken ct);
+
+    /// <summary>
+    /// Returns the set of user-group ids referenced by the agent's restricted access groups
+    /// (union across all groups containing the agent). Empty when the agent has no user-group-based
+    /// restriction. Used to constrain the shared-MCP credential group picker.
+    /// </summary>
+    Task<HashSet<int>> GetAllowedUserGroupIdsForAgentAsync(string agentId, int tenantId, CancellationToken ct);
 
     /// <summary>Drops the cached restricted-group map for a tenant after writes.</summary>
     void InvalidateForTenant(int tenantId);

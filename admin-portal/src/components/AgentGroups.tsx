@@ -4,7 +4,7 @@ import {
   type AgentGroup,
   type AgentGroupRequest,
   type AgentSummary,
-  type UserProfile,
+  type UserGroup,
 } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +22,7 @@ const EMPTY: AgentGroupRequest = {
   agentIds: [],
   allowedUserIds: [],
   allowedRoles: [],
+  allowedUserGroupIds: [],
 };
 
 interface PickerOption {
@@ -139,7 +140,7 @@ function CheckableList({
 export function AgentGroups() {
   const [groups, setGroups] = useState<AgentGroup[]>([]);
   const [agents, setAgents] = useState<AgentSummary[]>([]);
-  const [users, setUsers] = useState<UserProfile[]>([]);
+  const [userGroups, setUserGroups] = useState<UserGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -149,14 +150,14 @@ export function AgentGroups() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [g, a, u] = await Promise.all([
+      const [g, a, ug] = await Promise.all([
         api.listAgentGroups(),
         api.listAgents().catch(() => []),
-        api.listUserProfiles().catch(() => []),
+        api.listUserGroups().catch(() => []),
       ]);
       setGroups(g);
       setAgents(a);
-      setUsers(u);
+      setUserGroups(ug);
     } catch {
       toast.error("Failed to load agent groups");
     } finally {
@@ -179,14 +180,15 @@ export function AgentGroups() {
       name: g.name,
       description: g.description ?? "",
       agentIds: g.agentIds,
-      allowedUserIds: g.allowedUserIds,
+      allowedUserIds: g.allowedUserIds,   // preserved for back-compat (not editable here)
       allowedRoles: g.allowedRoles,
+      allowedUserGroupIds: g.allowedUserGroupIds,
     });
     setRoleInput("");
     setShowForm(true);
   };
 
-  const toggle = (field: "agentIds" | "allowedUserIds", value: string) => {
+  const toggle = (field: "agentIds", value: string) => {
     const current = form[field] ?? [];
     setForm({
       ...form,
@@ -196,13 +198,32 @@ export function AgentGroups() {
     });
   };
 
-  const selectAll = (field: "agentIds" | "allowedUserIds", values: string[]) => {
+  const selectAll = (field: "agentIds", values: string[]) => {
     const current = form[field] ?? [];
     setForm({ ...form, [field]: Array.from(new Set([...current, ...values])) });
   };
 
-  const clearField = (field: "agentIds" | "allowedUserIds") =>
+  const clearField = (field: "agentIds") =>
     setForm({ ...form, [field]: [] });
+
+  // User-group grants are stored as number[]; the CheckableList operates on string values.
+  const toggleUserGroup = (value: string) => {
+    const id = Number(value);
+    const current = form.allowedUserGroupIds ?? [];
+    setForm({
+      ...form,
+      allowedUserGroupIds: current.includes(id)
+        ? current.filter((v) => v !== id)
+        : [...current, id],
+    });
+  };
+
+  const selectAllUserGroups = (values: string[]) => {
+    const current = form.allowedUserGroupIds ?? [];
+    setForm({ ...form, allowedUserGroupIds: Array.from(new Set([...current, ...values.map(Number)])) });
+  };
+
+  const clearUserGroups = () => setForm({ ...form, allowedUserGroupIds: [] });
 
   const addRole = () => {
     const r = roleInput.trim();
@@ -246,7 +267,7 @@ export function AgentGroups() {
   };
 
   const agentName = (id: string) => agents.find((a) => a.id === id)?.displayName ?? agents.find((a) => a.id === id)?.name ?? id;
-  const isRestricted = (g: AgentGroup) => g.allowedUserIds.length > 0 || g.allowedRoles.length > 0;
+  const isRestricted = (g: AgentGroup) => g.allowedUserIds.length > 0 || g.allowedRoles.length > 0 || g.allowedUserGroupIds.length > 0;
 
   return (
     <div className="space-y-6">
@@ -295,20 +316,20 @@ export function AgentGroups() {
             </div>
 
             <div className="space-y-1.5">
-              <Label>Allowed Users</Label>
-              <p className="text-xs text-muted-foreground">Leave both users and roles empty to keep the agents open to everyone in the tenant.</p>
+              <Label>Allowed User Groups</Label>
+              <p className="text-xs text-muted-foreground">Leave both user groups and roles empty to keep the agents open to everyone in the tenant.</p>
               <CheckableList
-                options={users.map((u) => ({
-                  value: u.userId,
-                  primary: u.displayName || u.email || u.userId,
-                  secondary: u.displayName && u.email ? u.email : undefined,
+                options={userGroups.map((ug) => ({
+                  value: String(ug.id),
+                  primary: ug.name,
+                  secondary: ug.description || `${ug.members.length} member(s)`,
                 }))}
-                selected={form.allowedUserIds ?? []}
-                onToggle={(v) => toggle("allowedUserIds", v)}
-                onSelectAll={(vals) => selectAll("allowedUserIds", vals)}
-                onClear={() => clearField("allowedUserIds")}
-                searchPlaceholder="Search users by name or email…"
-                emptyText="No user profiles available."
+                selected={(form.allowedUserGroupIds ?? []).map(String)}
+                onToggle={toggleUserGroup}
+                onSelectAll={selectAllUserGroups}
+                onClear={clearUserGroups}
+                searchPlaceholder="Search user groups…"
+                emptyText="No user groups defined yet."
               />
             </div>
 
@@ -361,9 +382,10 @@ export function AgentGroups() {
                   </div>
                   {isRestricted(g) && (
                     <div className="text-xs text-muted-foreground">
-                      {g.allowedUserIds.length > 0 && <span>{g.allowedUserIds.length} user(s)</span>}
-                      {g.allowedUserIds.length > 0 && g.allowedRoles.length > 0 && <span> · </span>}
+                      {g.allowedUserGroupIds.length > 0 && <span>{g.allowedUserGroupIds.length} user group(s)</span>}
+                      {g.allowedUserGroupIds.length > 0 && g.allowedRoles.length > 0 && <span> · </span>}
                       {g.allowedRoles.length > 0 && <span>roles: {g.allowedRoles.join(", ")}</span>}
+                      {g.allowedUserIds.length > 0 && <span> · {g.allowedUserIds.length} legacy user(s)</span>}
                     </div>
                   )}
                 </div>

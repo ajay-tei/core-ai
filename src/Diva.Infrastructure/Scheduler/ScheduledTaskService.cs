@@ -50,6 +50,9 @@ public sealed class ScheduledTaskService : IScheduledTaskService
             NotifyEmails = req.NotifyEmails,
             NotifyOn = req.NotifyOn,
             SuccessKeywords = req.SuccessKeywords,
+            RunAsUserId = string.IsNullOrWhiteSpace(req.RunAsUserId) ? null : req.RunAsUserId,
+            RunAsUserEmail = string.IsNullOrWhiteSpace(req.RunAsUserId) || string.IsNullOrWhiteSpace(req.RunAsUserEmail) ? null : req.RunAsUserEmail,
+            RunAsUserLabel = string.IsNullOrWhiteSpace(req.RunAsUserId) || string.IsNullOrWhiteSpace(req.RunAsUserLabel) ? null : req.RunAsUserLabel,
             CreatedAt = DateTime.UtcNow,
             NextRunUtc = null
         };
@@ -98,6 +101,14 @@ public sealed class ScheduledTaskService : IScheduledTaskService
         if (req.NotifyEmails is not null) entity.NotifyEmails = req.NotifyEmails;
         if (req.NotifyOn is not null) entity.NotifyOn = req.NotifyOn;
         if (req.SuccessKeywords is not null) entity.SuccessKeywords = req.SuccessKeywords;
+        if (req.RunAsUserId is not null)
+        {
+            // Empty string clears the run-as identity (revert to system execution).
+            var uid = string.IsNullOrWhiteSpace(req.RunAsUserId) ? null : req.RunAsUserId;
+            entity.RunAsUserId = uid;
+            entity.RunAsUserEmail = uid is null || string.IsNullOrWhiteSpace(req.RunAsUserEmail) ? null : req.RunAsUserEmail;
+            entity.RunAsUserLabel = uid is null || string.IsNullOrWhiteSpace(req.RunAsUserLabel) ? null : req.RunAsUserLabel;
+        }
 
         Validate(entity.ScheduleType, entity.ScheduledAtUtc, entity.RunAtTime,
                  entity.DayOfWeek, entity.TimeZoneId, entity.PromptText);

@@ -369,7 +369,20 @@ public sealed class SchedulerHostedService : BackgroundService, ISchedulerManual
             }
 
             var prompt = BuildPrompt(scheduledTask, run.Id, feedbackUrl);
-            var tenant = TenantContext.System(scheduledTask.TenantId);
+            var tenant = string.IsNullOrWhiteSpace(scheduledTask.RunAsUserId)
+                ? TenantContext.System(scheduledTask.TenantId)
+                : TenantContext.RunAsUser(
+                    scheduledTask.TenantId,
+                    scheduledTask.RunAsUserId!,
+                    scheduledTask.RunAsUserEmail,
+                    scheduledTask.RunAsUserLabel);
+
+            if (!string.IsNullOrWhiteSpace(scheduledTask.RunAsUserId))
+                _logger.LogInformation(
+                    "Run '{RunId}' executing as user '{User}' (id={UserId}) for user-group credential selection.",
+                    run.Id, scheduledTask.RunAsUserLabel ?? scheduledTask.RunAsUserEmail ?? scheduledTask.RunAsUserId,
+                    scheduledTask.RunAsUserId);
+
             var request = new AgentRequest
             {
                 Query = prompt,

@@ -28,6 +28,7 @@ import { CredentialManager } from "@/components/CredentialManager";
 import { ApiKeyManager } from "@/components/ApiKeyManager";
 import { McpServerManager } from "@/components/McpServerManager";
 import { AgentGroups } from "@/components/AgentGroups";
+import { UserGroups } from "@/components/UserGroups";
 import { A2ASettings } from "@/components/A2ASettings";
 import { WidgetManager } from "@/components/WidgetManager";
 import SessionBrowser from "@/components/SessionBrowser";
@@ -114,6 +115,7 @@ export default function App() {
             <Route path="settings/sso/new" element={<SsoConfigEditor />} />
             <Route path="settings/sso/:id/edit" element={<SsoConfigEditor />} />
             <Route path="settings/users" element={<UserProfiles />} />
+            <Route path="settings/user-groups" element={<UserGroups />} />
             <Route path="settings/credentials" element={<CredentialManager />} />
             <Route path="settings/mcp-servers" element={<McpServerManager />} />
             <Route path="settings/api-keys" element={<ApiKeyManager />} />

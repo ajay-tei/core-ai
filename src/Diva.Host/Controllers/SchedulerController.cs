@@ -74,7 +74,8 @@ public class SchedulerController : ControllerBase
                 dto.PayloadType ?? "prompt",
                 dto.PromptText, dto.ParametersJson,
                 dto.IsEnabled,
-                dto.NotifyEmails, dto.NotifyOn, dto.SuccessKeywords), ct);
+                dto.NotifyEmails, dto.NotifyOn, dto.SuccessKeywords,
+                dto.RunAsUserId, dto.RunAsUserEmail, dto.RunAsUserLabel), ct);
         }
         catch (ArgumentException e) { ex = e; }
 
@@ -102,7 +103,8 @@ public class SchedulerController : ControllerBase
                 dto.AgentId, dto.Name, dto.Description,
                 dto.ScheduleType, dto.ScheduledAtUtc, dto.RunAtTime, dto.DayOfWeek,
                 dto.TimeZoneId, dto.PayloadType, dto.PromptText, dto.ParametersJson,
-                dto.IsEnabled, dto.NotifyEmails, dto.NotifyOn, dto.SuccessKeywords), ct);
+                dto.IsEnabled, dto.NotifyEmails, dto.NotifyOn, dto.SuccessKeywords,
+                dto.RunAsUserId, dto.RunAsUserEmail, dto.RunAsUserLabel), ct);
         }
         catch (KeyNotFoundException) { return NotFound(); }
         catch (ArgumentException e) { ex = e; }
@@ -217,7 +219,8 @@ public class SchedulerController : ControllerBase
                     task.ScheduleType, task.ScheduledAtUtc, task.RunAtTime, task.DayOfWeek,
                     task.TimeZoneId ?? "UTC", task.PayloadType ?? "prompt",
                     task.PromptText, task.ParametersJson, task.IsEnabled,
-                    task.NotifyEmails, task.NotifyOn, task.SuccessKeywords), ct);
+                    task.NotifyEmails, task.NotifyOn, task.SuccessKeywords,
+                    task.RunAsUserId, task.RunAsUserEmail, task.RunAsUserLabel), ct);
                 created++;
             }
             catch (Exception e) { ex = e; }
@@ -301,7 +304,10 @@ public sealed record CreateScheduledTaskDto(
     bool IsEnabled = true,
     string? NotifyEmails = null,
     string? NotifyOn = null,
-    string? SuccessKeywords = null);
+    string? SuccessKeywords = null,
+    string? RunAsUserId = null,
+    string? RunAsUserEmail = null,
+    string? RunAsUserLabel = null);
 
 public sealed record UpdateScheduledTaskDto(
     string? AgentId,
@@ -318,7 +324,10 @@ public sealed record UpdateScheduledTaskDto(
     bool? IsEnabled,
     string? NotifyEmails = null,
     string? NotifyOn = null,
-    string? SuccessKeywords = null);
+    string? SuccessKeywords = null,
+    string? RunAsUserId = null,
+    string? RunAsUserEmail = null,
+    string? RunAsUserLabel = null);
 
 public sealed record UpsertNotificationSettingsDto(
     string? GlobalNotifyEmails,
@@ -346,7 +355,10 @@ public sealed record ScheduledTaskExport(
     bool IsEnabled,
     string? NotifyEmails = null,
     string? NotifyOn = null,
-    string? SuccessKeywords = null);
+    string? SuccessKeywords = null,
+    string? RunAsUserId = null,
+    string? RunAsUserEmail = null,
+    string? RunAsUserLabel = null);
 
 public sealed record ScheduleImportRequest(
     List<ScheduledTaskExport> Tasks,

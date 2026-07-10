@@ -33,6 +33,7 @@ public class AgentsController : ControllerBase
     private readonly IAgentSetupAssistant _assistant;
     private readonly IOptimizationLlmAnalyzer _promptImprover;
     private readonly IAgentExportService _agentExport;
+    private readonly IMcpCredentialSelector _mcpCredentials;
     private readonly ICredentialResolver? _credentialResolver;
     private readonly ILogger<AgentsController> _logger;
 
@@ -47,6 +48,7 @@ public class AgentsController : ControllerBase
         IAgentSetupAssistant assistant,
         IOptimizationLlmAnalyzer promptImprover,
         IAgentExportService agentExport,
+        IMcpCredentialSelector mcpCredentials,
         ILogger<AgentsController> logger,
         ICredentialResolver? credentialResolver = null)
     {
@@ -60,6 +62,7 @@ public class AgentsController : ControllerBase
         _assistant = assistant;
         _promptImprover = promptImprover;
         _agentExport = agentExport;
+        _mcpCredentials = mcpCredentials;
         _credentialResolver = credentialResolver;
         _logger = logger;
     }
@@ -236,11 +239,40 @@ public class AgentsController : ControllerBase
         }
     }
 
+    // ── GET /api/agents/{id}/credential-groups ────────────────────────────────
+    // Returns the user groups the caller may pick from to drive shared-MCP credential
+    // selection for this agent (intersection of: the caller's groups, groups that map a
+    // credential for one of the agent's shared servers, and — when the agent is in a
+    // user-group-restricted access group — that access group's allowed user groups).
+    [HttpGet("{id}/credential-groups")]
+    public async Task<IActionResult> CredentialGroups(string id, CancellationToken ct)
+    {
+        var tenant = Tenant;
+        var agent = await ResolveAgentAsync(id, tenant, ct);
+        if (agent is null) return NotFound();
+
+        var serverNames = ParseSharedServerRefs(agent.McpServerRefsJson);
+        if (serverNames.Count == 0) return Ok(new { groups = Array.Empty<CredentialGroupOption>() });
+
+        var allowed = await _agentGroups.GetAllowedUserGroupIdsForAgentAsync(agent.Id, tenant.TenantId, ct);
+        var groups = await _mcpCredentials.GetSelectableGroupsAsync(tenant, serverNames, allowed, ct);
+        return Ok(new { groups });
+    }
+
+    private static List<string> ParseSharedServerRefs(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return [];
+        try { return JsonSerializer.Deserialize<List<string>>(json) ?? []; }
+        catch { return []; }
+    }
+
     // ── POST /api/agents/{id}/invoke ──────────────────────────────────────────
     [HttpPost("{id}/invoke")]
     public async Task<IActionResult> Invoke(string id, [FromBody] AgentInvokeRequest req, CancellationToken ct)
     {
         var tenant = Tenant;
+        if (req.PreferredUserGroupId is > 0)
+            tenant = tenant.WithPreferredUserGroup(req.PreferredUserGroupId);
         var agent = await ResolveAgentAsync(id, tenant, ct);
         if (agent is null) return NotFound();
         if (!agent.IsEnabled) return BadRequest(new { error = "Agent is disabled." });
@@ -261,6 +293,8 @@ public class AgentsController : ControllerBase
     public async Task InvokeStream(string id, [FromBody] AgentInvokeRequest req, CancellationToken ct)
     {
         var tenant = Tenant;
+        if (req.PreferredUserGroupId is > 0)
+            tenant = tenant.WithPreferredUserGroup(req.PreferredUserGroupId);
         var agent = await ResolveAgentAsync(id, tenant, ct);
         if (agent is null) { Response.StatusCode = 404; return; }
         if (!agent.IsEnabled) { Response.StatusCode = 400; return; }
@@ -715,6 +749,7 @@ public record AgentInvokeRequest(
     string? ModelId = null,
     int? LlmConfigId = null,
     bool ForwardSsoToMcp = false,
+    int? PreferredUserGroupId = null,
     List<ContentPart>? Attachments = null);
 public record ImprovePromptRequest(
     string Instruction,

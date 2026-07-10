@@ -42,6 +42,7 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
 
     private List<Message> _messages = [];
     private IList<Anthropic.SDK.Common.Tool>? _tools;
+    private readonly HashSet<string> _toolNames = new(StringComparer.Ordinal);   // guards against duplicate tool names
     private MessageResponse? _lastResponse;
     private List<ContentBase>? _lastStreamedContent;
     private TokenUsage _lastTokenUsage;
@@ -251,9 +252,25 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
         userContent.Add(new Anthropic.SDK.Messaging.TextContent { Text = userQuery });
         _messages.Add(new Message { Role = RoleType.User, Content = userContent });
 
-        _tools = mcpTools.Count > 0 ? mcpTools.Select(t => ToAnthropicTool(t)).ToList() : null;
+        SetTools(mcpTools);
         // Note: Anthropic.SDK.Common.Tool has no CacheControl property; tool caching is
         // handled by PromptCacheType.AutomaticToolsAndSystem in the request parameters.
+    }
+
+    /// <summary>
+    /// Builds <see cref="_tools"/> from the supplied functions, dropping any duplicate tool names.
+    /// The Anthropic API (and the tool schema in general) requires globally-unique tool names, so a
+    /// name collision from multiple MCP servers or delegate agents would otherwise fail the request.
+    /// </summary>
+    private void SetTools(IReadOnlyList<AIFunction> source)
+    {
+        _toolNames.Clear();
+        if (source.Count == 0) { _tools = null; return; }
+        var list = new List<Anthropic.SDK.Common.Tool>(source.Count);
+        foreach (var t in source)
+            if (_toolNames.Add(t.Name))
+                list.Add(ToAnthropicTool(t));
+        _tools = list.Count > 0 ? list : null;
     }
 
     /// <inheritdoc/>
@@ -262,7 +279,8 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
         if (tools.Count == 0) return;
         _tools ??= new List<Anthropic.SDK.Common.Tool>();
         foreach (var tool in tools)
-            _tools.Add(ToAnthropicTool(tool));
+            if (_toolNames.Add(tool.Name))   // skip names already present to keep tool names unique
+                _tools.Add(ToAnthropicTool(tool));
     }
 
     // ── LLM calls ─────────────────────────────────────────────────────────────
@@ -829,7 +847,7 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
                 _messages.Add(new Message { Role = role, Content = content });
         }
 
-        _tools = tools.Count > 0 ? tools.Select(t => ToAnthropicTool(t)).ToList() : null;
+        SetTools(tools);
         // Note: Tool has no CacheControl property in Anthropic.SDK 5.10.0; tool caching is
         // handled via PromptCacheType.FineGrained on the system block (BP1).
     }

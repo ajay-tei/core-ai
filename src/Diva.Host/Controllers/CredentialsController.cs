@@ -39,7 +39,7 @@ public class CredentialsController : ControllerBase
     {
         var tid = EffectiveTenantId(tenantId);
         using var db = _db.CreateDbContext(Core.Models.TenantContext.System(tid));
-        var items = await db.McpCredentials
+        var rows = await db.McpCredentials
             .Where(c => c.TenantId == tid)
             .OrderByDescending(c => c.CreatedAt)
             .AsNoTracking()
@@ -54,11 +54,50 @@ public class CredentialsController : ControllerBase
                 c.ExpiresAt,
                 c.IsActive,
                 c.LastUsedAt,
-                c.CreatedByUserId
+                c.CreatedByUserId,
+                c.EncryptedApiKey
             })
             .ToListAsync(ct);
 
+        // Decrypt in memory to expose only a short masked hint (last 4 chars) for verification.
+        // Never return the full key. Decryption can fail if the master key was rotated — mask as null.
+        var items = rows.Select(c => new
+        {
+            c.Id,
+            c.Name,
+            c.AuthScheme,
+            c.CustomHeaderName,
+            c.Description,
+            c.CreatedAt,
+            c.ExpiresAt,
+            c.IsActive,
+            c.LastUsedAt,
+            c.CreatedByUserId,
+            ApiKeyHint = MaskKey(c.EncryptedApiKey)
+        });
+
         return Ok(items);
+    }
+
+    /// <summary>
+    /// Decrypts a stored key and returns a masked hint exposing only the last 4 characters
+    /// (e.g. "••••cd12"). Returns null when the key is empty or cannot be decrypted.
+    /// </summary>
+    private string? MaskKey(string? encrypted)
+    {
+        if (string.IsNullOrEmpty(encrypted)) return null;
+        try
+        {
+            var plain = _encryptor.Decrypt(encrypted);
+            if (string.IsNullOrEmpty(plain)) return null;
+            var tail = plain.Length <= 4 ? plain : plain[^4..];
+            return "••••" + tail;
+        }
+        catch
+        {
+            // Undecryptable (e.g. master key rotated) — omit the hint rather than fail the list.
+            return null;
+        }
     }
 
     // POST /api/admin/credentials

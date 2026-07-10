@@ -20,10 +20,10 @@ public sealed class AnthropicProvider : IAnthropicProvider
 
     public AnthropicProvider(IOptions<LlmOptions> opts, HttpClient httpClient)
     {
-        _httpClient     = httpClient;
-        _defaultApiKey  = opts.Value.DirectProvider.ApiKey;
-        _client         = new AnthropicClient(new APIAuthentication(_defaultApiKey), httpClient);
-        _betaClient     = new AnthropicClient(new APIAuthentication(_defaultApiKey), httpClient)
+        _httpClient = httpClient;
+        _defaultApiKey = opts.Value.DirectProvider.ApiKey;
+        _client = new AnthropicClient(new APIAuthentication(_defaultApiKey), httpClient);
+        _betaClient = new AnthropicClient(new APIAuthentication(_defaultApiKey), httpClient)
         {
             AnthropicBetaVersion = InterleavedThinkingBeta
         };

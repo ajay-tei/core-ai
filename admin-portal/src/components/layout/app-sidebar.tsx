@@ -86,6 +86,7 @@ const tenantNavGroups: NavGroup[] = [
     label: "Users & Auth",
     items: [
       { title: "User Profiles", url: "/settings/users", icon: Users },
+      { title: "User Groups", url: "/settings/user-groups", icon: Users },
       { title: "SSO Configuration", url: "/settings/sso", icon: KeyRound },
       { title: "MCP Credentials", url: "/settings/credentials", icon: ShieldAlert },
       { title: "MCP Servers", url: "/settings/mcp-servers", icon: Server },

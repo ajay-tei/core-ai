@@ -3,6 +3,7 @@ import {
   api, generateSchedulerFeedbackLink, getFeedbackSettings, upsertFeedbackSettings,
   type AgentSummary, type ScheduledTask, type ScheduledTaskRun, type CreateScheduleDto,
   type ScheduledTaskExport, type ScheduleExportEnvelope, type TenantFeedbackSettings,
+  type UserProfile,
 } from "@/api";
 import { toast } from "sonner";
 import {
@@ -307,6 +308,11 @@ export function ScheduledTasks() {
                     {task.description && (
                       <div className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
                         {task.description}
+                      </div>
+                    )}
+                    {task.runAsUserId && (
+                      <div className="text-[11px] text-muted-foreground mt-0.5">
+                        as {task.runAsUserLabel || task.runAsUserEmail || task.runAsUserId}
                       </div>
                     )}
                   </TableCell>
@@ -616,8 +622,15 @@ function TaskDialog({ open, onOpenChange, mode, source, agents, onSaved }: TaskD
   const [notifyEmails,  setNotifyEmails]  = useState("");
   const [notifyOn,      setNotifyOn]      = useState<string | undefined>(undefined);
   const [successKeywords, setSuccessKeywords] = useState("");
+  const [runAsUserId,   setRunAsUserId]   = useState("");
+  const [users,         setUsers]         = useState<UserProfile[]>([]);
   const [saving,        setSaving]        = useState(false);
   const [quickFixOpen,  setQuickFixOpen]  = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    api.listUserProfiles(1).then(setUsers).catch(() => setUsers([]));
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -646,6 +659,7 @@ function TaskDialog({ open, onOpenChange, mode, source, agents, onSaved }: TaskD
     setNotifyEmails(source?.notifyEmails ?? "");
     setNotifyOn(source?.notifyOn ?? undefined);
     setSuccessKeywords(source?.successKeywords ?? "");
+    setRunAsUserId(source?.runAsUserId ?? "");
   }, [open, mode, source, agents]);
 
   const save = async () => {
@@ -662,6 +676,7 @@ function TaskDialog({ open, onOpenChange, mode, source, agents, onSaved }: TaskD
 
     setSaving(true);
     try {
+      const runAsUser = runAsUserId ? users.find(u => u.userId === runAsUserId) : undefined;
       const dto: CreateScheduleDto = {
         agentId,
         name:           name.trim(),
@@ -678,6 +693,9 @@ function TaskDialog({ open, onOpenChange, mode, source, agents, onSaved }: TaskD
         notifyEmails: notifyEmails.trim() || undefined,
         notifyOn:     notifyOn || undefined,
         successKeywords: successKeywords.trim() || undefined,
+        runAsUserId:    runAsUserId || "",
+        runAsUserEmail: runAsUser?.email || undefined,
+        runAsUserLabel: runAsUser ? (runAsUser.displayName || runAsUser.email || runAsUser.userId) : undefined,
       };
       if (mode === "edit") {
         await api.updateSchedule(source!.id, dto, 1);
@@ -855,6 +873,26 @@ function TaskDialog({ open, onOpenChange, mode, source, agents, onSaved }: TaskD
           <div className="flex items-center gap-2">
             <Switch id="task-enabled" checked={isEnabled} onCheckedChange={setIsEnabled} />
             <Label htmlFor="task-enabled">Enabled (run according to schedule)</Label>
+          </div>
+
+          <div className="space-y-2 rounded-md border p-3">
+            <Label className="text-sm font-medium">Run as user</Label>
+            <select
+              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
+              value={runAsUserId}
+              onChange={e => setRunAsUserId(e.target.value)}
+            >
+              <option value="">System (default — no user-group credentials)</option>
+              {users.map(u => (
+                <option key={u.userId} value={u.userId}>
+                  {(u.displayName || u.email || u.userId)}{u.email && u.email !== (u.displayName || "") ? ` · ${u.email}` : ""}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">
+              When set, the task runs under this user's identity so shared MCP servers use that user's
+              user-group credentials. Leave as System to run without user-group credential selection.
+            </p>
           </div>
 
           <div className="space-y-3 rounded-md border p-3">

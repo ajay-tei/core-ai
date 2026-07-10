@@ -23,6 +23,7 @@ import {
   type FollowUpQuestion,
   type TurnSummary,
   type IterationDetail,
+  type CredentialGroupOption,
 } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -443,6 +444,8 @@ export function AgentChat() {
   const [selectedConfigId, setSelectedConfigId] = useState<number | undefined>(undefined);
   const [detailedMode, setDetailedMode] = useState(false);
   const [starters, setStarters] = useState<string[]>([]);
+  const [credentialGroups, setCredentialGroups] = useState<CredentialGroupOption[]>([]);
+  const [selectedGroupId, setSelectedGroupId] = useState<number | undefined>(undefined);
 
   const [liveIterations, setLiveIterations] = useState<Iteration[]>([]);
   const [liveStatus, setLiveStatus] = useState<string>("");
@@ -526,6 +529,15 @@ export function AgentChat() {
     api.listAvailableLlmConfigs().then(setAvailableLlmConfigs).catch(() => {});
   }, []);
 
+  // Load the user groups the caller may pick from to drive shared-MCP credential selection.
+  // Only surfaced when the caller belongs to more than one eligible (credential-mapped) group.
+  useEffect(() => {
+    if (!agentId) return;
+    api.getAgentCredentialGroups(agentId)
+      .then((r) => setCredentialGroups(r.groups ?? []))
+      .catch(() => setCredentialGroups([]));
+  }, [agentId]);
+
   // Re-resolve the LLM config whenever the selected config changes.
   // Uses the resolver endpoint so the model list matches the correct provider.
   useEffect(() => {
@@ -565,6 +577,7 @@ export function AgentChat() {
     hydratedRef.current = null;
     setMessages([]);
     setSessionId(undefined);
+    setSelectedGroupId(undefined);
     setResumedTurns(null);
     setLiveIterations([]);
     setLiveTimeline([]);
@@ -748,7 +761,7 @@ export function AgentChat() {
     };
 
     try {
-      await api.streamAgent(agent.id, query, sessionId, handleChunk, abort.signal, selectedModel || undefined, selectedConfigId);
+      await api.streamAgent(agent.id, query, sessionId, handleChunk, abort.signal, selectedModel || undefined, selectedConfigId, true, selectedGroupId);
       if (pendingMsg) {
         setMessages((m) => [...m, pendingMsg!]);
       }
@@ -786,6 +799,31 @@ export function AgentChat() {
           </p>
         </div>
         <div className="flex items-center gap-3 shrink-0">
+          {/* Credential group picker — shown to all users when the caller belongs to more than
+              one eligible user group, letting them choose which group's shared-MCP credentials
+              this chat uses. */}
+          {credentialGroups.length > 1 && (
+            <Select
+              value={selectedGroupId?.toString() ?? "__default__"}
+              onValueChange={(v) => setSelectedGroupId(v === "__default__" ? undefined : parseInt(v))}
+              disabled={loading || messages.length > 0}
+            >
+              <SelectTrigger
+                className="w-48 h-8 text-xs"
+                title={messages.length > 0
+                  ? "Credential group is locked for this session. Clear the chat to change it."
+                  : "Credential group for shared MCP tools"}
+              >
+                <SelectValue placeholder="Credential group" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__default__" className="text-xs">Default credential group</SelectItem>
+                {credentialGroups.map((g) => (
+                  <SelectItem key={g.id} value={g.id.toString()} className="text-xs">{g.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           {/* LLM config/model pickers and Detailed toggle are admin-only. */}
           {isAdmin && (
             <>

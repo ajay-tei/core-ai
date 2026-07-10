@@ -4,6 +4,7 @@ using Diva.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Diva.Infrastructure.SqlServer.Migrations
 {
     [DbContext(typeof(DivaDbContext))]
-    partial class DivaDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260710063036_AddScheduledTaskRunAsUser")]
+    partial class AddScheduledTaskRunAsUser
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

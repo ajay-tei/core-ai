@@ -31,4 +31,7 @@ public class AgentGroupEntity : ITenantEntity
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
+
+    /// <summary>User groups granted access to this agent group's member agents.</summary>
+    public ICollection<AgentGroupUserGroupEntity> UserGroupLinks { get; set; } = new List<AgentGroupUserGroupEntity>();
 }

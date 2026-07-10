@@ -41,6 +41,7 @@ public class McpServersController : ControllerBase
         using var db = _db.CreateDbContext(Core.Models.TenantContext.System(tid));
         var items = await db.TenantMcpServers
             .Where(s => s.TenantId == tid)
+            .Include(s => s.UserGroupCredentials)
             .OrderBy(s => s.Name)
             .AsNoTracking()
             .ToListAsync(ct);
@@ -55,6 +56,7 @@ public class McpServersController : ControllerBase
         var tid = EffectiveTenantId(tenantId);
         using var db = _db.CreateDbContext(Core.Models.TenantContext.System(tid));
         var entity = await db.TenantMcpServers
+            .Include(s => s.UserGroupCredentials)
             .AsNoTracking()
             .FirstOrDefaultAsync(s => s.Id == id && s.TenantId == tid, ct);
         return entity is null ? NotFound() : Ok(ToDto(entity));
@@ -90,6 +92,7 @@ public class McpServersController : ControllerBase
             DefaultCredentialRef = dto.DefaultCredentialRef,
             ApiKeyCredentialMappingsJson = dto.ApiKeyCredentialMappingsJson,
             CreatedByUserId = ctx?.UserId,
+            UserGroupCredentials = BuildGroupCredentials(tid, dto.UserGroupCredentials),
         };
 
         db.TenantMcpServers.Add(entity);
@@ -107,7 +110,9 @@ public class McpServersController : ControllerBase
     {
         var tid = EffectiveTenantId(dto.TenantId);
         using var db = _db.CreateDbContext(Core.Models.TenantContext.System(tid));
-        var entity = await db.TenantMcpServers.FirstOrDefaultAsync(s => s.Id == id && s.TenantId == tid, ct);
+        var entity = await db.TenantMcpServers
+            .Include(s => s.UserGroupCredentials)
+            .FirstOrDefaultAsync(s => s.Id == id && s.TenantId == tid, ct);
         if (entity is null) return NotFound();
 
         if (dto.Name is not null && !dto.Name.Equals(entity.Name, StringComparison.Ordinal))
@@ -129,6 +134,13 @@ public class McpServersController : ControllerBase
         if (dto.PassTenantHeaders.HasValue) entity.PassTenantHeaders = dto.PassTenantHeaders.Value;
         if (dto.DefaultCredentialRef is not null) entity.DefaultCredentialRef = dto.DefaultCredentialRef;
         if (dto.ApiKeyCredentialMappingsJson is not null) entity.ApiKeyCredentialMappingsJson = dto.ApiKeyCredentialMappingsJson;
+
+        // Replace the per-user-group credential rows wholesale when provided.
+        if (dto.UserGroupCredentials is not null)
+        {
+            db.McpServerUserGroupCredentials.RemoveRange(entity.UserGroupCredentials);
+            entity.UserGroupCredentials = BuildGroupCredentials(tid, dto.UserGroupCredentials);
+        }
 
         entity.UpdatedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
@@ -156,7 +168,32 @@ public class McpServersController : ControllerBase
     private static McpServerDto ToDto(TenantMcpServerEntity s) => new(
         s.Id, s.Name, s.Description, s.Transport, s.Command, s.ArgsJson, s.EnvJson,
         s.Endpoint, s.PassSsoToken, s.PassTenantHeaders, s.DefaultCredentialRef,
-        s.ApiKeyCredentialMappingsJson, s.CreatedAt, s.UpdatedAt, s.CreatedByUserId);
+        s.ApiKeyCredentialMappingsJson,
+        s.UserGroupCredentials
+            .OrderBy(c => c.UserGroupId)
+            .Select(c => new UserGroupCredentialMapping(c.UserGroupId, c.CredentialRef))
+            .ToArray(),
+        s.CreatedAt, s.UpdatedAt, s.CreatedByUserId);
+
+    private static List<McpServerUserGroupCredentialEntity> BuildGroupCredentials(
+        int tenantId, UserGroupCredentialMapping[]? mappings)
+    {
+        if (mappings is not { Length: > 0 }) return [];
+        var seen = new HashSet<int>();
+        var result = new List<McpServerUserGroupCredentialEntity>();
+        foreach (var m in mappings)
+        {
+            if (m.UserGroupId <= 0 || string.IsNullOrWhiteSpace(m.CredentialRef)) continue;
+            if (!seen.Add(m.UserGroupId)) continue;   // one credential per group per server
+            result.Add(new McpServerUserGroupCredentialEntity
+            {
+                TenantId = tenantId,
+                UserGroupId = m.UserGroupId,
+                CredentialRef = m.CredentialRef.Trim(),
+            });
+        }
+        return result;
+    }
 }
 
 // ── DTOs ──────────────────────────────────────────────────────────────────────
@@ -174,9 +211,13 @@ public record McpServerDto(
     bool PassTenantHeaders,
     string? DefaultCredentialRef,
     string? ApiKeyCredentialMappingsJson,
+    UserGroupCredentialMapping[] UserGroupCredentials,
     DateTime CreatedAt,
     DateTime? UpdatedAt,
     string? CreatedByUserId);
+
+/// <summary>Per-user-group credential mapping for a shared MCP server (relational row).</summary>
+public record UserGroupCredentialMapping(int UserGroupId, string CredentialRef);
 
 public record CreateMcpServerDto(
     string Name,
@@ -190,6 +231,7 @@ public record CreateMcpServerDto(
     bool PassTenantHeaders,
     string? DefaultCredentialRef,
     string? ApiKeyCredentialMappingsJson,
+    UserGroupCredentialMapping[]? UserGroupCredentials = null,
     int TenantId = 1);
 
 public record UpdateMcpServerDto(
@@ -204,4 +246,5 @@ public record UpdateMcpServerDto(
     bool? PassTenantHeaders,
     string? DefaultCredentialRef,
     string? ApiKeyCredentialMappingsJson,
+    UserGroupCredentialMapping[]? UserGroupCredentials = null,
     int TenantId = 1);

@@ -53,4 +53,12 @@ public class TenantMcpServerEntity : ITenantEntity
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
     public string? CreatedByUserId { get; set; }
+
+    /// <summary>
+    /// Per-user-group credential mappings (relational). Applied after per-API-key mappings and
+    /// before <see cref="DefaultCredentialRef"/>: a caller belonging to a mapped user group uses
+    /// that group's credential. See <see cref="McpServerUserGroupCredentialEntity"/>.
+    /// </summary>
+    public ICollection<McpServerUserGroupCredentialEntity> UserGroupCredentials { get; set; }
+        = new List<McpServerUserGroupCredentialEntity>();
 }

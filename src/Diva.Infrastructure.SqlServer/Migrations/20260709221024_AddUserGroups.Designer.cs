@@ -4,6 +4,7 @@ using Diva.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Diva.Infrastructure.SqlServer.Migrations
 {
     [DbContext(typeof(DivaDbContext))]
-    partial class DivaDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260709221024_AddUserGroups")]
+    partial class AddUserGroups
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1594,15 +1597,6 @@ namespace Diva.Infrastructure.SqlServer.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
-                    b.Property<string>("RunAsUserEmail")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("RunAsUserId")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("RunAsUserLabel")
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<string>("RunAtTime")
                         .HasColumnType("nvarchar(max)");
 
@@ -2531,7 +2525,7 @@ namespace Diva.Infrastructure.SqlServer.Migrations
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.AgentGroupUserGroupEntity", b =>
                 {
                     b.HasOne("Diva.Infrastructure.Data.Entities.AgentGroupEntity", "AgentGroup")
-                        .WithMany("UserGroupLinks")
+                        .WithMany()
                         .HasForeignKey("AgentGroupId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -2680,7 +2674,7 @@ namespace Diva.Infrastructure.SqlServer.Migrations
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.McpServerUserGroupCredentialEntity", b =>
                 {
                     b.HasOne("Diva.Infrastructure.Data.Entities.TenantMcpServerEntity", "McpServer")
-                        .WithMany("UserGroupCredentials")
+                        .WithMany()
                         .HasForeignKey("McpServerId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -2780,11 +2774,6 @@ namespace Diva.Infrastructure.SqlServer.Migrations
                     b.Navigation("Group");
                 });
 
-            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.AgentGroupEntity", b =>
-                {
-                    b.Navigation("UserGroupLinks");
-                });
-
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.AgentOptimizationRunEntity", b =>
                 {
                     b.Navigation("Suggestions");
@@ -2814,11 +2803,6 @@ namespace Diva.Infrastructure.SqlServer.Migrations
                     b.Navigation("LlmConfigs");
 
                     b.Navigation("Members");
-                });
-
-            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.TenantMcpServerEntity", b =>
-                {
-                    b.Navigation("UserGroupCredentials");
                 });
 
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.UserGroupEntity", b =>

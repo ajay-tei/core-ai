@@ -6,6 +6,8 @@ import {
   type McpCredential,
   type PlatformApiKey,
   type ApiKeyCredentialMapping,
+  type UserGroup,
+  type UserGroupCredentialMapping,
 } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,12 +38,13 @@ interface ServerForm {
   passTenantHeaders: boolean;
   defaultCredentialRef: string;
   mappings: ApiKeyCredentialMapping[];
+  groupMappings: UserGroupCredentialMapping[];
 }
 
 const EMPTY_FORM: ServerForm = {
   name: "", description: "", transport: "stdio", command: "", argsText: "",
   envText: "", endpoint: "", passSsoToken: false, passTenantHeaders: false,
-  defaultCredentialRef: "", mappings: [],
+  defaultCredentialRef: "", mappings: [], groupMappings: [],
 };
 
 // ── JSON ⇄ text helpers ───────────────────────────────────────────────────────
@@ -83,6 +86,7 @@ export function McpServerManager() {
   const [servers, setServers] = useState<McpServer[]>([]);
   const [credentials, setCredentials] = useState<McpCredential[]>([]);
   const [apiKeys, setApiKeys] = useState<PlatformApiKey[]>([]);
+  const [userGroups, setUserGroups] = useState<UserGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<ServerForm>(EMPTY_FORM);
@@ -90,14 +94,16 @@ export function McpServerManager() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, c, k] = await Promise.all([
+      const [s, c, k, ug] = await Promise.all([
         api.listMcpServers(),
         api.listCredentials().catch(() => [] as McpCredential[]),
         api.listApiKeys().catch(() => [] as PlatformApiKey[]),
+        api.listUserGroups().catch(() => [] as UserGroup[]),
       ]);
       setServers(s);
       setCredentials(c);
       setApiKeys(k);
+      setUserGroups(ug);
     } catch { toast.error("Failed to load MCP servers"); }
     finally { setLoading(false); }
   }, []);
@@ -120,6 +126,7 @@ export function McpServerManager() {
       passTenantHeaders: s.passTenantHeaders,
       defaultCredentialRef: s.defaultCredentialRef ?? "",
       mappings: parseMappings(s.apiKeyCredentialMappingsJson),
+      groupMappings: s.userGroupCredentials ?? [],
     });
     setShowForm(true);
   };
@@ -129,6 +136,7 @@ export function McpServerManager() {
   const buildDto = (): CreateMcpServerDto => {
     const isHttp = form.transport === "http" || form.transport === "sse";
     const validMappings = form.mappings.filter(m => m.apiKeyId > 0 && m.credentialRef.trim());
+    const validGroupMappings = form.groupMappings.filter(m => m.userGroupId > 0 && m.credentialRef.trim());
     return {
       name: form.name.trim(),
       description: form.description.trim() || undefined,
@@ -141,6 +149,7 @@ export function McpServerManager() {
       passTenantHeaders: form.passTenantHeaders,
       defaultCredentialRef: form.defaultCredentialRef.trim() || undefined,
       apiKeyCredentialMappingsJson: validMappings.length ? JSON.stringify(validMappings) : undefined,
+      userGroupCredentials: validGroupMappings,
     };
   };
 
@@ -181,6 +190,15 @@ export function McpServerManager() {
     setForm(f => ({ ...f, mappings: f.mappings.map((m, idx) => idx === i ? { ...m, ...patch } : m) }));
   const removeMapping = (i: number) =>
     setForm(f => ({ ...f, mappings: f.mappings.filter((_, idx) => idx !== i) }));
+
+  const addGroupMapping = () =>
+    setForm(f => ({ ...f, groupMappings: [...f.groupMappings, { userGroupId: 0, credentialRef: "" }] }));
+  const updateGroupMapping = (i: number, patch: Partial<UserGroupCredentialMapping>) =>
+    setForm(f => ({ ...f, groupMappings: f.groupMappings.map((m, idx) => idx === i ? { ...m, ...patch } : m) }));
+  const removeGroupMapping = (i: number) =>
+    setForm(f => ({ ...f, groupMappings: f.groupMappings.filter((_, idx) => idx !== i) }));
+
+  const groupName = (id: number) => userGroups.find(g => g.id === id)?.name ?? `#${id}`;
 
   const isHttp = form.transport === "http" || form.transport === "sse";
   const credName = (id: number) => apiKeys.find(k => k.id === id)?.name ?? `#${id}`;
@@ -316,6 +334,44 @@ export function McpServerManager() {
               )}
             </div>
 
+            {/* ── Per-user-group credential routing ───────────────────── */}
+            <div className="space-y-2 rounded-md border p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label>Per-user-group credentials</Label>
+                  <p className="text-xs text-muted-foreground">When a non-API-key caller belongs to a user group below, that group's credential is used. If the caller matches multiple groups, the oldest group (lowest id) wins.</p>
+                </div>
+                <Button variant="outline" size="sm" onClick={addGroupMapping}><Plus className="h-4 w-4 mr-1" /> Add rule</Button>
+              </div>
+              {form.groupMappings.length === 0 ? (
+                <p className="text-xs text-muted-foreground py-1">No per-group rules — group callers fall back to SSO passthrough or the default credential.</p>
+              ) : (
+                <div className="space-y-2">
+                  {form.groupMappings.map((m, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <Select value={m.userGroupId ? String(m.userGroupId) : ""} onValueChange={(v) => updateGroupMapping(i, { userGroupId: Number(v) })}>
+                        <SelectTrigger className="flex-1"><SelectValue placeholder="Select user group…" /></SelectTrigger>
+                        <SelectContent>
+                          {userGroups.map((g) => <SelectItem key={g.id} value={String(g.id)}>{g.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      <span className="text-muted-foreground text-sm">→</span>
+                      <Select value={m.credentialRef || ""} onValueChange={(v) => updateGroupMapping(i, { credentialRef: v })}>
+                        <SelectTrigger className="flex-1"><SelectValue placeholder="Select credential…" /></SelectTrigger>
+                        <SelectContent>
+                          {credentials.map((c) => <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      <Button variant="ghost" size="sm" onClick={() => removeGroupMapping(i)}><Trash2 className="h-4 w-4" /></Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {userGroups.length === 0 && (
+                <p className="text-xs text-amber-600">No user groups exist yet. Create them under Settings → User Groups.</p>
+              )}
+            </div>
+
             <div className="flex gap-2">
               <Button onClick={handleSave}><Save className="h-4 w-4 mr-1" /> {form.id ? "Save changes" : "Create"}</Button>
               <Button variant="outline" onClick={closeForm}>Cancel</Button>
@@ -341,6 +397,7 @@ export function McpServerManager() {
                       <Badge variant="outline">{s.transport}</Badge>
                       {s.defaultCredentialRef && <Badge variant="secondary">default: {s.defaultCredentialRef}</Badge>}
                       {mappings.length > 0 && <Badge variant="default">{mappings.length} key rule{mappings.length === 1 ? "" : "s"}</Badge>}
+                      {s.userGroupCredentials.length > 0 && <Badge variant="default">{s.userGroupCredentials.length} group rule{s.userGroupCredentials.length === 1 ? "" : "s"}</Badge>}
                       {s.passSsoToken && <Badge variant="outline">SSO</Badge>}
                     </div>
                     <div className="text-xs text-muted-foreground">
@@ -348,6 +405,9 @@ export function McpServerManager() {
                       {s.transport === "stdio" ? <span className="font-mono">{s.command}</span> : <span className="font-mono">{s.endpoint}</span>}
                       {mappings.length > 0 && (
                         <span> · {mappings.map(m => `${credName(m.apiKeyId)}→${m.credentialRef}`).join(", ")}</span>
+                      )}
+                      {s.userGroupCredentials.length > 0 && (
+                        <span> · {s.userGroupCredentials.map(m => `${groupName(m.userGroupId)}→${m.credentialRef}`).join(", ")}</span>
                       )}
                     </div>
                   </div>

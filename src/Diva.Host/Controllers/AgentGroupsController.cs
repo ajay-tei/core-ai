@@ -53,7 +53,7 @@ public class AgentGroupsController : ControllerBase
     public async Task<IActionResult> Create([FromBody] AgentGroupRequest req, CancellationToken ct = default)
     {
         var tid = EffectiveTenantId(req.TenantId);
-        var dto = new AgentGroupDto(req.Name, req.Description, req.AgentIds ?? [], req.AllowedUserIds ?? [], req.AllowedRoles ?? []);
+        var dto = new AgentGroupDto(req.Name, req.Description, req.AgentIds ?? [], req.AllowedUserIds ?? [], req.AllowedRoles ?? [], req.AllowedUserGroupIds ?? []);
         var created = await _service.CreateAsync(tid, dto, ct);
         return Ok(ToDto(created));
     }
@@ -63,7 +63,7 @@ public class AgentGroupsController : ControllerBase
     public async Task<IActionResult> Update(string id, [FromBody] AgentGroupRequest req, CancellationToken ct = default)
     {
         var tid = EffectiveTenantId(req.TenantId);
-        var dto = new AgentGroupDto(req.Name, req.Description, req.AgentIds ?? [], req.AllowedUserIds ?? [], req.AllowedRoles ?? []);
+        var dto = new AgentGroupDto(req.Name, req.Description, req.AgentIds ?? [], req.AllowedUserIds ?? [], req.AllowedRoles ?? [], req.AllowedUserGroupIds ?? []);
         var updated = await _service.UpdateAsync(tid, id, dto, ct);
         return updated is null ? NotFound() : Ok(ToDto(updated));
     }
@@ -84,6 +84,7 @@ public class AgentGroupsController : ControllerBase
         Parse(e.AgentIdsJson),
         Parse(e.AllowedUserIdsJson),
         Parse(e.AllowedRolesJson),
+        e.UserGroupLinks.Select(l => l.UserGroupId).ToArray(),
         e.CreatedAt,
         e.UpdatedAt);
 
@@ -103,6 +104,7 @@ public record AgentGroupRequest(
     string[]? AgentIds = null,
     string[]? AllowedUserIds = null,
     string[]? AllowedRoles = null,
+    int[]? AllowedUserGroupIds = null,
     int TenantId = 1);
 
 public record AgentGroupResponse(
@@ -112,5 +114,6 @@ public record AgentGroupResponse(
     string[] AgentIds,
     string[] AllowedUserIds,
     string[] AllowedRoles,
+    int[] AllowedUserGroupIds,
     DateTime CreatedAt,
     DateTime? UpdatedAt);

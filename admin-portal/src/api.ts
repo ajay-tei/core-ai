@@ -901,6 +901,7 @@ export interface McpCredential
   isActive: boolean;
   lastUsedAt?: string;
   createdByUserId?: string;
+  apiKeyHint?: string;         // masked tail of the stored key, e.g. "••••cd12" (null if undecryptable)
 }
 
 export interface CreateCredentialDto
@@ -935,6 +936,20 @@ export interface ApiKeyCredentialMapping
   credentialRef: string;
 }
 
+/** A single per-user-group credential routing rule for a shared MCP server (relational). */
+export interface UserGroupCredentialMapping
+{
+  userGroupId: number;
+  credentialRef: string;
+}
+
+/** A user group the caller can select in chat to drive shared-MCP credential resolution. */
+export interface CredentialGroupOption
+{
+  id: number;
+  name: string;
+}
+
 export interface McpServer
 {
   id: number;
@@ -949,6 +964,7 @@ export interface McpServer
   passTenantHeaders: boolean;
   defaultCredentialRef?: string;
   apiKeyCredentialMappingsJson?: string;  // JSON ApiKeyCredentialMapping[]
+  userGroupCredentials: UserGroupCredentialMapping[];
   createdAt: string;
   updatedAt?: string;
   createdByUserId?: string;
@@ -967,6 +983,7 @@ export interface CreateMcpServerDto
   passTenantHeaders: boolean;
   defaultCredentialRef?: string;
   apiKeyCredentialMappingsJson?: string;
+  userGroupCredentials?: UserGroupCredentialMapping[];
   tenantId?: number;
 }
 
@@ -983,6 +1000,7 @@ export interface UpdateMcpServerDto
   passTenantHeaders?: boolean;
   defaultCredentialRef?: string;
   apiKeyCredentialMappingsJson?: string;
+  userGroupCredentials?: UserGroupCredentialMapping[];
   tenantId?: number;
 }
 
@@ -1033,6 +1051,7 @@ export interface AgentGroup
   agentIds: string[];
   allowedUserIds: string[];
   allowedRoles: string[];
+  allowedUserGroupIds: number[];
   createdAt: string;
   updatedAt?: string;
 }
@@ -1044,6 +1063,35 @@ export interface AgentGroupRequest
   agentIds?: string[];
   allowedUserIds?: string[];
   allowedRoles?: string[];
+  allowedUserGroupIds?: number[];
+  tenantId?: number;
+}
+
+// ── User Groups (group users; a user may belong to many groups) ────────────────
+
+export interface UserGroupMember
+{
+  userId: string;
+  email?: string;
+}
+
+export interface UserGroup
+{
+  id: number;
+  name: string;
+  description?: string;
+  members: UserGroupMember[];
+  roles: string[];
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface UserGroupRequest
+{
+  name: string;
+  description?: string;
+  members?: UserGroupMember[];
+  roles?: string[];
   tenantId?: number;
 }
 
@@ -1073,6 +1121,9 @@ export interface ScheduledTask
   notifyOn?: string;            // "failure" | "success" | "always" | null
   successKeywords?: string;     // comma-separated phrases that must appear to confirm success
   lastRunStatus?: string;       // "success" | "failed" | "skipped" | null
+  runAsUserId?: string;         // when set, run executes as this user profile (for user-group MCP credentials)
+  runAsUserEmail?: string;
+  runAsUserLabel?: string;      // display label of the run-as user
 }
 
 export interface ScheduledTaskRun
@@ -1140,6 +1191,9 @@ export interface ScheduledTaskExport
   promptText: string;
   parametersJson?: string;
   isEnabled: boolean;
+  runAsUserId?: string;
+  runAsUserEmail?: string;
+  runAsUserLabel?: string;
 }
 
 export interface ScheduleExportEnvelope
@@ -1298,6 +1352,7 @@ export const api = {
     modelId?: string,
     llmConfigId?: number,
     forwardSsoToMcp = true,
+    preferredUserGroupId?: number,
   ): Promise<void> =>
   {
     return (async () =>
@@ -1305,7 +1360,7 @@ export const api = {
       const res = await fetch(`${ BASE }/api/agents/${ id }/invoke/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({ query, sessionId, modelId: modelId || undefined, llmConfigId, forwardSsoToMcp }),
+        body: JSON.stringify({ query, sessionId, modelId: modelId || undefined, llmConfigId, forwardSsoToMcp, preferredUserGroupId }),
         signal,
       });
       if (!res.ok || !res.body) throw new Error(`${ res.status } ${ res.statusText }`);
@@ -1329,6 +1384,10 @@ export const api = {
       }
     })();
   },
+
+  /** User groups the caller may pick from to drive this agent's shared-MCP credential selection. */
+  getAgentCredentialGroups: (id: string) =>
+    request<{ groups: CredentialGroupOption[]; }>(`/api/agents/${ id }/credential-groups`),
 
   // Learned rules (Phase 11)
   getPendingRules: (tenantId = 1) =>
@@ -1723,6 +1782,18 @@ export const api = {
     request<AgentGroup>(`/api/agent-groups/${ id }`, { method: "PUT", body: JSON.stringify(dto) }),
   deleteAgentGroup: (id: string, tenantId?: number) =>
     request<void>(`/api/agent-groups/${ id }${ tenantId ? `?tenantId=${ tenantId }` : "" }`, { method: "DELETE" }),
+
+  // ── User Groups ─────────────────────────────────────────────────────────────
+  listUserGroups: (tenantId?: number) =>
+    request<UserGroup[]>(`/api/user-groups${ tenantId ? `?tenantId=${ tenantId }` : "" }`),
+  getUserGroup: (id: number, tenantId?: number) =>
+    request<UserGroup>(`/api/user-groups/${ id }${ tenantId ? `?tenantId=${ tenantId }` : "" }`),
+  createUserGroup: (dto: UserGroupRequest) =>
+    request<UserGroup>("/api/user-groups", { method: "POST", body: JSON.stringify(dto) }),
+  updateUserGroup: (id: number, dto: UserGroupRequest) =>
+    request<UserGroup>(`/api/user-groups/${ id }`, { method: "PUT", body: JSON.stringify(dto) }),
+  deleteUserGroup: (id: number, tenantId?: number) =>
+    request<void>(`/api/user-groups/${ id }${ tenantId ? `?tenantId=${ tenantId }` : "" }`, { method: "DELETE" }),
 
   // ── A2A Config ────────────────────────────────────────────────────────────
   getA2AConfig: () => request<A2AConfig>("/api/admin/a2a-config"),

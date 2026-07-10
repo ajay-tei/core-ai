@@ -334,16 +334,17 @@ public sealed class AnthropicAgentRunner : IAgentRunner
         if (sharedServerNames.Count > 0 && _mcpCredentialSelector is not null)
         {
             var sharedBindings = await _mcpCredentialSelector.ResolveBindingsAsync(
-                tenant.TenantId, tenant.PlatformApiKeyId, sharedServerNames, ct);
+                tenant, sharedServerNames, ct);
             if (sharedBindings.Count > 0)
             {
                 var inlineBindings = ParseInlineBindings(definition.ToolBindings);
                 var merged = new List<McpToolBinding>(inlineBindings);
                 merged.AddRange(sharedBindings);
                 effectiveBindingsJson = JsonSerializer.Serialize(merged);
-                // Different API keys may resolve different credentials for the same server, so
-                // isolate cache slots per invoking key. JWT/SSO callers (no key) share one slot.
-                cacheKeyDiscriminator = tenant.PlatformApiKeyId is int keyId ? $"k{keyId}" : null;
+                // Credentials are resolved per-caller (platform API key OR user-group membership),
+                // so isolate cache slots by the actual resolved credential refs. Callers that resolve
+                // to the same credentials safely share a slot; different credentials never collide.
+                cacheKeyDiscriminator = BuildCredentialDiscriminator(sharedBindings);
             }
         }
 
@@ -1734,6 +1735,26 @@ public sealed class AnthropicAgentRunner : IAgentRunner
         if (string.IsNullOrWhiteSpace(json) || json.Trim() == "[]") return [];
         try { return JsonSerializer.Deserialize<List<McpToolBinding>>(json, _bindingJsonOpts) ?? []; }
         catch { return []; }
+    }
+
+    /// <summary>
+    /// Builds a short, stable cache discriminator from the resolved shared-binding credential refs
+    /// so MCP client cache slots isolate callers whose credentials differ (per API key or user group)
+    /// while letting callers with identical credentials share a connection. Returns null when no
+    /// binding carries a credential (all SSO passthrough / unauthenticated → shared slot).
+    /// </summary>
+    private static string? BuildCredentialDiscriminator(List<McpToolBinding> sharedBindings)
+    {
+        var refs = sharedBindings
+            .Where(b => !string.IsNullOrWhiteSpace(b.CredentialRef))
+            .Select(b => $"{b.Name}={b.CredentialRef}")
+            .OrderBy(s => s, StringComparer.Ordinal)
+            .ToList();
+        if (refs.Count == 0) return null;
+
+        var raw = string.Join("|", refs);
+        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(raw));
+        return "c" + Convert.ToHexString(hash, 0, 8);   // 16 hex chars, enough to avoid collisions
     }
 
     // Hook config merging: see AgentHookHelper.MergeVariables / AgentHookHelper.MergeHookConfig

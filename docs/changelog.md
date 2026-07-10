@@ -4,6 +4,60 @@
 
 ---
 
+## [2026-07-10] User Groups + per-group MCP credentials + chat credential-group picker + scheduled-task run-as-user
+
+A tenant-scoped **User Groups** capability landed, wiring group membership into three places:
+shared-MCP-server credential selection, agent access-group restrictions, and scheduled-task
+execution identity. When a user belongs to more than one eligible group, the agent chat now lets
+them explicitly choose which group's shared-MCP credentials to use for the session.
+
+### User Groups (tenant-scoped membership)
+
+Groups map users (by id/email) to a named group; membership drives credential selection and agent
+access. Membership resolution is cached per-request.
+
+| File | Change |
+|------|--------|
+| `src/Diva.Infrastructure/Data/Entities/UserGroupEntities.cs` | `UserGroupEntity` + membership entities (`ITenantEntity`) |
+| `src/Diva.Infrastructure/Data/Migrations/20260709221720_AddUserGroups.*` + `src/Diva.Infrastructure.SqlServer/Migrations/20260709221024_AddUserGroups.*` | Schema for both providers |
+| `src/Diva.Core/Configuration/IUserGroupResolver.cs`, `src/Diva.Infrastructure/Auth/UserGroupMembershipCache.cs` | `GetGroupIdsForUserAsync` resolver + per-request cache |
+| `src/Diva.TenantAdmin/Services/UserGroupService.cs`, `IUserGroupService.cs` | CRUD service |
+| `src/Diva.Host/Controllers/UserGroupsController.cs` | REST API |
+| `admin-portal/src/components/UserGroups.tsx`, `App.tsx`, `layout/app-sidebar.tsx` | Admin UI + routing |
+| `tests/Diva.TenantAdmin.Tests/UserGroupServiceTests.cs` | Service tests |
+
+### Chat credential-group picker (per-group shared-MCP credentials)
+
+`McpCredentialSelector` now honors a caller-chosen `PreferredUserGroupId` in the user-group
+credential tier (falling back to the existing lowest-`UserGroupId` default). The chat UI surfaces a
+picker only when the caller belongs to >1 eligible group; the selection is **locked once the
+session has started** and resets on clear. Passing an ineligible group id is a no-op (credential
+resolution is pre-filtered to the caller's actual groups — no privilege escalation).
+
+| File | Change |
+|------|--------|
+| `src/Diva.Core/Models/TenantContext.cs` | Transient `PreferredUserGroupId` + `WithPreferredUserGroup(...)` |
+| `src/Diva.Infrastructure/LiteLLM/McpCredentialSelector.cs` | Honor preferred group; `GetSelectableGroupsAsync` (intersection of caller groups, credential-mapped groups, agent-allowed groups) |
+| `src/Diva.TenantAdmin/Services/AgentGroupService.cs`, `IAgentGroupService.cs` | `GetAllowedUserGroupIdsForAgentAsync` |
+| `src/Diva.Host/Controllers/AgentsController.cs` | `GET {id}/credential-groups`; apply `PreferredUserGroupId` in Invoke/InvokeStream |
+| `admin-portal/src/api.ts`, `components/AgentChat.tsx` | `CredentialGroupOption` type, `streamAgent` param, locking group picker |
+| `tests/Diva.Agents.Tests/McpCredentialSelectorTests.cs` | Preferred-group + selectable-group tests |
+
+### Scheduled-task run-as-user
+
+Scheduled tasks can run under a stored user profile so agent execution carries that user's tenant
+identity and group membership (e.g. for per-group credential resolution).
+
+| File | Change |
+|------|--------|
+| `src/Diva.Infrastructure/Data/Entities/ScheduledTaskEntity.cs` | Run-as-user fields |
+| `src/Diva.Infrastructure/Data/Migrations/20260710062938_AddScheduledTaskRunAsUser.*` + `src/Diva.Infrastructure.SqlServer/Migrations/20260710063036_AddScheduledTaskRunAsUser.*` | Schema for both providers |
+| `src/Diva.Infrastructure/Scheduler/ScheduledTaskService.cs`, `IScheduledTaskService.cs`, `SchedulerHostedService.cs` | Run-as-user execution flow |
+| `src/Diva.Host/Controllers/SchedulerController.cs`, `admin-portal/src/components/ScheduledTasks.tsx` | API + UI wiring |
+| `src/Diva.TenantAdmin/Services/UserProfileService.cs` | Profile lookup for run-as-user |
+
+---
+
 ## [2026-07-09] Per-agent extended thinking + streaming block reconstruction + rich chat rendering
 
 Three features landed together: per-agent extended ("chain-of-thought") thinking with automatic

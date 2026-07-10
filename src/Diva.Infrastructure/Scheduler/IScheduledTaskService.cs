@@ -91,7 +91,10 @@ public sealed record CreateScheduledTaskRequest(
     bool IsEnabled,
     string? NotifyEmails = null,
     string? NotifyOn = null,
-    string? SuccessKeywords = null);
+    string? SuccessKeywords = null,
+    string? RunAsUserId = null,
+    string? RunAsUserEmail = null,
+    string? RunAsUserLabel = null);
 
 public sealed record UpdateScheduledTaskRequest(
     string? AgentId,
@@ -108,7 +111,10 @@ public sealed record UpdateScheduledTaskRequest(
     bool? IsEnabled,
     string? NotifyEmails = null,
     string? NotifyOn = null,
-    string? SuccessKeywords = null);
+    string? SuccessKeywords = null,
+    string? RunAsUserId = null,
+    string? RunAsUserEmail = null,
+    string? RunAsUserLabel = null);
 
 /// <summary>Aggregate scheduler stats for the dashboard.</summary>
 public sealed record SchedulerStatsDto(

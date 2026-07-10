@@ -34,6 +34,20 @@ public class ScheduledTaskEntity : ITenantEntity
     /// <summary>"prompt" — PromptText is sent as-is. "template" — PromptText may contain {{var}} placeholders resolved from ParametersJson.</summary>
     public string PayloadType { get; set; } = "prompt";
 
+    // ── Run-as identity (optional) ────────────────────────────────────────────
+    /// <summary>
+    /// When set, the run executes under this user profile's identity so that the user's
+    /// user-group MCP credentials are selected. Null/empty = runs as system (no user-group
+    /// credentials — server-default or SSO passthrough only). Matches <c>UserProfileEntity.UserId</c>.
+    /// </summary>
+    public string? RunAsUserId { get; set; }
+
+    /// <summary>Email of the run-as user, used for email-based user-group matching and display.</summary>
+    public string? RunAsUserEmail { get; set; }
+
+    /// <summary>Display label (name/email) of the run-as user, shown in the admin UI.</summary>
+    public string? RunAsUserLabel { get; set; }
+
     /// <summary>The agent query/prompt to execute.</summary>
     public string PromptText { get; set; } = string.Empty;
 

@@ -36,6 +36,14 @@ public sealed class TenantContext
     /// </summary>
     public int? PlatformApiKeyId { get; init; }
 
+    /// <summary>
+    /// User-group id the caller explicitly chose for this chat/invocation, used to resolve shared
+    /// MCP server credentials when the user belongs to multiple credential-mapped groups. null =
+    /// no explicit choice (falls back to the default lowest-user-group-id selection). Only takes
+    /// effect when the caller actually belongs to the group and it maps a credential for the server.
+    /// </summary>
+    public int? PreferredUserGroupId { get; init; }
+
     // ── Tracing ───────────────────────────────────────────────
     public string CorrelationId { get; init; } = Guid.NewGuid().ToString();
     public string? SessionId { get; init; }
@@ -82,6 +90,26 @@ public sealed class TenantContext
         AgentAccess = ["*"]
     };
 
+    /// <summary>
+    /// System context that carries a specific user's identity so downstream user-group resolution
+    /// (e.g. MCP credential selection) matches that user. Used by scheduled tasks configured to
+    /// "run as" a user profile. Retains full agent access (<c>["*"]</c>) — this is an internal,
+    /// admin-configured run, not an interactive user request.
+    /// </summary>
+    public static TenantContext RunAsUser(
+        int tenantId, string userId, string? email = null, string? displayName = null, int siteId = 0) => new()
+        {
+            TenantId = tenantId,
+            TenantName = "System",
+            UserId = userId,
+            UserEmail = email ?? string.Empty,
+            UserName = displayName ?? string.Empty,
+            SiteIds = siteId > 0 ? [siteId] : [],
+            CurrentSiteId = siteId,
+            UserRoles = ["system"],
+            AgentAccess = ["*"]
+        };
+
     /// <summary>Returns a copy of this context with <paramref name="sessionId"/> set.</summary>
     public TenantContext WithSession(string? sessionId) => new()
     {
@@ -102,8 +130,36 @@ public sealed class TenantContext
         TeamApiKey = TeamApiKey,
         InboundApiKey = InboundApiKey,
         PlatformApiKeyId = PlatformApiKeyId,
+        PreferredUserGroupId = PreferredUserGroupId,
         CorrelationId = CorrelationId,
         SessionId = sessionId,
+        CustomHeaders = CustomHeaders,
+        SsoForwardHeaders = SsoForwardHeaders,
+    };
+
+    /// <summary>Returns a copy of this context with <paramref name="preferredUserGroupId"/> set.</summary>
+    public TenantContext WithPreferredUserGroup(int? preferredUserGroupId) => new()
+    {
+        TenantId = TenantId,
+        TenantName = TenantName,
+        UserId = UserId,
+        UserEmail = UserEmail,
+        UserName = UserName,
+        Role = Role,
+        UserRoles = UserRoles,
+        UserGroups = UserGroups,
+        AgentAccess = AgentAccess,
+        GroupAccess = GroupAccess,
+        SiteIds = SiteIds,
+        CurrentSiteId = CurrentSiteId,
+        AccessToken = AccessToken,
+        TokenExpiry = TokenExpiry,
+        TeamApiKey = TeamApiKey,
+        InboundApiKey = InboundApiKey,
+        PlatformApiKeyId = PlatformApiKeyId,
+        PreferredUserGroupId = preferredUserGroupId,
+        CorrelationId = CorrelationId,
+        SessionId = SessionId,
         CustomHeaders = CustomHeaders,
         SsoForwardHeaders = SsoForwardHeaders,
     };

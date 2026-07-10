@@ -317,6 +317,8 @@ builder.Services.AddSingleton<ILlmConfigResolver, LlmConfigResolver>();
 builder.Services.AddSingleton<ITenantGroupService, TenantGroupService>();
 
 // ── Phase 28: Agent Access Groups ─────────────────────────────────────────────────────
+builder.Services.AddSingleton<IUserGroupResolver, UserGroupMembershipCache>();
+builder.Services.AddSingleton<IUserGroupService, UserGroupService>();
 builder.Services.AddSingleton<IAgentGroupService, AgentGroupService>();
 
 // ── Phase 18: Group Agent Overlays ────────────────────────────────────────────────────

@@ -197,6 +197,34 @@ namespace Diva.Infrastructure.Data.Migrations
                     b.ToTable("AgentGroups");
                 });
 
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.AgentGroupUserGroupEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AgentGroupId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TenantId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("UserGroupId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("UserGroupId");
+
+                    b.HasIndex("AgentGroupId", "UserGroupId")
+                        .IsUnique();
+
+                    b.ToTable("AgentGroupUserGroups");
+                });
+
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.AgentOptimizationConfigEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -1259,6 +1287,37 @@ namespace Diva.Infrastructure.Data.Migrations
                     b.ToTable("McpCredentials");
                 });
 
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.McpServerUserGroupCredentialEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CredentialRef")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("McpServerId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("TenantId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("UserGroupId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("UserGroupId");
+
+                    b.HasIndex("McpServerId", "UserGroupId")
+                        .IsUnique();
+
+                    b.ToTable("McpServerUserGroupCredentials");
+                });
+
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.PlatformApiKeyEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -1487,6 +1546,15 @@ namespace Diva.Infrastructure.Data.Migrations
 
                     b.Property<string>("PromptText")
                         .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RunAsUserEmail")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RunAsUserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RunAsUserLabel")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("RunAtTime")
@@ -2176,6 +2244,96 @@ namespace Diva.Infrastructure.Data.Migrations
                     b.ToTable("SsoConfigs");
                 });
 
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.UserGroupEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TenantId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "Name")
+                        .IsUnique();
+
+                    b.ToTable("UserGroups");
+                });
+
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.UserGroupMemberEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Email")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TenantId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("UserGroupId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "Email");
+
+                    b.HasIndex("TenantId", "UserId");
+
+                    b.HasIndex("UserGroupId", "UserId")
+                        .IsUnique();
+
+                    b.ToTable("UserGroupMembers");
+                });
+
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.UserGroupRoleEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TenantId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("UserGroupId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("UserGroupId", "Role")
+                        .IsUnique();
+
+                    b.ToTable("UserGroupRoles");
+                });
+
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.UserProfileEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -2290,6 +2448,25 @@ namespace Diva.Infrastructure.Data.Migrations
                     b.HasIndex("TenantId", "IsActive");
 
                     b.ToTable("WidgetConfigs");
+                });
+
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.AgentGroupUserGroupEntity", b =>
+                {
+                    b.HasOne("Diva.Infrastructure.Data.Entities.AgentGroupEntity", "AgentGroup")
+                        .WithMany("UserGroupLinks")
+                        .HasForeignKey("AgentGroupId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Diva.Infrastructure.Data.Entities.UserGroupEntity", "UserGroup")
+                        .WithMany()
+                        .HasForeignKey("UserGroupId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("AgentGroup");
+
+                    b.Navigation("UserGroup");
                 });
 
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.AgentOptimizationSuggestionEntity", b =>
@@ -2422,6 +2599,25 @@ namespace Diva.Infrastructure.Data.Migrations
                     b.Navigation("ParentPack");
                 });
 
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.McpServerUserGroupCredentialEntity", b =>
+                {
+                    b.HasOne("Diva.Infrastructure.Data.Entities.TenantMcpServerEntity", "McpServer")
+                        .WithMany("UserGroupCredentials")
+                        .HasForeignKey("McpServerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Diva.Infrastructure.Data.Entities.UserGroupEntity", "UserGroup")
+                        .WithMany()
+                        .HasForeignKey("UserGroupId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("McpServer");
+
+                    b.Navigation("UserGroup");
+                });
+
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.ScheduledTaskRunEntity", b =>
                 {
                     b.HasOne("Diva.Infrastructure.Data.Entities.ScheduledTaskEntity", "ScheduledTask")
@@ -2484,6 +2680,33 @@ namespace Diva.Infrastructure.Data.Migrations
                     b.Navigation("Group");
                 });
 
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.UserGroupMemberEntity", b =>
+                {
+                    b.HasOne("Diva.Infrastructure.Data.Entities.UserGroupEntity", "Group")
+                        .WithMany("Members")
+                        .HasForeignKey("UserGroupId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Group");
+                });
+
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.UserGroupRoleEntity", b =>
+                {
+                    b.HasOne("Diva.Infrastructure.Data.Entities.UserGroupEntity", "Group")
+                        .WithMany("Roles")
+                        .HasForeignKey("UserGroupId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Group");
+                });
+
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.AgentGroupEntity", b =>
+                {
+                    b.Navigation("UserGroupLinks");
+                });
+
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.AgentOptimizationRunEntity", b =>
                 {
                     b.Navigation("Suggestions");
@@ -2513,6 +2736,18 @@ namespace Diva.Infrastructure.Data.Migrations
                     b.Navigation("LlmConfigs");
 
                     b.Navigation("Members");
+                });
+
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.TenantMcpServerEntity", b =>
+                {
+                    b.Navigation("UserGroupCredentials");
+                });
+
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.UserGroupEntity", b =>
+                {
+                    b.Navigation("Members");
+
+                    b.Navigation("Roles");
                 });
 #pragma warning restore 612, 618
         }

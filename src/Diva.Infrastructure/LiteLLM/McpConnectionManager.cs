@@ -100,7 +100,21 @@ public sealed class McpConnectionManager : IMcpConnectionManager
             return (client, tools);
         });
         foreach (var (client, tools) in await Task.WhenAll(listTasks))
-            foreach (var tool in tools) { map[tool.Name] = client; allTools.Add(tool); }
+            foreach (var tool in tools)
+            {
+                // Tool names must be globally unique across all connected servers — the LLM tool
+                // schema (and the Anthropic API) rejects duplicates. Keep the first occurrence and
+                // route it to that server; skip later collisions so map and list stay consistent.
+                if (map.ContainsKey(tool.Name))
+                {
+                    _logger.LogWarning(
+                        "Duplicate MCP tool name '{Tool}' exposed by multiple servers — keeping the first, ignoring the duplicate.",
+                        tool.Name);
+                    continue;
+                }
+                map[tool.Name] = client;
+                allTools.Add(tool);
+            }
         return (map, allTools);
     }
 

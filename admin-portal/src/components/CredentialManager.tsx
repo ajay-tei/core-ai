@@ -123,6 +123,11 @@ export function CredentialManager() {
                     <Badge variant={c.isActive ? "default" : "secondary"}>{c.isActive ? "Active" : "Inactive"}</Badge>
                     <Badge variant="outline">{c.authScheme}</Badge>
                     {c.customHeaderName && <Badge variant="outline">{c.customHeaderName}</Badge>}
+                    {c.apiKeyHint && (
+                      <Badge variant="outline" className="font-mono" title="Last 4 characters of the stored key">
+                        {c.apiKeyHint}
+                      </Badge>
+                    )}
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {c.description && <span>{c.description} · </span>}

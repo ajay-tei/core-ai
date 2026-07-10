@@ -28,8 +28,8 @@ public sealed class UserProfileService : IUserProfileService, IUserLoginTracker
         IMemoryCache cache,
         ILogger<UserProfileService> logger)
     {
-        _db     = db;
-        _cache  = cache;
+        _db = db;
+        _cache = cache;
         _logger = logger;
     }
 
@@ -68,18 +68,21 @@ public sealed class UserProfileService : IUserProfileService, IUserLoginTracker
         if (profile is null)
         {
             // First-ever login for this user in this tenant — create their profile.
-            var displayName = !string.IsNullOrEmpty(tenant.UserEmail) ? tenant.UserEmail
-                            : !string.IsNullOrEmpty(tenant.UserId)    ? tenant.UserId
+            // Prefer the friendly name claim so the admin UI shows a human-readable label;
+            // fall back to email, then the raw user id, and finally "Unknown".
+            var displayName = !string.IsNullOrEmpty(tenant.UserName) ? tenant.UserName
+                            : !string.IsNullOrEmpty(tenant.UserEmail) ? tenant.UserEmail
+                            : !string.IsNullOrEmpty(tenant.UserId) ? tenant.UserId
                             : "Unknown";
             profile = new UserProfileEntity
             {
-                TenantId    = tenant.TenantId,
-                UserId      = tenant.UserId,
-                Email       = tenant.UserEmail,
+                TenantId = tenant.TenantId,
+                UserId = tenant.UserId,
+                Email = tenant.UserEmail,
                 DisplayName = displayName,
-                Roles       = tenant.UserRoles,
+                Roles = tenant.UserRoles,
                 AgentAccess = tenant.AgentAccess,
-                CreatedAt   = DateTime.UtcNow,
+                CreatedAt = DateTime.UtcNow,
                 LastLoginAt = DateTime.UtcNow
             };
             db.UserProfiles.Add(profile);
@@ -88,10 +91,21 @@ public sealed class UserProfileService : IUserProfileService, IUserLoginTracker
         else
         {
             // Mirror latest claims from JWT on every login
-            profile.Email       = tenant.UserEmail;
-            profile.Roles       = tenant.UserRoles;
+            profile.Email = tenant.UserEmail;
+            profile.Roles = tenant.UserRoles;
             profile.AgentAccess = tenant.AgentAccess;
             profile.LastLoginAt = DateTime.UtcNow;
+
+            // Backfill the display name when a real name claim is now available and the
+            // stored value is still a fallback (empty, or equal to the email/user id).
+            // This never clobbers a name an admin edited manually.
+            if (!string.IsNullOrEmpty(tenant.UserName) &&
+                (string.IsNullOrEmpty(profile.DisplayName)
+                 || profile.DisplayName == profile.UserId
+                 || string.Equals(profile.DisplayName, tenant.UserEmail, StringComparison.OrdinalIgnoreCase)))
+            {
+                profile.DisplayName = tenant.UserName;
+            }
         }
 
         await db.SaveChangesAsync(ct);
@@ -156,10 +170,10 @@ public sealed class UserProfileService : IUserProfileService, IUserLoginTracker
         var profile = await db.UserProfiles.FirstOrDefaultAsync(p => p.Id == id, ct)
             ?? throw new KeyNotFoundException($"User profile {id} not found for tenant {tenantId}");
 
-        profile.DisplayName          = dto.DisplayName;
-        profile.AvatarUrl            = dto.AvatarUrl;
+        profile.DisplayName = dto.DisplayName;
+        profile.AvatarUrl = dto.AvatarUrl;
         profile.AgentAccessOverrides = dto.AgentAccessOverrides;
-        profile.MetadataJson         = dto.MetadataJson;
+        profile.MetadataJson = dto.MetadataJson;
 
         await db.SaveChangesAsync(ct);
     }

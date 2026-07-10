@@ -69,6 +69,13 @@ public class DivaDbContext : DbContext
     // ── Agent Access Groups (Phase 28) ────────────────────────────────────────
     public DbSet<AgentGroupEntity> AgentGroups => Set<AgentGroupEntity>();
 
+    // ── User Groups (group users; grant agent access + shared-MCP credentials) ─
+    public DbSet<UserGroupEntity> UserGroups => Set<UserGroupEntity>();
+    public DbSet<UserGroupMemberEntity> UserGroupMembers => Set<UserGroupMemberEntity>();
+    public DbSet<UserGroupRoleEntity> UserGroupRoles => Set<UserGroupRoleEntity>();
+    public DbSet<AgentGroupUserGroupEntity> AgentGroupUserGroups => Set<AgentGroupUserGroupEntity>();
+    public DbSet<McpServerUserGroupCredentialEntity> McpServerUserGroupCredentials => Set<McpServerUserGroupCredentialEntity>();
+
     // ── Phase 24: Agent Optimization ──────────────────────────────────────────
     public DbSet<AgentOptimizationRunEntity> OptimizationRuns => Set<AgentOptimizationRunEntity>();
     public DbSet<AgentOptimizationSuggestionEntity> OptimizationSuggestions => Set<AgentOptimizationSuggestionEntity>();
@@ -396,6 +403,66 @@ public class DivaDbContext : DbContext
         modelBuilder.Entity<AgentGroupEntity>()
             .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
         modelBuilder.Entity<AgentGroupEntity>()
+            .HasIndex(e => e.TenantId);
+
+        // ── User Groups ───────────────────────────────────────
+        modelBuilder.Entity<UserGroupEntity>()
+            .HasKey(e => e.Id);
+        modelBuilder.Entity<UserGroupEntity>()
+            .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
+        modelBuilder.Entity<UserGroupEntity>()
+            .HasIndex(e => new { e.TenantId, e.Name }).IsUnique();
+
+        modelBuilder.Entity<UserGroupMemberEntity>()
+            .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
+        modelBuilder.Entity<UserGroupMemberEntity>()
+            .HasOne(m => m.Group).WithMany(g => g.Members).HasForeignKey(m => m.UserGroupId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<UserGroupMemberEntity>()
+            .HasIndex(e => new { e.UserGroupId, e.UserId }).IsUnique();
+        modelBuilder.Entity<UserGroupMemberEntity>()
+            .HasIndex(e => new { e.TenantId, e.UserId });
+        modelBuilder.Entity<UserGroupMemberEntity>()
+            .HasIndex(e => new { e.TenantId, e.Email });
+
+        modelBuilder.Entity<UserGroupRoleEntity>()
+            .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
+        modelBuilder.Entity<UserGroupRoleEntity>()
+            .HasOne(r => r.Group).WithMany(g => g.Roles).HasForeignKey(r => r.UserGroupId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<UserGroupRoleEntity>()
+            .HasIndex(e => new { e.UserGroupId, e.Role }).IsUnique();
+        modelBuilder.Entity<UserGroupRoleEntity>()
+            .HasIndex(e => e.TenantId);
+
+        modelBuilder.Entity<AgentGroupUserGroupEntity>()
+            .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
+        modelBuilder.Entity<AgentGroupUserGroupEntity>()
+            .HasOne(j => j.AgentGroup).WithMany(a => a.UserGroupLinks).HasForeignKey(j => j.AgentGroupId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<AgentGroupUserGroupEntity>()
+            .HasOne(j => j.UserGroup).WithMany().HasForeignKey(j => j.UserGroupId)
+            // SQL Server rejects multiple cascade paths converging on this junction; keep the
+            // UserGroup FK a no-op delete there. SQLite tolerates it, so keep Cascade to avoid
+            // snapshot drift. Rows are still removed via the AgentGroup cascade.
+            .OnDelete(isSqlite ? DeleteBehavior.Cascade : DeleteBehavior.NoAction);
+        modelBuilder.Entity<AgentGroupUserGroupEntity>()
+            .HasIndex(e => new { e.AgentGroupId, e.UserGroupId }).IsUnique();
+        modelBuilder.Entity<AgentGroupUserGroupEntity>()
+            .HasIndex(e => e.TenantId);
+
+        modelBuilder.Entity<McpServerUserGroupCredentialEntity>()
+            .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
+        modelBuilder.Entity<McpServerUserGroupCredentialEntity>()
+            .HasOne(c => c.McpServer).WithMany(s => s.UserGroupCredentials).HasForeignKey(c => c.McpServerId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<McpServerUserGroupCredentialEntity>()
+            .HasOne(c => c.UserGroup).WithMany().HasForeignKey(c => c.UserGroupId)
+            // Multiple cascade paths guard (same rationale as AgentGroupUserGroup).
+            .OnDelete(isSqlite ? DeleteBehavior.Cascade : DeleteBehavior.NoAction);
+        modelBuilder.Entity<McpServerUserGroupCredentialEntity>()
+            .HasIndex(e => new { e.McpServerId, e.UserGroupId }).IsUnique();
+        modelBuilder.Entity<McpServerUserGroupCredentialEntity>()
             .HasIndex(e => e.TenantId);
 
         // ── Phase 24: Agent Optimization ─────────────────────
