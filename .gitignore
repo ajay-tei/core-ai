@@ -50,3 +50,6 @@ docker-images/
 .playwright-mcp/
 docker-compose.tei.yml
 .github/prompts/
+
+# Local TEI deploy notes / runbooks (not for the public repo)
+TEI/
