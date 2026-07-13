@@ -4,6 +4,56 @@
 
 ---
 
+## [2026-07-13] LLM blank-key resolution fix + editable API-key group grants + child-agent credential-group propagation
+
+Three related fixes: a resolver bug that could send an empty `x-api-key` to the LLM provider,
+editable access-group grants on platform API keys, and propagation of a delegating agent's
+effective credential group to its child agents.
+
+### LLM config resolution — blank override must not clobber inherited key
+
+A tenant/group `LlmConfig` row with a **blank** `ApiKey` (a partially-filled row) overwrote the
+valid inherited platform key with an empty string, so the provider received an empty `x-api-key`
+and rejected every call with `401 invalid x-api-key` — regardless of the (valid) platform key. The
+resolver now treats blank/whitespace `ApiKey` and `Model` overrides as "inherit", and the runner
+falls back to the configured key when the resolved key is blank (not only when null). LLM keys are
+stored plaintext and passed verbatim (no decryption on this path), so this was never a decrypt
+issue. Also added `LLM_DIRECT_API_KEY` to `.env` as the `TenantId=0` fallback (compose default was
+literal `no-key`).
+
+| File | Change |
+|------|--------|
+| `src/Diva.Infrastructure/LiteLLM/LlmConfigResolver.cs` | `Overlay` ignores blank/whitespace `ApiKey`/`Model` overrides (no clobber) |
+| `src/Diva.Infrastructure/LiteLLM/AnthropicAgentRunner.cs` | `resolvedApiKey` falls back to configured key when resolved key is null **or** blank |
+| `tests/Diva.TenantAdmin.Tests/LlmConfigResolverTests.cs` | Regression tests: blank `ApiKey` keeps inherited platform key; blank `Model` inherits platform model |
+
+### Editable API-key access-group grants (+ rotate fix)
+
+Platform API keys were create-only, so a restricted-access-group agent could not be granted to an
+existing invoke/readonly key, and `RotateAsync` silently dropped group grants. Added a full-replace
+`UpdateAsync` (`PUT /api/admin/api-keys/{id}`) and preserved group grants on rotation.
+
+| File | Change |
+|------|--------|
+| `src/Diva.Core/Configuration/IPlatformApiKeyService.cs` | `UpdateApiKeyRequest` record + `UpdateAsync` interface method |
+| `src/Diva.Infrastructure/Auth/PlatformApiKeyService.cs` | `UpdateAsync` (name/scope/agent+group grants/expiry); `RotateAsync` now carries `AllowedGroupIdsJson` |
+| `src/Diva.Host/Controllers/ApiKeysController.cs` | `PUT {id}` update endpoint + `UpdateApiKeyDto` |
+| `admin-portal/src/api.ts`, `admin-portal/src/components/ApiKeyManager.tsx` | `updateApiKey` + inline edit UI with "Allowed Agent Groups" selector |
+
+### Child-agent credential-group propagation
+
+When a delegating agent resolves its shared-MCP servers to a single unambiguous user-group, it now
+propagates that group to delegated child agents so they inherit the same credential rather than
+independently re-resolving to a possibly different group.
+
+| File | Change |
+|------|--------|
+| `src/Diva.Infrastructure/LiteLLM/McpCredentialSelector.cs` | `ResolveSharedBindingsAsync` + `SharedBindingResult(Bindings, EffectiveUserGroupId)`; per-agent + per-API-key credential mapping |
+| `src/Diva.Infrastructure/LiteLLM/AnthropicAgentRunner.cs` | Propagate effective credential user-group to child agents (when caller didn't pick one) |
+| `tests/Diva.Agents.Tests/McpCredentialSelectorTests.cs` | Shared-binding + effective-group + agent-scoped tests |
+
+---
+
 ## [2026-07-10] User Groups + per-group MCP credentials + chat credential-group picker + scheduled-task run-as-user
 
 A tenant-scoped **User Groups** capability landed, wiring group membership into three places:

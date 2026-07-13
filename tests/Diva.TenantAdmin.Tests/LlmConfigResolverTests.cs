@@ -29,8 +29,8 @@ public class LlmConfigResolverTests : IDisposable
         DirectProvider = new DirectProviderOptions
         {
             Provider = "Anthropic",
-            ApiKey   = "fallback-key",
-            Model    = "claude-fallback",
+            ApiKey = "fallback-key",
+            Model = "claude-fallback",
         },
         AvailableModels = ["claude-fallback"],
     };
@@ -45,10 +45,10 @@ public class LlmConfigResolverTests : IDisposable
         _db = new DivaDbContext(opts);
         _db.Database.EnsureCreated();
 
-        _cache           = new MemoryCache(new MemoryCacheOptions());
-        var factory      = new DirectDbFactory(opts);
+        _cache = new MemoryCache(new MemoryCacheOptions());
+        var factory = new DirectDbFactory(opts);
         _membershipCache = new GroupMembershipCache(factory, _cache, NullLogger<GroupMembershipCache>.Instance);
-        _resolver        = new LlmConfigResolver(
+        _resolver = new LlmConfigResolver(
             factory,
             _membershipCache,
             _cache,
@@ -81,8 +81,8 @@ public class LlmConfigResolverTests : IDisposable
         _db.PlatformLlmConfigs.Add(new PlatformLlmConfigEntity
         {
             Provider = "OpenAI",
-            ApiKey   = "platform-key",
-            Model    = "gpt-4o",
+            ApiKey = "platform-key",
+            Model = "gpt-4o",
         });
         await _db.SaveChangesAsync();
 
@@ -97,8 +97,8 @@ public class LlmConfigResolverTests : IDisposable
     public async Task ResolveAsync_MultiPlatformConfigs_UsesFirst()
     {
         // When multiple platform configs exist, resolver picks the one with the smallest Id
-        _db.PlatformLlmConfigs.Add(new PlatformLlmConfigEntity { Name = "First",  Provider = "Anthropic", ApiKey = "key-a", Model = "claude-base" });
-        _db.PlatformLlmConfigs.Add(new PlatformLlmConfigEntity { Name = "Second", Provider = "OpenAI",    ApiKey = "key-b", Model = "gpt-4o" });
+        _db.PlatformLlmConfigs.Add(new PlatformLlmConfigEntity { Name = "First", Provider = "Anthropic", ApiKey = "key-a", Model = "claude-base" });
+        _db.PlatformLlmConfigs.Add(new PlatformLlmConfigEntity { Name = "Second", Provider = "OpenAI", ApiKey = "key-b", Model = "gpt-4o" });
         await _db.SaveChangesAsync();
 
         var result = await _resolver.ResolveAsync(0, null, null, CancellationToken.None);
@@ -116,7 +116,10 @@ public class LlmConfigResolverTests : IDisposable
     {
         _db.PlatformLlmConfigs.Add(new PlatformLlmConfigEntity
         {
-            Id = 1, Provider = "OpenAI", ApiKey = "plat-key", Model = "gpt-4o",
+            Id = 1,
+            Provider = "OpenAI",
+            ApiKey = "plat-key",
+            Model = "gpt-4o",
         });
         await _db.SaveChangesAsync();
 
@@ -135,7 +138,10 @@ public class LlmConfigResolverTests : IDisposable
     {
         _db.PlatformLlmConfigs.Add(new PlatformLlmConfigEntity
         {
-            Id = 1, Provider = "Anthropic", ApiKey = "plat-key", Model = "cached-model",
+            Id = 1,
+            Provider = "Anthropic",
+            ApiKey = "plat-key",
+            Model = "cached-model",
         });
         await _db.SaveChangesAsync();
 
@@ -171,13 +177,20 @@ public class LlmConfigResolverTests : IDisposable
     {
         _db.PlatformLlmConfigs.Add(new PlatformLlmConfigEntity
         {
-            Id = 1, Provider = "Anthropic", ApiKey = "plat-key", Model = "claude-base",
+            Id = 1,
+            Provider = "Anthropic",
+            ApiKey = "plat-key",
+            Model = "claude-base",
         });
         // Named tenant config with a different provider/model
         _db.TenantLlmConfigs.Add(new TenantLlmConfigEntity
         {
-            Id = 99, TenantId = 10, Name = "OpenAI Production",
-            Provider = "OpenAI", ApiKey = "openai-key", Model = "gpt-4o",
+            Id = 99,
+            TenantId = 10,
+            Name = "OpenAI Production",
+            Provider = "OpenAI",
+            ApiKey = "openai-key",
+            Model = "gpt-4o",
         });
         await _db.SaveChangesAsync();
 
@@ -193,7 +206,10 @@ public class LlmConfigResolverTests : IDisposable
     {
         _db.PlatformLlmConfigs.Add(new PlatformLlmConfigEntity
         {
-            Id = 1, Provider = "Anthropic", ApiKey = "plat-key", Model = "claude-base",
+            Id = 1,
+            Provider = "Anthropic",
+            ApiKey = "plat-key",
+            Model = "claude-base",
         });
         // Group and member
         _db.TenantGroups.Add(new TenantGroupEntity { Id = 50, Name = "G", IsActive = true, CreatedAt = DateTime.UtcNow });
@@ -201,8 +217,12 @@ public class LlmConfigResolverTests : IDisposable
         // Named group config
         _db.GroupLlmConfigs.Add(new GroupLlmConfigEntity
         {
-            Id = 55, GroupId = 50, Name = "Azure OpenAI",
-            Provider = "AzureOpenAI", ApiKey = "azure-key", Model = "gpt-4o-azure",
+            Id = 55,
+            GroupId = 50,
+            Name = "Azure OpenAI",
+            Provider = "AzureOpenAI",
+            ApiKey = "azure-key",
+            Model = "gpt-4o-azure",
         });
         await _db.SaveChangesAsync();
 
@@ -218,13 +238,20 @@ public class LlmConfigResolverTests : IDisposable
     {
         _db.PlatformLlmConfigs.Add(new PlatformLlmConfigEntity
         {
-            Id = 1, Provider = "Anthropic", ApiKey = "plat-key", Model = "claude-base",
+            Id = 1,
+            Provider = "Anthropic",
+            ApiKey = "plat-key",
+            Model = "claude-base",
         });
         // Named config for tenant 12
         _db.TenantLlmConfigs.Add(new TenantLlmConfigEntity
         {
-            Id = 77, TenantId = 12, Name = "Special",
-            Provider = "OpenAI", ApiKey = "special-key", Model = "gpt-3.5-turbo",
+            Id = 77,
+            TenantId = 12,
+            Name = "Special",
+            Provider = "OpenAI",
+            ApiKey = "special-key",
+            Model = "gpt-3.5-turbo",
         });
         await _db.SaveChangesAsync();
 
@@ -239,7 +266,10 @@ public class LlmConfigResolverTests : IDisposable
     {
         _db.PlatformLlmConfigs.Add(new PlatformLlmConfigEntity
         {
-            Id = 1, Provider = "Anthropic", ApiKey = "plat-key", Model = "claude-base",
+            Id = 1,
+            Provider = "Anthropic",
+            ApiKey = "plat-key",
+            Model = "claude-base",
         });
         await _db.SaveChangesAsync();
 
@@ -255,12 +285,19 @@ public class LlmConfigResolverTests : IDisposable
     {
         _db.PlatformLlmConfigs.Add(new PlatformLlmConfigEntity
         {
-            Id = 1, Provider = "Anthropic", ApiKey = "plat-key", Model = "claude-base",
+            Id = 1,
+            Provider = "Anthropic",
+            ApiKey = "plat-key",
+            Model = "claude-base",
         });
         _db.TenantLlmConfigs.Add(new TenantLlmConfigEntity
         {
-            Id = 88, TenantId = 14, Name = "Custom",
-            Provider = "OpenAI", ApiKey = "openai-key", Model = "gpt-4o",
+            Id = 88,
+            TenantId = 14,
+            Name = "Custom",
+            Provider = "OpenAI",
+            ApiKey = "openai-key",
+            Model = "gpt-4o",
         });
         await _db.SaveChangesAsync();
 
@@ -280,7 +317,10 @@ public class LlmConfigResolverTests : IDisposable
         // Platform config with its own credentials
         var platform = new PlatformLlmConfigEntity
         {
-            Name = "OpenAI Shared", Provider = "OpenAI", ApiKey = "plat-openai-key", Model = "gpt-4o",
+            Name = "OpenAI Shared",
+            Provider = "OpenAI",
+            ApiKey = "plat-openai-key",
+            Model = "gpt-4o",
         };
         _db.PlatformLlmConfigs.Add(platform);
         _db.TenantGroups.Add(new TenantGroupEntity { Id = 60, Name = "G", IsActive = true, CreatedAt = DateTime.UtcNow });
@@ -290,7 +330,10 @@ public class LlmConfigResolverTests : IDisposable
         // Group config references the platform config (no own credentials)
         _db.GroupLlmConfigs.Add(new GroupLlmConfigEntity
         {
-            Id = 70, GroupId = 60, Name = "OpenAI via Platform", PlatformConfigRef = platform.Id,
+            Id = 70,
+            GroupId = 60,
+            Name = "OpenAI via Platform",
+            PlatformConfigRef = platform.Id,
         });
         await _db.SaveChangesAsync();
 
@@ -300,5 +343,68 @@ public class LlmConfigResolverTests : IDisposable
         Assert.Equal("OpenAI", result.Provider);
         Assert.Equal("plat-openai-key", result.ApiKey);
         Assert.Equal("gpt-4o", result.Model);
+    }
+
+    // ── Blank override must not clobber inherited values ───────────────────────
+
+    [Fact]
+    public async Task ResolveAsync_NamedConfigWithBlankApiKey_KeepsInheritedPlatformKey()
+    {
+        // Regression: a config row with an empty ApiKey must NOT overwrite the valid
+        // inherited platform key (an empty x-api-key would be rejected with 401).
+        _db.PlatformLlmConfigs.Add(new PlatformLlmConfigEntity
+        {
+            Id = 1,
+            Provider = "Anthropic",
+            ApiKey = "plat-key",
+            Model = "claude-base",
+        });
+        _db.TenantGroups.Add(new TenantGroupEntity { Id = 80, Name = "G", IsActive = true, CreatedAt = DateTime.UtcNow });
+        _db.TenantGroupMembers.Add(new TenantGroupMemberEntity { GroupId = 80, TenantId = 16, JoinedAt = DateTime.UtcNow });
+        // Group config sets provider/model but leaves ApiKey blank (partially filled row)
+        _db.GroupLlmConfigs.Add(new GroupLlmConfigEntity
+        {
+            Id = 81,
+            GroupId = 80,
+            Name = "Blank Key",
+            Provider = "Anthropic",
+            ApiKey = "",
+            Model = "claude-sonnet-4-6",
+        });
+        await _db.SaveChangesAsync();
+
+        var result = await _resolver.ResolveAsync(16, 81, null, CancellationToken.None);
+
+        Assert.Equal("Anthropic", result.Provider);
+        Assert.Equal("plat-key", result.ApiKey);          // inherited, not clobbered by blank
+        Assert.Equal("claude-sonnet-4-6", result.Model);  // model override still applied
+    }
+
+    [Fact]
+    public async Task ResolveAsync_NamedConfigWithBlankModel_KeepsInheritedPlatformModel()
+    {
+        // A blank Model must inherit the platform model rather than overwrite it with empty.
+        _db.PlatformLlmConfigs.Add(new PlatformLlmConfigEntity
+        {
+            Id = 1,
+            Provider = "Anthropic",
+            ApiKey = "plat-key",
+            Model = "claude-base",
+        });
+        _db.TenantLlmConfigs.Add(new TenantLlmConfigEntity
+        {
+            Id = 91,
+            TenantId = 17,
+            Name = "Blank Model",
+            Provider = "Anthropic",
+            ApiKey = "tenant-key",
+            Model = "",
+        });
+        await _db.SaveChangesAsync();
+
+        var result = await _resolver.ResolveAsync(17, 91, null, CancellationToken.None);
+
+        Assert.Equal("tenant-key", result.ApiKey);   // config key applied
+        Assert.Equal("claude-base", result.Model);   // blank model inherited from platform
     }
 }

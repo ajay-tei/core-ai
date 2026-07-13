@@ -34,6 +34,17 @@ public sealed record CreateApiKeyRequest(
     string[]? AllowedGroupIds = null);
 
 /// <summary>
+/// Request to update an existing platform API key. Grants use full-replace semantics
+/// (null/empty clears the grant). The raw key and hash are never changed.
+/// </summary>
+public sealed record UpdateApiKeyRequest(
+    string? Name = null,
+    string? Scope = null,
+    string[]? AllowedAgentIds = null,
+    string[]? AllowedGroupIds = null,
+    DateTime? ExpiresAt = null);
+
+/// <summary>
 /// Manages platform API keys for non-SSO authentication.
 /// </summary>
 public interface IPlatformApiKeyService
@@ -46,6 +57,9 @@ public interface IPlatformApiKeyService
 
     /// <summary>Lists all API keys for a tenant (never returns raw keys).</summary>
     Task<List<PlatformApiKeyInfo>> ListAsync(int tenantId, CancellationToken ct);
+
+    /// <summary>Updates an existing API key's name, scope, and agent/group grants (full-replace). Returns the updated info.</summary>
+    Task<PlatformApiKeyInfo?> UpdateAsync(int tenantId, int keyId, UpdateApiKeyRequest request, CancellationToken ct);
 
     /// <summary>Revokes (deactivates) an API key.</summary>
     Task RevokeAsync(int tenantId, int keyId, CancellationToken ct);

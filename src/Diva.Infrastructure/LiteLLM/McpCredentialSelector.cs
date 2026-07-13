@@ -19,10 +19,21 @@ public interface IMcpCredentialSelector
     /// <summary>
     /// Builds tool bindings for the given shared-server names. Unknown names are skipped (logged).
     /// The caller's <see cref="TenantContext"/> drives credential selection (platform API key,
-    /// user-group membership, SSO identity).
+    /// user-group membership, SSO identity). When <paramref name="agentId"/> is supplied and that
+    /// agent belongs to an access group scoped to one or more user groups, credential selection
+    /// prefers those groups (intersected with the caller's groups and the server's mappings).
     /// </summary>
     Task<List<McpToolBinding>> ResolveBindingsAsync(
-        TenantContext tenant, IEnumerable<string> serverNames, CancellationToken ct);
+        TenantContext tenant, IEnumerable<string> serverNames, CancellationToken ct, string? agentId = null);
+
+    /// <summary>
+    /// Same as <see cref="ResolveBindingsAsync"/> but also reports the single user-group the
+    /// caller's servers resolved to (when unambiguous), so a delegating parent can propagate its
+    /// effective credential group to child agents. <see cref="SharedBindingResult.EffectiveUserGroupId"/>
+    /// is null when no server resolved via a user-group or when servers resolved to different groups.
+    /// </summary>
+    Task<SharedBindingResult> ResolveSharedBindingsAsync(
+        TenantContext tenant, IEnumerable<string> serverNames, CancellationToken ct, string? agentId = null);
 
     /// <summary>
     /// Returns the user groups the caller may pick from to drive shared-MCP credential selection
@@ -39,6 +50,12 @@ public interface IMcpCredentialSelector
 
 /// <summary>A user group the caller can select to drive shared-MCP credential resolution.</summary>
 public sealed record CredentialGroupOption(int Id, string Name);
+
+/// <summary>
+/// Result of resolving shared-server bindings: the concrete bindings plus the single user-group
+/// the caller's servers resolved to (when unambiguous) for propagation to delegated child agents.
+/// </summary>
+public sealed record SharedBindingResult(List<McpToolBinding> Bindings, int? EffectiveUserGroupId);
 
 /// <inheritdoc />
 public sealed class McpCredentialSelector : IMcpCredentialSelector
@@ -63,7 +80,11 @@ public sealed class McpCredentialSelector : IMcpCredentialSelector
     }
 
     public async Task<List<McpToolBinding>> ResolveBindingsAsync(
-        TenantContext tenant, IEnumerable<string> serverNames, CancellationToken ct)
+        TenantContext tenant, IEnumerable<string> serverNames, CancellationToken ct, string? agentId = null)
+        => (await ResolveSharedBindingsAsync(tenant, serverNames, ct, agentId)).Bindings;
+
+    public async Task<SharedBindingResult> ResolveSharedBindingsAsync(
+        TenantContext tenant, IEnumerable<string> serverNames, CancellationToken ct, string? agentId = null)
     {
         var tenantId = tenant.TenantId;
         var platformApiKeyId = tenant.PlatformApiKeyId;
@@ -76,7 +97,7 @@ public sealed class McpCredentialSelector : IMcpCredentialSelector
             .ToList();
 
         var result = new List<McpToolBinding>();
-        if (names.Count == 0) return result;
+        if (names.Count == 0) return new SharedBindingResult(result, null);
 
         using var db = _db.CreateDbContext(TenantContext.System(tenantId));
         var servers = await db.TenantMcpServers
@@ -101,6 +122,13 @@ public sealed class McpCredentialSelector : IMcpCredentialSelector
         if (groupCredentials.Count > 0)
             userGroupIds = (await _userGroups.GetGroupIdsForUserAsync(tenant, ct)).ToHashSet();
 
+        // User groups the invoked agent itself is scoped to (via its access group membership).
+        // When set, credential selection prefers these groups so e.g. a "Riverside" agent uses the
+        // Riverside credential even when the caller also belongs to other credential-mapped groups.
+        var agentScopedGroupIds = groupCredentials.Count > 0
+            ? await GetAgentScopedUserGroupIdsAsync(db, tenantId, agentId, ct)
+            : new HashSet<int>();
+
         // serverId → ascending-by-user-group-id credential rows restricted to the caller's groups.
         var groupCredByServer = groupCredentials
             .Where(c => userGroupIds.Contains(c.UserGroupId) && !string.IsNullOrWhiteSpace(c.CredentialRef))
@@ -114,7 +142,7 @@ public sealed class McpCredentialSelector : IMcpCredentialSelector
         var decisions = new Dictionary<int, CredDecision>();
         foreach (var server in servers)
         {
-            var decision = SelectCredential(server, platformApiKeyId, preferredGroupId, groupCredByServer, tenantId);
+            var decision = SelectCredential(server, platformApiKeyId, preferredGroupId, groupCredByServer, agentScopedGroupIds, tenantId);
             decisions[server.Id] = decision;
             result.Add(new McpToolBinding
             {
@@ -173,7 +201,17 @@ public sealed class McpCredentialSelector : IMcpCredentialSelector
             }
         }
 
-        return result;
+        // Effective group to propagate to delegated child agents: the single user-group that all
+        // user-group-resolved servers agreed on. Ambiguous (multiple distinct groups) or no
+        // user-group resolution → null (child resolves independently).
+        var chosenGroups = decisions.Values
+            .Where(d => d.Source == CredSource.UserGroup && d.UserGroupId is not null)
+            .Select(d => d.UserGroupId!.Value)
+            .Distinct()
+            .ToList();
+        int? effectiveUserGroupId = chosenGroups.Count == 1 ? chosenGroups[0] : null;
+
+        return new SharedBindingResult(result, effectiveUserGroupId);
     }
 
     public async Task<List<CredentialGroupOption>> GetSelectableGroupsAsync(
@@ -232,6 +270,7 @@ public sealed class McpCredentialSelector : IMcpCredentialSelector
         int? platformApiKeyId,
         int? preferredUserGroupId,
         IReadOnlyDictionary<int, List<GroupCred>> groupCredByServer,
+        IReadOnlyCollection<int> agentScopedGroupIds,
         int tenantId)
     {
         // 1. Per-platform-API-key mapping wins.
@@ -253,28 +292,62 @@ public sealed class McpCredentialSelector : IMcpCredentialSelector
             }
         }
 
-        // 2. Per-user-group credential. When the caller explicitly picked a group (and it maps a
-        //    credential for this server), that choice wins. Otherwise, if the caller belongs to
-        //    multiple credential-mapped groups, the lowest UserGroupId (oldest group) wins.
+        // 2. Per-user-group credential. When the caller explicitly picked a group (or a delegating
+        //    parent inherited its effective group) and it maps a credential for this server, that
+        //    choice wins. If a group is selected/inherited but this server has NO mapping for it,
+        //    resolve to no credential (SSO passthrough) rather than silently substituting a
+        //    different group's credential. Only when no group is selected at all does the lowest
+        //    UserGroupId (oldest group) win.
         if (groupCredByServer.TryGetValue(server.Id, out var groupCreds) && groupCreds.Count > 0)
         {
-            if (preferredUserGroupId is int pref &&
-                groupCreds.FirstOrDefault(c => c.UserGroupId == pref) is { } picked)
+            if (preferredUserGroupId is int pref)
             {
-                _logger.LogInformation(
-                    "Shared MCP server '{Name}' (tenant {TenantId}): using caller-selected user-group {GroupId} credential ('{Ref}').",
-                    server.Name, tenantId, picked.UserGroupId, picked.CredentialRef);
-                return new CredDecision(picked.CredentialRef, CredSource.UserGroup, picked.UserGroupId, null);
+                if (groupCreds.FirstOrDefault(c => c.UserGroupId == pref) is { } picked)
+                {
+                    _logger.LogInformation(
+                        "Shared MCP server '{Name}' (tenant {TenantId}): using selected/inherited user-group {GroupId} credential ('{Ref}').",
+                        server.Name, tenantId, picked.UserGroupId, picked.CredentialRef);
+                    return new CredDecision(picked.CredentialRef, CredSource.UserGroup, picked.UserGroupId, null);
+                }
+
+                _logger.LogWarning(
+                    "Shared MCP server '{Name}' (tenant {TenantId}): selected/inherited user-group {GroupId} has no credential mapping for this server "
+                    + "(mapped groups: {Groups}). Using no credential (SSO passthrough) rather than substituting another group's credential.",
+                    server.Name, tenantId, pref, string.Join(", ", groupCreds.Select(c => c.UserGroupId)));
+                return new CredDecision(null, CredSource.SsoPassthrough, null, null);
             }
 
-            var chosen = groupCreds[0];   // already ordered ascending by UserGroupId
-            if (groupCreds.Count > 1)
+            // No explicit pick: prefer the group(s) the agent itself is scoped to (its access
+            // group's user groups) intersected with the caller's mapped groups for this server.
+            // This lets an agent that belongs to e.g. the "Riverside" group use the Riverside
+            // credential even when the caller also belongs to other credential-mapped groups.
+            // Falls back to the full set when the agent has no scope or its scope maps no
+            // credential on this server.
+            var candidates = groupCreds;
+            if (agentScopedGroupIds.Count > 0)
+            {
+                var scoped = groupCreds.Where(c => agentScopedGroupIds.Contains(c.UserGroupId)).ToList();
+                if (scoped.Count > 0)
+                {
+                    candidates = scoped;
+                    if (groupCreds.Count > scoped.Count)
+                        _logger.LogInformation(
+                            "Shared MCP server '{Name}' (tenant {TenantId}): narrowing to agent-scoped user group(s) {Scoped} "
+                            + "(caller matched {AllGroups}).",
+                            server.Name, tenantId,
+                            string.Join(", ", scoped.Select(c => c.UserGroupId)),
+                            string.Join(", ", groupCreds.Select(c => c.UserGroupId)));
+                }
+            }
+
+            var chosen = candidates[0];   // already ordered ascending by UserGroupId
+            if (candidates.Count > 1)
             {
                 _logger.LogWarning(
                     "Shared MCP server '{Name}' (tenant {TenantId}): caller matches {Count} user groups with credential mappings ({Groups}). "
                     + "Using credential from lowest user-group id {GroupId} ('{Ref}').",
-                    server.Name, tenantId, groupCreds.Count,
-                    string.Join(", ", groupCreds.Select(c => c.UserGroupId)),
+                    server.Name, tenantId, candidates.Count,
+                    string.Join(", ", candidates.Select(c => c.UserGroupId)),
                     chosen.UserGroupId, chosen.CredentialRef);
             }
             return new CredDecision(chosen.CredentialRef, CredSource.UserGroup, chosen.UserGroupId, null);
@@ -284,6 +357,40 @@ public sealed class McpCredentialSelector : IMcpCredentialSelector
         return string.IsNullOrWhiteSpace(server.DefaultCredentialRef)
             ? new CredDecision(null, CredSource.SsoPassthrough, null, null)
             : new CredDecision(server.DefaultCredentialRef, CredSource.ServerDefault, null, null);
+    }
+
+    /// <summary>
+    /// Resolves the set of user-group ids the given agent is scoped to via its access-group
+    /// membership (union of <c>AgentGroupUserGroups</c> links across every agent group whose
+    /// <c>AgentIdsJson</c> contains the agent). Empty when the agent belongs to no group or its
+    /// groups link no user groups. Used to bias shared-MCP credential selection toward the agent's
+    /// own group without changing the caller-driven precedence for explicit picks.
+    /// </summary>
+    private async Task<HashSet<int>> GetAgentScopedUserGroupIdsAsync(
+        DivaDbContext db, int tenantId, string? agentId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(agentId)) return new HashSet<int>();
+
+        var agentGroups = await db.AgentGroups
+            .Where(g => g.TenantId == tenantId && g.AgentIdsJson != null && g.AgentIdsJson != "")
+            .Select(g => new { g.Id, g.AgentIdsJson })
+            .AsNoTracking()
+            .ToListAsync(ct);
+
+        var matchingGroupIds = agentGroups
+            .Where(g => ParseStringList(g.AgentIdsJson).Contains(agentId, StringComparer.OrdinalIgnoreCase))
+            .Select(g => g.Id)
+            .ToList();
+        if (matchingGroupIds.Count == 0) return new HashSet<int>();
+
+        var groupIds = await db.AgentGroupUserGroups
+            .Where(x => x.TenantId == tenantId && matchingGroupIds.Contains(x.AgentGroupId))
+            .AsNoTracking()
+            .Select(x => x.UserGroupId)
+            .Distinct()
+            .ToListAsync(ct);
+
+        return groupIds.ToHashSet();
     }
 
     /// <summary>

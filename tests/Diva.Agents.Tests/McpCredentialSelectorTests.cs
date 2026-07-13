@@ -307,18 +307,66 @@ public class McpCredentialSelectorTests : IDisposable
     }
 
     [Fact]
-    public async Task PreferredUserGroup_IgnoredWhenNotAMemberOrNoMapping()
+    public async Task PreferredUserGroup_UnmatchedResolvesToNoCredential()
     {
         Seed(new TenantMcpServerEntity { TenantId = TenantId, Name = "weather", DefaultCredentialRef = "default-key" });
         var serverId = ServerId("weather");
         var g1 = SeedUserGroup("group-one", "alice");
         SeedGroupCredential(serverId, g1, "cred-one");
 
-        // Prefer a group id the caller does not belong to → falls back to the mapped group.
+        // Prefer a group id the caller does not belong to (or that has no mapping on this server):
+        // do NOT substitute another group's credential — resolve to no credential (SSO passthrough).
         var ctx = Ctx(userId: "alice").WithPreferredUserGroup(9999);
         var bindings = await _selector.ResolveBindingsAsync(ctx, ["weather"], default);
 
-        Assert.Equal("cred-one", Assert.Single(bindings).CredentialRef);
+        Assert.Null(Assert.Single(bindings).CredentialRef);
+    }
+
+    [Fact]
+    public async Task PreferredUserGroup_UnmappedOnServer_ResolvesToNoCredential()
+    {
+        Seed(new TenantMcpServerEntity { TenantId = TenantId, Name = "weather", DefaultCredentialRef = "default-key" });
+        var serverId = ServerId("weather");
+        var g1 = SeedUserGroup("group-one", "alice");
+        var g2 = SeedUserGroup("group-two", "alice");
+        SeedGroupCredential(serverId, g1, "cred-one");   // only g1 maps a credential for this server
+
+        // Caller belongs to g2 (a valid, credential-mapped group elsewhere) but this server has no
+        // g2 mapping → no credential rather than falling back to g1.
+        var ctx = Ctx(userId: "alice").WithPreferredUserGroup(g2);
+        var bindings = await _selector.ResolveBindingsAsync(ctx, ["weather"], default);
+
+        Assert.Null(Assert.Single(bindings).CredentialRef);
+    }
+
+    [Fact]
+    public async Task ResolveSharedBindings_ExposesUnambiguousEffectiveGroup()
+    {
+        Seed(new TenantMcpServerEntity { TenantId = TenantId, Name = "weather", DefaultCredentialRef = "default-key" });
+        var serverId = ServerId("weather");
+        var g1 = SeedUserGroup("group-one", "alice");
+        var g2 = SeedUserGroup("group-two", "alice");
+        SeedGroupCredential(serverId, g1, "cred-one");
+        SeedGroupCredential(serverId, g2, "cred-two");
+
+        // No explicit preference → lowest-id (g1) wins, and that group is reported as the
+        // effective group for propagation to delegated child agents.
+        var result = await _selector.ResolveSharedBindingsAsync(Ctx(userId: "alice"), ["weather"], default);
+
+        Assert.Equal("cred-one", Assert.Single(result.Bindings).CredentialRef);
+        Assert.Equal(g1, result.EffectiveUserGroupId);
+    }
+
+    [Fact]
+    public async Task ResolveSharedBindings_NoEffectiveGroupWhenServerDefaultUsed()
+    {
+        Seed(new TenantMcpServerEntity { TenantId = TenantId, Name = "weather", DefaultCredentialRef = "default-key" });
+
+        // Server default credential (no user-group involved) → no effective group to propagate.
+        var result = await _selector.ResolveSharedBindingsAsync(Ctx(userId: "alice"), ["weather"], default);
+
+        Assert.Equal("default-key", Assert.Single(result.Bindings).CredentialRef);
+        Assert.Null(result.EffectiveUserGroupId);
     }
 
     [Fact]
@@ -356,10 +404,69 @@ public class McpCredentialSelectorTests : IDisposable
         Assert.Equal([g2], groups.Select(g => g.Id).ToArray());
     }
 
+    [Fact]
+    public async Task AgentScopedGroup_PreferredOverLowestIdTieBreak()
+    {
+        Seed(new TenantMcpServerEntity { TenantId = TenantId, Name = "weather", DefaultCredentialRef = "default-key" });
+        var serverId = ServerId("weather");
+        var g1 = SeedUserGroup("group-one", "alice");     // lowest id
+        var g2 = SeedUserGroup("group-two", "alice");     // agent's own group
+        SeedGroupCredential(serverId, g1, "cred-one");
+        SeedGroupCredential(serverId, g2, "cred-two");
+
+        // Agent belongs to an access group scoped to g2 → the agent's group wins over the
+        // lowest-id (g1) tie-break, even though the caller belongs to both.
+        var agentId = SeedAgentGroupForAgent("agent-riverside", g2);
+        var result = await _selector.ResolveSharedBindingsAsync(
+            Ctx(userId: "alice"), ["weather"], default, agentId);
+
+        Assert.Equal("cred-two", Assert.Single(result.Bindings).CredentialRef);
+        Assert.Equal(g2, result.EffectiveUserGroupId);
+    }
+
+    [Fact]
+    public async Task AgentScopedGroup_FallsBackToLowestIdWhenScopeUnmappedOnServer()
+    {
+        Seed(new TenantMcpServerEntity { TenantId = TenantId, Name = "weather", DefaultCredentialRef = "default-key" });
+        var serverId = ServerId("weather");
+        var g1 = SeedUserGroup("group-one", "alice");
+        var g2 = SeedUserGroup("group-two", "alice");
+        var g3 = SeedUserGroup("group-three", "alice");   // agent's group, but no mapping here
+        SeedGroupCredential(serverId, g1, "cred-one");
+        SeedGroupCredential(serverId, g2, "cred-two");
+
+        // Agent is scoped to g3, which maps no credential on this server → the agent scope does not
+        // apply and the caller's lowest-id (g1) is used (no explicit pick was made).
+        var agentId = SeedAgentGroupForAgent("agent-scoped-g3", g3);
+        var result = await _selector.ResolveSharedBindingsAsync(
+            Ctx(userId: "alice"), ["weather"], default, agentId);
+
+        Assert.Equal("cred-one", Assert.Single(result.Bindings).CredentialRef);
+    }
+
     private int ServerId(string name)
     {
         using var db = new DivaDbContext(_dbOptions, currentTenantId: TenantId);
         return db.TenantMcpServers.Single(s => s.Name == name).Id;
+    }
+
+    /// <summary>
+    /// Creates an agent access group containing <paramref name="agentId"/> and linked to the given
+    /// user group, then returns the agent id. Mirrors the Agent Access Groups data model.
+    /// </summary>
+    private string SeedAgentGroupForAgent(string agentId, int userGroupId)
+    {
+        using var db = new DivaDbContext(_dbOptions, currentTenantId: TenantId);
+        var group = new AgentGroupEntity
+        {
+            TenantId = TenantId,
+            Name = $"grp-{agentId}",
+            AgentIdsJson = System.Text.Json.JsonSerializer.Serialize(new[] { agentId }),
+            UserGroupLinks = { new AgentGroupUserGroupEntity { TenantId = TenantId, UserGroupId = userGroupId } },
+        };
+        db.AgentGroups.Add(group);
+        db.SaveChanges();
+        return agentId;
     }
 
     public void Dispose()

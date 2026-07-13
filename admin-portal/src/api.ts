@@ -1041,6 +1041,16 @@ export interface CreateApiKeyDto
   tenantId?: number;
 }
 
+export interface UpdateApiKeyDto
+{
+  name?: string;
+  scope?: string;
+  allowedAgentIds?: string[];
+  allowedGroupIds?: string[];
+  expiresAt?: string;
+  tenantId?: number;
+}
+
 // ── Agent Access Groups (Phase 28) ────────────────────────────────────────────
 
 export interface AgentGroup
@@ -1768,6 +1778,8 @@ export const api = {
     request<ApiKeyCreatedResult>("/api/admin/api-keys", { method: "POST", body: JSON.stringify(dto) }),
   revokeApiKey: (id: number, tenantId?: number) =>
     request<void>(`/api/admin/api-keys/${ id }${ tenantId ? `?tenantId=${ tenantId }` : "" }`, { method: "DELETE" }),
+  updateApiKey: (id: number, dto: UpdateApiKeyDto) =>
+    request<PlatformApiKey>(`/api/admin/api-keys/${ id }`, { method: "PUT", body: JSON.stringify(dto) }),
   rotateApiKey: (id: number, tenantId?: number) =>
     request<ApiKeyCreatedResult>(`/api/admin/api-keys/${ id }/rotate`, { method: "POST", body: JSON.stringify({ tenantId: tenantId ?? 1 }) }),
 

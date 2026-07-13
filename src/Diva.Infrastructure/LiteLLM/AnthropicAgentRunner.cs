@@ -309,7 +309,9 @@ public sealed class AnthropicAgentRunner : IAgentRunner
 
         var opts = _llmOptions.DirectProvider;
         var resolvedProvider = resolved?.Provider ?? opts.Provider;
-        var resolvedApiKey = resolved?.ApiKey ?? opts.ApiKey;
+        // Fall back to the configured key when the resolved key is null OR blank — a blank
+        // DB key must never be sent to the provider (would yield 401 invalid x-api-key).
+        var resolvedApiKey = !string.IsNullOrWhiteSpace(resolved?.ApiKey) ? resolved!.ApiKey : opts.ApiKey;
         // When a named config is resolved, use its endpoint exactly (null = provider's native endpoint,
         // which the Overlay already cleared when the provider changed). Fall back to opts only when
         // there is no resolved config at all (e.g. TenantId=0 or resolver not registered).
@@ -333,8 +335,9 @@ public sealed class AnthropicAgentRunner : IAgentRunner
         var sharedServerNames = ParseSharedServerRefs(definition.McpServerRefsJson);
         if (sharedServerNames.Count > 0 && _mcpCredentialSelector is not null)
         {
-            var sharedBindings = await _mcpCredentialSelector.ResolveBindingsAsync(
-                tenant, sharedServerNames, ct);
+            var shared = await _mcpCredentialSelector.ResolveSharedBindingsAsync(
+                tenant, sharedServerNames, ct, definition.Id);
+            var sharedBindings = shared.Bindings;
             if (sharedBindings.Count > 0)
             {
                 var inlineBindings = ParseInlineBindings(definition.ToolBindings);
@@ -345,6 +348,18 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                 // so isolate cache slots by the actual resolved credential refs. Callers that resolve
                 // to the same credentials safely share a slot; different credentials never collide.
                 cacheKeyDiscriminator = BuildCredentialDiscriminator(sharedBindings);
+            }
+
+            // Propagate this agent's effective credential group to any delegated child agents so
+            // they inherit the same group (and thus the matching credential) rather than
+            // independently re-resolving to a possibly different group. Only when the caller did not
+            // already pick a group explicitly and this agent resolved to a single unambiguous group.
+            if (tenant.PreferredUserGroupId is null && shared.EffectiveUserGroupId is int inheritedGroup)
+            {
+                tenant = tenant.WithPreferredUserGroup(inheritedGroup);
+                _logger.LogInformation(
+                    "Agent '{Agent}' (tenant {TenantId}): propagating effective credential user-group {GroupId} to delegated child agents.",
+                    definition.Name, tenant.TenantId, inheritedGroup);
             }
         }
 

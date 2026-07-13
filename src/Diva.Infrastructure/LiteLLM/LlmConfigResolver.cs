@@ -29,10 +29,10 @@ public sealed class LlmConfigResolver : ILlmConfigResolver
         IOptions<LlmOptions> fallback,
         ILogger<LlmConfigResolver> logger)
     {
-        _db       = db;
-        _groups   = groups;
-        _cache    = cache;
-        _logger   = logger;
+        _db = db;
+        _groups = groups;
+        _cache = cache;
+        _logger = logger;
         _fallback = fallback.Value;
     }
 
@@ -47,10 +47,10 @@ public sealed class LlmConfigResolver : ILlmConfigResolver
         // 1. Platform defaults (fallback to IOptions<LlmOptions> if DB not seeded yet)
         var platform = await db.PlatformLlmConfigs.OrderBy(p => p.Id).FirstOrDefaultAsync(ct);
         var state = new LlmConfigState(
-            platform?.Provider       ?? _fallback.DirectProvider.Provider,
-            platform?.ApiKey         ?? _fallback.DirectProvider.ApiKey,
-            platform?.Model          ?? _fallback.DirectProvider.Model,
-            platform?.Endpoint       ?? _fallback.DirectProvider.Endpoint,
+            platform?.Provider ?? _fallback.DirectProvider.Provider,
+            platform?.ApiKey ?? _fallback.DirectProvider.ApiKey,
+            platform?.Model ?? _fallback.DirectProvider.Model,
+            platform?.Endpoint ?? _fallback.DirectProvider.Endpoint,
             platform?.DeploymentName ?? _fallback.DirectProvider.DeploymentName,
             ParseAvailableModels(platform?.AvailableModelsJson, _fallback.AvailableModels));
 
@@ -95,7 +95,7 @@ public sealed class LlmConfigResolver : ILlmConfigResolver
                 if (groupCfg.PlatformConfig is not null)
                     return baseline.Overlay(
                         groupCfg.PlatformConfig.Provider, groupCfg.PlatformConfig.ApiKey,
-                        groupCfg.PlatformConfig.Model,    groupCfg.PlatformConfig.Endpoint,
+                        groupCfg.PlatformConfig.Model, groupCfg.PlatformConfig.Endpoint,
                         groupCfg.PlatformConfig.DeploymentName, groupCfg.PlatformConfig.AvailableModelsJson);
 
                 return baseline.Overlay(groupCfg.Provider, groupCfg.ApiKey, groupCfg.Model,
@@ -134,11 +134,14 @@ public sealed class LlmConfigResolver : ILlmConfigResolver
             }
             else if (p is not null)
                 Provider = p;
-            if (k  is not null) ApiKey     = k;
-            if (m  is not null) Model      = m;
-            if (e  is not null) Endpoint   = e;
-            if (d  is not null) Deployment = d;
-            if (av is not null) Available  = ParseAvailableModels(av, Available);
+            // Treat blank/whitespace overrides as "inherit" — a config row with an empty
+            // ApiKey or Model must NOT clobber the valid inherited (platform) value, otherwise
+            // an empty key would be sent to the provider and rejected (401 invalid x-api-key).
+            if (!string.IsNullOrWhiteSpace(k)) ApiKey = k;
+            if (!string.IsNullOrWhiteSpace(m)) Model = m;
+            if (e is not null) Endpoint = e;
+            if (d is not null) Deployment = d;
+            if (av is not null) Available = ParseAvailableModels(av, Available);
             return this;
         }
     }

@@ -171,6 +171,53 @@ public sealed class PlatformApiKeyService : IPlatformApiKeyService
             entity.Name, entity.KeyPrefix, tenantId);
     }
 
+    public async Task<PlatformApiKeyInfo?> UpdateAsync(int tenantId, int keyId, UpdateApiKeyRequest request, CancellationToken ct)
+    {
+        using var db = _dbFactory.CreateDbContext(TenantContext.System(tenantId));
+        var entity = await db.PlatformApiKeys.FirstOrDefaultAsync(k => k.Id == keyId && k.TenantId == tenantId, ct);
+        if (entity is null) return null;
+
+        if (!string.IsNullOrWhiteSpace(request.Name))
+            entity.Name = request.Name;
+
+        if (!string.IsNullOrWhiteSpace(request.Scope))
+        {
+            ValidateScope(request.Scope);
+            entity.Scope = request.Scope;
+        }
+
+        // Full-replace semantics for grants: null/empty clears the grant.
+        entity.AllowedAgentIdsJson = request.AllowedAgentIds is { Length: > 0 }
+            ? JsonSerializer.Serialize(request.AllowedAgentIds)
+            : null;
+        entity.AllowedGroupIdsJson = request.AllowedGroupIds is { Length: > 0 }
+            ? JsonSerializer.Serialize(request.AllowedGroupIds)
+            : null;
+        entity.ExpiresAt = request.ExpiresAt;
+
+        await db.SaveChangesAsync(ct);
+        _logger.LogInformation("Platform API key updated: {Name} ({Prefix}) for tenant {TenantId}",
+            entity.Name, entity.KeyPrefix, tenantId);
+
+        string[]? allowedAgents = null;
+        if (!string.IsNullOrEmpty(entity.AllowedAgentIdsJson))
+        {
+            try { allowedAgents = JsonSerializer.Deserialize<string[]>(entity.AllowedAgentIdsJson); }
+            catch { /* ignore */ }
+        }
+
+        string[]? allowedGroups = null;
+        if (!string.IsNullOrEmpty(entity.AllowedGroupIdsJson))
+        {
+            try { allowedGroups = JsonSerializer.Deserialize<string[]>(entity.AllowedGroupIdsJson); }
+            catch { /* ignore */ }
+        }
+
+        return new PlatformApiKeyInfo(
+            entity.Id, entity.Name, entity.KeyPrefix, entity.Scope, allowedAgents,
+            entity.CreatedAt, entity.ExpiresAt, entity.IsActive, entity.LastUsedAt, entity.CreatedByUserId, allowedGroups);
+    }
+
     public async Task<ApiKeyCreatedResult> RotateAsync(int tenantId, int keyId, string userId, CancellationToken ct)
     {
         using var db = _dbFactory.CreateDbContext(TenantContext.System(tenantId));
@@ -190,6 +237,7 @@ public sealed class PlatformApiKeyService : IPlatformApiKeyService
             KeyPrefix = rawKey[..Math.Min(rawKey.Length, 12)],
             Scope = old.Scope,
             AllowedAgentIdsJson = old.AllowedAgentIdsJson,
+            AllowedGroupIdsJson = old.AllowedGroupIdsJson,
             ExpiresAt = old.ExpiresAt,
             CreatedByUserId = userId
         };

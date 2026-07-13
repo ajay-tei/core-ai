@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { api, type PlatformApiKey, type ApiKeyCreatedResult, type CreateApiKeyDto, type AgentGroup } from "@/api";
+import { api, type PlatformApiKey, type ApiKeyCreatedResult, type CreateApiKeyDto, type UpdateApiKeyDto, type AgentGroup } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Trash2, RotateCw, Copy, KeySquare, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, RotateCw, Copy, KeySquare, AlertTriangle, Pencil, Save, X } from "lucide-react";
 import { toast } from "sonner";
 
 const SCOPES = ["invoke", "admin", "readonly"] as const;
@@ -19,6 +19,8 @@ export function ApiKeyManager() {
   const [newKeyResult, setNewKeyResult] = useState<ApiKeyCreatedResult | null>(null);
   const [form, setForm] = useState<CreateApiKeyDto>({ name: "", scope: "invoke" });
   const [groups, setGroups] = useState<AgentGroup[]>([]);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState<UpdateApiKeyDto>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -61,6 +63,32 @@ export function ApiKeyManager() {
       toast.success(`API key "${name}" rotated`);
       load();
     } catch { toast.error("Failed to rotate API key"); }
+  };
+
+  const startEdit = (k: PlatformApiKey) => {
+    setEditingId(k.id);
+    setEditForm({
+      name: k.name,
+      scope: k.scope,
+      allowedAgentIds: k.allowedAgentIds ?? [],
+      allowedGroupIds: k.allowedGroupIds ?? [],
+      expiresAt: k.expiresAt,
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditForm({});
+  };
+
+  const handleSaveEdit = async (id: number) => {
+    if (!editForm.name?.trim()) { toast.error("Name is required"); return; }
+    try {
+      await api.updateApiKey(id, editForm);
+      toast.success("API key updated");
+      cancelEdit();
+      load();
+    } catch { toast.error("Failed to update API key"); }
   };
 
   const copyKey = (key: string) => {
@@ -158,6 +186,55 @@ export function ApiKeyManager() {
         <div className="space-y-3">
           {keys.map((k) => (
             <Card key={k.id}>
+              {editingId === k.id ? (
+                <CardContent className="grid gap-4 py-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label>Name</Label>
+                      <Input value={editForm.name ?? ""} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Scope</Label>
+                      <Select value={editForm.scope ?? "invoke"} onValueChange={(v) => setEditForm({ ...editForm, scope: v })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {SCOPES.map((s) => <SelectItem key={s} value={s}>{s === "invoke" ? "Invoke (agent calls)" : s === "admin" ? "Admin (full access)" : "Read-only"}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  {groups.length > 0 && (
+                    <div className="space-y-1.5">
+                      <Label>Allowed Agent Groups</Label>
+                      <p className="text-xs text-muted-foreground">Grant this key access to agents in restricted groups.</p>
+                      <div className="flex flex-wrap gap-2">
+                        {groups.map((g) => {
+                          const selected = (editForm.allowedGroupIds ?? []).includes(g.id);
+                          return (
+                            <Badge
+                              key={g.id}
+                              variant={selected ? "default" : "outline"}
+                              className="cursor-pointer"
+                              onClick={() => setEditForm({
+                                ...editForm,
+                                allowedGroupIds: selected
+                                  ? (editForm.allowedGroupIds ?? []).filter((id) => id !== g.id)
+                                  : [...(editForm.allowedGroupIds ?? []), g.id],
+                              })}
+                            >
+                              {g.name}
+                            </Badge>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={() => handleSaveEdit(k.id)}><Save className="h-4 w-4 mr-1" /> Save</Button>
+                    <Button variant="outline" size="sm" onClick={cancelEdit}><X className="h-4 w-4 mr-1" /> Cancel</Button>
+                  </div>
+                </CardContent>
+              ) : (
               <CardContent className="flex items-center justify-between py-4">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
@@ -176,6 +253,11 @@ export function ApiKeyManager() {
                 </div>
                 <div className="flex gap-2">
                   {k.isActive && (
+                    <Button variant="outline" size="sm" onClick={() => startEdit(k)}>
+                      <Pencil className="h-4 w-4 mr-1" /> Edit
+                    </Button>
+                  )}
+                  {k.isActive && (
                     <Button variant="outline" size="sm" onClick={() => handleRotate(k.id, k.name)}>
                       <RotateCw className="h-4 w-4 mr-1" /> Rotate
                     </Button>
@@ -187,6 +269,7 @@ export function ApiKeyManager() {
                   )}
                 </div>
               </CardContent>
+              )}
             </Card>
           ))}
         </div>

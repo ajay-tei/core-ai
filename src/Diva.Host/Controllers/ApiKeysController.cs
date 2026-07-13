@@ -60,6 +60,19 @@ public class ApiKeysController : ControllerBase
         return NoContent();
     }
 
+    // PUT /api/admin/api-keys/{id}
+    [HttpPut("{id:int}")]
+    public async Task<IActionResult> Update(int id, [FromBody] UpdateApiKeyDto dto, CancellationToken ct = default)
+    {
+        var tid = EffectiveTenantId(dto.TenantId);
+        var request = new UpdateApiKeyRequest(dto.Name, dto.Scope, dto.AllowedAgentIds, dto.AllowedGroupIds, dto.ExpiresAt);
+        var result = await _keys.UpdateAsync(tid, id, request, ct);
+        if (result is null) return NotFound();
+
+        _logger.LogInformation("API key updated: {Name} (id={Id}) for tenant {TenantId}", result.Name, id, tid);
+        return Ok(result);
+    }
+
     // POST /api/admin/api-keys/{id}/rotate
     [HttpPost("{id:int}/rotate")]
     public async Task<IActionResult> Rotate(int id, [FromBody] RotateApiKeyDto dto, CancellationToken ct = default)
@@ -84,3 +97,11 @@ public record CreateApiKeyDto(
     string[]? AllowedGroupIds = null);
 
 public record RotateApiKeyDto(int TenantId = 1);
+
+public record UpdateApiKeyDto(
+    string? Name = null,
+    string? Scope = null,
+    string[]? AllowedAgentIds = null,
+    string[]? AllowedGroupIds = null,
+    DateTime? ExpiresAt = null,
+    int TenantId = 1);
