@@ -172,7 +172,7 @@ export function UserProfiles() {
 
       {/* Edit drawer */}
       <Sheet open={!!editing} onOpenChange={open => !open && setEditing(null)}>
-        <SheetContent className="w-[480px] overflow-y-auto">
+        <SheetContent className="w-full sm:max-w-[480px] overflow-y-auto">
           <SheetHeader>
             <SheetTitle>Edit User Profile</SheetTitle>
           </SheetHeader>

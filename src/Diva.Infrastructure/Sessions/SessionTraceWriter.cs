@@ -388,6 +388,8 @@ public sealed class SessionTraceWriter
                 session.TotalDelegations += delegations;
                 session.TotalInputTokens += turnInputTokens;
                 session.TotalOutputTokens += turnOutputTokens;
+                session.TotalCacheReadTokens += turnCacheRead;
+                session.TotalCacheCreationTokens += turnCacheCreation;
                 session.LastActivityAt = DateTime.UtcNow;
             }
 

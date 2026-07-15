@@ -135,7 +135,8 @@ function PromptVariableReference() {
           <p className="mb-2 text-xs text-muted-foreground">
             Use <code className="rounded bg-muted px-1 font-mono">{"{{variable_name}}"}</code> in your system prompt. Values are resolved at runtime per request.
           </p>
-          <table className="w-full text-xs">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[320px] text-xs">
             <thead>
               <tr className="border-b text-left text-muted-foreground">
                 <th className="pb-1 pr-4 font-medium">Variable</th>
@@ -155,6 +156,7 @@ function PromptVariableReference() {
               ))}
             </tbody>
           </table>
+          </div>
           <p className="mt-2 text-xs text-muted-foreground">
             Custom variables defined in <span className="font-medium">Custom Variables</span> (Advanced tab) take precedence over all built-ins.
           </p>
@@ -341,7 +343,7 @@ function McpBindingEditor({
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-1.5">
             <Label>Server Name</Label>
             <Input
@@ -943,7 +945,7 @@ function AdvancedConfigPanel({
             Override token limits for the LLM calls that power optimization analysis and smart merge.
             Increase <strong>Merge Token Limit</strong> for agents with very long system prompts.
           </p>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {[
               { key: "MergeMaxTokens",    label: "Merge Token Limit",    hint: "Default: 8192" },
               { key: "AnalyzerMaxTokens", label: "Analyzer Token Limit", hint: "Default: 2048" },
@@ -1163,7 +1165,7 @@ export function AgentBuilder() {
 
   return (
     <div className="space-y-6 max-w-4xl">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">
             {agentId ? "Edit Agent" : "New Agent"}
@@ -1221,7 +1223,7 @@ export function AgentBuilder() {
               <CardDescription>Basic information about this agent</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <Label htmlFor="name">Name (slug) <span className="text-destructive">*</span></Label>
                   <Input
@@ -1363,7 +1365,7 @@ export function AgentBuilder() {
                 </Select>
               </div>
 
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <Label>Temperature: {form.temperature.toFixed(1)}</Label>
                   <Slider

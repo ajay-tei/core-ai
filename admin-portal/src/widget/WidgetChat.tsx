@@ -324,7 +324,7 @@ const styles = {
   root: {
     display: 'flex',
     flexDirection: 'column' as const,
-    height: '100vh',
+    height: '100dvh',
     background: 'var(--diva-bg, #ffffff)',
     color: 'var(--diva-text, #111827)',
     fontFamily: 'var(--diva-font, system-ui, sans-serif)',

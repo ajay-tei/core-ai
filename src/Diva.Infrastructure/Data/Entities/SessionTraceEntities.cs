@@ -32,6 +32,8 @@ public class TraceSessionEntity
     public int TotalDelegations { get; set; }
     public int TotalInputTokens { get; set; }
     public int TotalOutputTokens { get; set; }
+    public int TotalCacheReadTokens { get; set; }
+    public int TotalCacheCreationTokens { get; set; }
 
     public List<TraceSessionTurnEntity> Turns { get; set; } = [];
 }

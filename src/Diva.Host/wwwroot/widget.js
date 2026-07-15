@@ -52,6 +52,12 @@
   var iframeLeft = isRight ? 'auto' : '24px';
   var iframeRight = isRight ? '24px' : 'auto';
 
+  // Cap the height to the visible viewport (minus the 90px bottom offset and a
+  // small top gutter) so the panel never runs off the top of short phones.
+  function iframeHeight() {
+    return Math.max(320, Math.min(600, window.innerHeight - 106)) + 'px';
+  }
+
   var iframe = document.createElement('iframe');
   iframe.id = 'diva-widget-frame';
   iframe.src = API + '/widget-ui?id=' + encodeURIComponent(widgetId);
@@ -64,7 +70,7 @@
     'left:' + iframeLeft,
     'bottom:90px',
     'width:' + iframeW,
-    'height:600px',
+    'height:' + iframeHeight(),
     'border:none',
     'border-radius:16px',
     'box-shadow:0 8px 32px rgba(0,0,0,.22)',
@@ -125,6 +131,5 @@
   /* ── Responsive resize ───────────────────────────────────────────────── */
   window.addEventListener('resize', function () {
     var nowNarrow = window.innerWidth < 480;
-    iframe.style.width = nowNarrow ? (window.innerWidth - 16) + 'px' : '400px';
-  });
+    iframe.style.width = nowNarrow ? (window.innerWidth - 16) + 'px' : '400px';    iframe.style.height = iframeHeight();  });
 })();

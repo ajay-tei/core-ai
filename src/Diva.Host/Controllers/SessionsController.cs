@@ -121,6 +121,8 @@ public class SessionsController : ControllerBase
                 TotalDelegations = s.TotalDelegations,
                 TotalInputTokens = s.TotalInputTokens,
                 TotalOutputTokens = s.TotalOutputTokens,
+                TotalCacheReadTokens = s.TotalCacheReadTokens,
+                TotalCacheCreationTokens = s.TotalCacheCreationTokens,
             })
             .ToListAsync(ct);
 
@@ -175,9 +177,50 @@ public class SessionsController : ControllerBase
                 Provider = t.Provider,
                 TotalInputTokens = t.TotalInputTokens,
                 TotalOutputTokens = t.TotalOutputTokens,
+                CacheReadTokens = t.CacheReadTokens,
+                CacheCreationTokens = t.CacheCreationTokens,
                 CreatedAt = t.CreatedAt,
             })
             .ToListAsync(ct);
+
+        // ── Sub-agent roll-up ────────────────────────────────────────────────
+        // Walk the delegation tree (descendants linked by ParentSessionId) breadth-first
+        // and sum their token totals. Each child session keeps its own numbers (per-agent
+        // breakdown is preserved); the roll-up is the additive total for the whole tree.
+        int rollupIn = session.TotalInputTokens, rollupOut = session.TotalOutputTokens;
+        int rollupCacheR = session.TotalCacheReadTokens, rollupCacheC = session.TotalCacheCreationTokens;
+        int subAgentCount = 0;
+        var visited = new HashSet<string> { session.SessionId };
+        var frontier = new List<string> { session.SessionId };
+        while (frontier.Count > 0)
+        {
+            var children = await _trace.TraceSessions
+                .AsNoTracking()
+                .Where(s => s.ParentSessionId != null
+                    && frontier.Contains(s.ParentSessionId)
+                    && s.Status != "deleted")
+                .Select(s => new
+                {
+                    s.SessionId,
+                    s.TotalInputTokens,
+                    s.TotalOutputTokens,
+                    s.TotalCacheReadTokens,
+                    s.TotalCacheCreationTokens,
+                })
+                .ToListAsync(ct);
+
+            frontier = new List<string>();
+            foreach (var c in children)
+            {
+                if (!visited.Add(c.SessionId)) continue;   // guard against cycles
+                rollupIn += c.TotalInputTokens;
+                rollupOut += c.TotalOutputTokens;
+                rollupCacheR += c.TotalCacheReadTokens;
+                rollupCacheC += c.TotalCacheCreationTokens;
+                subAgentCount++;
+                frontier.Add(c.SessionId);
+            }
+        }
 
         return Ok(new SessionDetail
         {
@@ -198,6 +241,13 @@ public class SessionsController : ControllerBase
             TotalDelegations = session.TotalDelegations,
             TotalInputTokens = session.TotalInputTokens,
             TotalOutputTokens = session.TotalOutputTokens,
+            TotalCacheReadTokens = session.TotalCacheReadTokens,
+            TotalCacheCreationTokens = session.TotalCacheCreationTokens,
+            RollupInputTokens = rollupIn,
+            RollupOutputTokens = rollupOut,
+            RollupCacheReadTokens = rollupCacheR,
+            RollupCacheCreationTokens = rollupCacheC,
+            SubAgentSessionCount = subAgentCount,
             Turns = turns,
         });
     }

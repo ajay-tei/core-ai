@@ -4,6 +4,71 @@
 
 ---
 
+## [2026-07-15] Responsive/mobile UI pass + chat content overflow fix + session token accounting (cache + sub-agent roll-up)
+
+Three areas: a responsive/mobile-friendly pass across the admin portal (chat-first), a fix for wide
+chat content (tables/charts/SQL) overflowing and clipping instead of scrolling, and corrected token
+accounting so session totals reflect true input (fresh + cached) and roll up delegated sub-agents.
+
+### Responsive & mobile-friendly UI
+
+Chat is the primary surface: the header controls (credential-group / LLM-config / model / Detailed)
+now collapse into a settings **popover** on mobile via `useIsMobile`, and the root height uses
+dynamic viewport units so the on-screen keyboard/address-bar no longer clips the panel. Shell padding
+is responsive, form grids stack on narrow screens, raw tables scroll, and page-header button rows wrap.
+The embeddable widget stack was also hardened (dvh, responsive theme grids, capped launcher iframe height).
+
+| File | Change |
+|------|--------|
+| `admin-portal/src/components/AgentChat.tsx` | Header controls → mobile settings popover (`SlidersHorizontal`); selects `w-full md:w-XX`; root `h-[calc(100dvh-7rem)] md:8rem`; message column `min-w-0`, bubble `min-w-0 max-w-full` |
+| `admin-portal/src/components/layout/root-layout.tsx` | `<main>` padding `p-4 md:p-6` |
+| `admin-portal/src/components/UserProfiles.tsx` | Sheet `w-full sm:max-w-[480px]` |
+| `admin-portal/src/widget/WidgetChat.tsx`, `WidgetApp.tsx` | `100vh` → `100dvh` |
+| `src/Diva.Host/wwwroot/widget.js` | Launcher iframe height capped `min(600, innerHeight-106)` (init + resize) |
+| `admin-portal/src/components/WidgetEditor.tsx` | Theme/form grids `grid-cols-1 sm:grid-cols-2` / color pickers `grid-cols-2 sm:grid-cols-3` |
+| `admin-portal/src/components/*` (config/rules/group/dialog forms, 21 files) | `grid grid-cols-2/3` → responsive `grid-cols-1 sm:grid-cols-2` / `grid-cols-2 sm:grid-cols-3` |
+| `admin-portal/src/components/AgentBuilder.tsx`, `SsoConfigEditor.tsx` | Raw `<table>` wrapped in `overflow-x-auto` + `min-w-*` |
+| `admin-portal/src/components/AgentList.tsx`, `AgentBuilder.tsx`, `WidgetManager.tsx` | Page-header button rows `flex-wrap gap-3` |
+
+### Chat response content no longer clips — horizontal scroll works
+
+Root cause was a flexbox `min-width` issue plus the Radix `ScrollArea` viewport wrapping content in a
+`display:table; min-width:100%` element that grew to content width, defeating `max-w-full` and clipping
+wide tables/charts/SQL with no scrollbar. Fixed by constraining the message column/bubble (`min-w-0`)
+and forcing the ScrollArea viewport's inner wrapper to `block` so inner `overflow-x-auto` containers
+(shadcn table, SQL block, chart `ResponsiveContainer`) finally scroll within the chat width.
+
+| File | Change |
+|------|--------|
+| `admin-portal/src/components/ui/scroll-area.tsx` | Viewport `[&>div]:!block [&>div]:!min-w-0` (constrains Radix inner wrapper to viewport width) |
+| `admin-portal/src/components/chat/MarkdownMessage.tsx` | Root `min-w-0 max-w-full break-words` |
+| `admin-portal/src/components/AgentChat.tsx` | Message column `min-w-0`, bubble `min-w-0 max-w-full` |
+
+### Session token accounting — effective input (fresh + cached) + sub-agent roll-up
+
+Displayed input tokens counted only the fresh (non-cached) portion, so with Anthropic prompt caching
+the bulk (system prompt, tool schemas, prior tool results) was billed as `cache_read_input_tokens` and
+never shown — making input look tiny. Session aggregates also omitted cache tokens entirely and did not
+include delegated child-agent sessions. Now the session aggregate carries cache columns, the UI shows
+**effective input = fresh + cached**, and the detail endpoint walks the `ParentSessionId` delegation tree
+to report an **"Incl. sub-agents"** roll-up while preserving each child session's own per-agent totals.
+
+| File | Change |
+|------|--------|
+| `src/Diva.Infrastructure/Data/Entities/SessionTraceEntities.cs` | `TraceSessionEntity.TotalCacheReadTokens` / `TotalCacheCreationTokens` |
+| `src/Diva.Infrastructure/Sessions/SessionTraceWriter.cs` | Roll cache tokens into the session aggregate per turn |
+| `src/Diva.Host/Program.cs` | Idempotent trace-DB cache-column repair (SQLite + SQL Server; `EnsureCreated` path) |
+| `src/Diva.Core/Models/Session/SessionDtos.cs` | Cache fields on `SessionSummary`/`TurnSummary`; `Rollup*Tokens` + `SubAgentSessionCount` on `SessionDetail` |
+| `src/Diva.Host/Controllers/SessionsController.cs` | Map cache columns; BFS `ParentSessionId` descendant roll-up (cycle-guarded) |
+| `admin-portal/src/api.ts` | Cache + roll-up fields on session types |
+| `admin-portal/src/components/SessionDetail.tsx` | Effective-input Tokens row + "Incl. sub-agents" roll-up row |
+| `admin-portal/src/components/SessionBrowser.tsx` | "Tokens In" shows effective input with fresh/cached tooltip |
+
+> Note: existing trace rows show `cached = 0` (the split was not recorded before); cache/roll-up populate
+> going forward. OpenAI-compatible **streaming** still reports 0 tokens (ME.AI 10.4.1 SDK limitation).
+
+---
+
 ## [2026-07-13] LLM blank-key resolution fix + editable API-key group grants + child-agent credential-group propagation
 
 Three related fixes: a resolver bug that could send an empty `x-api-key` to the LLM provider,

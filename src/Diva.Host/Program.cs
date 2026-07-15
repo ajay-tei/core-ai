@@ -549,6 +549,36 @@ using (var scope = app.Services.CreateScope())
         await conn.CloseAsync();
     }
 
+    // ── Session-level cache token columns (EnsureCreated path — both providers) ─
+    // TraceSessions.TotalCacheReadTokens / TotalCacheCreationTokens are added idempotently
+    // so existing trace DBs (created before these columns) can surface effective input
+    // (fresh + cached) and the sub-agent roll-up. EnsureCreated only provisions columns
+    // when the DB is first created, so we ALTER for pre-existing DBs on both providers.
+    {
+        var conn = traceDb.Database.GetDbConnection();
+        if (conn.State != System.Data.ConnectionState.Open)
+            await conn.OpenAsync();
+        var isSqliteTrace = traceDb.Database.IsSqlite();
+        foreach (var col in new[] { "TotalCacheReadTokens", "TotalCacheCreationTokens" })
+        {
+            await using var checkCol = conn.CreateCommand();
+            checkCol.CommandText = isSqliteTrace
+                ? $"SELECT COUNT(*) FROM pragma_table_info('TraceSessions') WHERE name='{col}'"
+                : $"SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='TraceSessions' AND COLUMN_NAME='{col}'";
+            var exists = Convert.ToInt64(await checkCol.ExecuteScalarAsync() ?? 0L);
+            if (exists == 0)
+            {
+                await using var alterCol = conn.CreateCommand();
+                alterCol.CommandText = isSqliteTrace
+                    ? $"ALTER TABLE TraceSessions ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0"
+                    : $"ALTER TABLE TraceSessions ADD {col} INT NOT NULL DEFAULT 0";
+                await alterCol.ExecuteNonQueryAsync();
+                Log.Information("Session trace: added {Column} column to TraceSessions", col);
+            }
+        }
+        await conn.CloseAsync();
+    }
+
     // ── Seed/sync platform LLM config from env vars ───────────────────────────
     // Creates the row on first startup; updates Provider/Model/Endpoint/ApiKey
     // when env vars are changed (so updating docker-compose.yml takes effect on restart).

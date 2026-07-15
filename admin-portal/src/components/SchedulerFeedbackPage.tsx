@@ -237,7 +237,7 @@ export function SchedulerFeedbackPage() {
             </div>
 
             {/* Submitter identity (optional) */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label htmlFor="name">Your name (optional)</Label>
                 <Input

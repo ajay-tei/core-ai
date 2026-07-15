@@ -238,7 +238,7 @@ export function SsoConfigEditor({ tenantId = 1 }: { tenantId?: number }) {
           <CardTitle>Provider</CardTitle>
           <CardDescription>Identity provider type and core credentials.</CardDescription>
         </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-6">
+        <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-6">
           <div className="space-y-1.5">
             <Label>Provider</Label>
             <Select value={form.providerName} onValueChange={v => set("providerName", v)}>
@@ -296,7 +296,7 @@ export function SsoConfigEditor({ tenantId = 1 }: { tenantId?: number }) {
             Set the Authority / Discovery URL and the remaining endpoints are optional overrides.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-6">
+        <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-6">
           <div className="space-y-1.5 col-span-2">
             <Label>Authority / Discovery URL <span className="text-muted-foreground text-xs">(auto-populates endpoints)</span></Label>
             <Input value={form.authority} onChange={e => set("authority", e.target.value)} placeholder="https://login.microsoftonline.com/{tenant}" />
@@ -342,7 +342,7 @@ export function SsoConfigEditor({ tenantId = 1 }: { tenantId?: number }) {
           <CardTitle>Proxy</CardTitle>
           <CardDescription>Optional proxy settings for environments that route IdP traffic through a gateway.</CardDescription>
         </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-6">
+        <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-6">
           <div className="space-y-1.5">
             <Label>Proxy Base URL</Label>
             <Input value={form.proxyBaseUrl} onChange={e => set("proxyBaseUrl", e.target.value)} />
@@ -501,7 +501,8 @@ export function SsoConfigEditor({ tenantId = 1 }: { tenantId?: number }) {
                   Each key maps a Diva identity field to the claim name your provider emits.
                   Only include fields that differ from the defaults. Values support JSON arrays and comma-separated strings.
                 </p>
-                <table className="w-full text-xs">
+                <div className="overflow-x-auto">
+                <table className="w-full min-w-[440px] text-xs">
                   <thead>
                     <tr className="border-b text-left text-muted-foreground">
                       <th className="pb-1.5 pr-4 font-medium w-36">Field</th>
@@ -519,6 +520,7 @@ export function SsoConfigEditor({ tenantId = 1 }: { tenantId?: number }) {
                     ))}
                   </tbody>
                 </table>
+                </div>
                 <p className="text-muted-foreground text-xs pt-1">
                   Example: <code className="bg-muted rounded px-1">{"{"}"TenantId":"tid","Roles":"groups","Email":"mail"{"}"}</code>
                 </p>

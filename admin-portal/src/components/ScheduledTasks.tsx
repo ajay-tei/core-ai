@@ -717,7 +717,7 @@ function TaskDialog({ open, onOpenChange, mode, source, agents, onSaved }: TaskD
 
         <div className="grid gap-4 py-2">
           {/* Agent & name */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Agent *</Label>
               <Select value={agentId} onValueChange={setAgentId}>

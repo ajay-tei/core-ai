@@ -132,7 +132,7 @@ export function ApiKeyManager() {
         <Card>
           <CardHeader><CardTitle>New API Key</CardTitle></CardHeader>
           <CardContent className="grid gap-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label>Name</Label>
                 <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. CI/CD Pipeline" />
@@ -188,7 +188,7 @@ export function ApiKeyManager() {
             <Card key={k.id}>
               {editingId === k.id ? (
                 <CardContent className="grid gap-4 py-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
                       <Label>Name</Label>
                       <Input value={editForm.name ?? ""} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />

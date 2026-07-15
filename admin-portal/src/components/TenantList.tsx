@@ -175,7 +175,7 @@ export function TenantList() {
               <Label>Organization Name</Label>
               <Input value={form.name} onChange={e => f("name", e.target.value)} placeholder="Acme Corp" />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label>LiteLLM Team ID <span className="text-muted-foreground text-xs">(optional)</span></Label>
                 <Input value={form.liteLLMTeamId ?? ""} onChange={e => f("liteLLMTeamId", e.target.value)} />
@@ -202,7 +202,7 @@ export function TenantList() {
               <Label>Organization Name</Label>
               <Input value={form.name} onChange={e => f("name", e.target.value)} placeholder="Acme Corp" />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label>LiteLLM Team ID <span className="text-muted-foreground text-xs">(optional)</span></Label>
                 <Input value={form.liteLLMTeamId ?? ""} onChange={e => f("liteLLMTeamId", e.target.value)} />

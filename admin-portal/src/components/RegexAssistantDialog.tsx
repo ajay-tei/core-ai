@@ -225,7 +225,7 @@ export function RegexAssistantDialog({
 
               {/* Preview */}
               {(suggestion.previewMatches.length > 0 || suggestion.previewNonMatches.length > 0) && (
-                <div className="grid grid-cols-2 gap-3 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                   {suggestion.previewMatches.length > 0 && (
                     <div>
                       <p className="font-medium text-green-600 mb-1">✓ Matches</p>

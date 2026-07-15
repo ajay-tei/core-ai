@@ -2044,6 +2044,8 @@ export interface SessionSummary
   totalDelegations: number;
   totalInputTokens: number;
   totalOutputTokens: number;
+  totalCacheReadTokens: number;
+  totalCacheCreationTokens: number;
 }
 
 export interface PagedResult<T>
@@ -2072,12 +2074,19 @@ export interface TurnSummary
   provider?: string;
   totalInputTokens: number;
   totalOutputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
   createdAt: string;
 }
 
 export interface SessionDetail extends SessionSummary
 {
   turns: TurnSummary[];
+  rollupInputTokens: number;
+  rollupOutputTokens: number;
+  rollupCacheReadTokens: number;
+  rollupCacheCreationTokens: number;
+  subAgentSessionCount: number;
 }
 
 export interface ContinueSessionResult

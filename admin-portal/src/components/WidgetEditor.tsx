@@ -156,7 +156,7 @@ export function WidgetEditor({ tenantId, widgetId, onClose, onSaved }: Props) {
         {/* Scrollable body */}
         <div className="overflow-y-auto flex-1 p-6 space-y-5">
           {/* Basic fields */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1">
               <Label>Name *</Label>
               <Input
@@ -188,7 +188,7 @@ export function WidgetEditor({ tenantId, widgetId, onClose, onSaved }: Props) {
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1">
               <Label>SSO Config (optional)</Label>
               <Select
@@ -214,7 +214,7 @@ export function WidgetEditor({ tenantId, widgetId, onClose, onSaved }: Props) {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1">
               <Label>Welcome Message</Label>
               <Textarea
@@ -282,7 +282,7 @@ export function WidgetEditor({ tenantId, widgetId, onClose, onSaved }: Props) {
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <ColorField label="Primary" value={theme.primary} onChange={v => setThemeField("primary", v)} />
               <ColorField label="Header BG" value={theme.headerBg} onChange={v => setThemeField("headerBg", v)} />
               <ColorField label="Header Text" value={theme.headerText} onChange={v => setThemeField("headerText", v)} />
@@ -297,7 +297,7 @@ export function WidgetEditor({ tenantId, widgetId, onClose, onSaved }: Props) {
               <ColorField label="Input Border" value={theme.inputBorder} onChange={v => setThemeField("inputBorder", v)} />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs">Font Family</Label>
                 <Input

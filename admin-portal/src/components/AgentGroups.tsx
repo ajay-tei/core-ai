@@ -287,7 +287,7 @@ export function AgentGroups() {
         <Card>
           <CardHeader><CardTitle>{editingId ? "Edit Group" : "New Group"}</CardTitle></CardHeader>
           <CardContent className="grid gap-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label>Name</Label>
                 <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Finance Agents" />

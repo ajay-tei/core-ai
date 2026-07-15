@@ -129,7 +129,7 @@ export function PromptQuickFixDialog({ onImprove, currentPrompt, open, onOpenCha
               </div>
             )}
 
-            <div className="flex-1 min-h-0 grid grid-cols-2 gap-4">
+            <div className="flex-1 min-h-0 grid grid-cols-1 sm:grid-cols-2 gap-4">
               {/* Left: instruction + current prompt */}
               <div className="flex flex-col gap-3 min-h-0">
                 <div className="space-y-1.5 shrink-0">

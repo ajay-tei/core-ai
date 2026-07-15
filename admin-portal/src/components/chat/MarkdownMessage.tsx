@@ -105,7 +105,7 @@ export const MarkdownMessage = memo(function MarkdownMessage({
   className?: string;
 }) {
   return (
-    <div className={cn("text-sm leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0", className)}>
+    <div className={cn("min-w-0 max-w-full break-words text-sm leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0", className)}>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {content}
       </ReactMarkdown>

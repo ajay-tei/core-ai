@@ -21,7 +21,7 @@ export interface LlmFormProps {
 export function LlmForm({ value, onChange, maskedApiKey }: LlmFormProps) {
   return (
     <div className="grid gap-4">
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-1.5">
           <Label>Provider</Label>
           <Select value={value.provider ?? ""} onValueChange={(v) => onChange({ provider: v })}>
@@ -56,7 +56,7 @@ export function LlmForm({ value, onChange, maskedApiKey }: LlmFormProps) {
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-1.5">
           <Label>Endpoint <span className="text-xs text-muted-foreground">(optional)</span></Label>
           <Input

@@ -21,6 +21,8 @@ public sealed class SessionSummary
     public int TotalDelegations { get; init; }
     public int TotalInputTokens { get; init; }
     public int TotalOutputTokens { get; init; }
+    public int TotalCacheReadTokens { get; init; }
+    public int TotalCacheCreationTokens { get; init; }
 }
 
 public sealed class PagedResult<T>
@@ -53,6 +55,19 @@ public sealed class SessionDetail
     public int TotalDelegations { get; init; }
     public int TotalInputTokens { get; init; }
     public int TotalOutputTokens { get; init; }
+    public int TotalCacheReadTokens { get; init; }
+    public int TotalCacheCreationTokens { get; init; }
+
+    // ── Sub-agent roll-up (this session + all descendant worker/delegated sessions) ──
+    // Per-agent breakdown is preserved: each child keeps its own totals; these fields
+    // are the additive sum for the whole delegation tree rooted at this session.
+    public int RollupInputTokens { get; init; }
+    public int RollupOutputTokens { get; init; }
+    public int RollupCacheReadTokens { get; init; }
+    public int RollupCacheCreationTokens { get; init; }
+    /// <summary>Number of descendant (worker/delegated) sessions folded into the roll-up. 0 = leaf.</summary>
+    public int SubAgentSessionCount { get; init; }
+
     public List<TurnSummary> Turns { get; init; } = [];
 }
 
@@ -75,6 +90,8 @@ public sealed class TurnSummary
     public string? Provider { get; init; }
     public int TotalInputTokens { get; init; }
     public int TotalOutputTokens { get; init; }
+    public int CacheReadTokens { get; init; }
+    public int CacheCreationTokens { get; init; }
     public DateTime CreatedAt { get; init; }
 }
 

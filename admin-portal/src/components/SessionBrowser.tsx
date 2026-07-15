@@ -223,7 +223,7 @@ export default function SessionBrowser() {
                   <TableCell className="text-right">{s.totalTurns}</TableCell>
                   <TableCell className="text-right">{s.totalIterations}</TableCell>
                   <TableCell className="text-right">{s.totalToolCalls}</TableCell>
-                  <TableCell className="text-right text-muted-foreground text-sm">{fmtNum(s.totalInputTokens)}</TableCell>
+                  <TableCell className="text-right text-muted-foreground text-sm" title={`${fmtNum(s.totalInputTokens)} fresh + ${fmtNum(s.totalCacheReadTokens + s.totalCacheCreationTokens)} cached`}>{fmtNum(s.totalInputTokens + s.totalCacheReadTokens + s.totalCacheCreationTokens)}</TableCell>
                   <TableCell className="text-right text-muted-foreground text-sm">{fmtNum(s.totalOutputTokens)}</TableCell>
                   <TableCell className="text-muted-foreground text-xs">{fmtDate(s.createdAt)}</TableCell>
                   <TableCell className="text-right">

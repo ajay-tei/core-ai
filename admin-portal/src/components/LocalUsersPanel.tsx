@@ -152,7 +152,7 @@ export function LocalUsersPanel({
         <DialogContent>
           <DialogHeader><DialogTitle>Add Local User</DialogTitle></DialogHeader>
           <div className="space-y-3 py-2">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label>Username</Label>
                 <Input value={form.username} onChange={e => setForm(f => ({ ...f, username: e.target.value }))} />

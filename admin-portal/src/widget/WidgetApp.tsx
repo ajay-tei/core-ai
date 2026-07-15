@@ -172,7 +172,7 @@ export function WidgetApp({ widgetId }: { widgetId: string }) {
 
   /* ── Render ─────────────────────────────────────────────────────────── */
   const containerStyle: React.CSSProperties = {
-    height: '100vh',
+    height: '100dvh',
     display: 'flex',
     flexDirection: 'column',
     background: 'var(--diva-bg, #ffffff)',

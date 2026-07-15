@@ -442,7 +442,7 @@ export function RuleDialog({ open, onOpenChange, initial, agents = [], archetype
         </DialogHeader>
 
         <div className="grid gap-4 py-2">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Archetype</Label>
               <Select value={agentType} onValueChange={setAgentType} disabled={!!initial}>
@@ -492,7 +492,7 @@ export function RuleDialog({ open, onOpenChange, initial, agents = [], archetype
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Rule Key *</Label>
               <Input
@@ -542,7 +542,7 @@ export function RuleDialog({ open, onOpenChange, initial, agents = [], archetype
 
             {showHookFields && (
               <div className="grid gap-3 pt-1">
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label>Hook Point</Label>
                     <Select value={hookPoint} onValueChange={v => {
@@ -588,7 +588,7 @@ export function RuleDialog({ open, onOpenChange, initial, agents = [], archetype
                   </div>
                 )}
 
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   <div className="space-y-1.5">
                     <Label>Order in Pack</Label>
                     <Input type="number" value={orderInPack} onChange={e => setOrderInPack(Number(e.target.value))} />

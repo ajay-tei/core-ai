@@ -10,6 +10,7 @@ import {
   Mic,
   RotateCcw,
   Send,
+  SlidersHorizontal,
   User,
   Wrench,
 } from "lucide-react";
@@ -45,6 +46,12 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { MarkdownMessage } from "@/components/chat/MarkdownMessage";
 import { ToolResultTable } from "@/components/chat/ToolResultTable";
 import { SqlBlock } from "@/components/chat/SqlBlock";
@@ -432,6 +439,10 @@ export function AgentChat() {
   // and no Detailed trace toggle — those are authoring/debug controls.
   const isAdmin = auth.isAdmin();
 
+  // On small screens the header controls collapse into a settings popover so the
+  // title + clear button stay visible without horizontal overflow.
+  const isMobile = useIsMobile();
+
   const [agent, setAgent] = useState<AgentSummary | undefined>(agentFromState);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -783,50 +794,39 @@ export function AgentChat() {
     return <MarkdownMessage content={message.text} />;
   };
 
-  return (
-    <div className="flex flex-col h-[calc(100vh-8rem)]">
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-4 shrink-0">
-        <Button variant="ghost" size="icon" onClick={() => navigate("/agents")}>
-          <ArrowLeft className="size-4" />
-        </Button>
-        <div className="flex-1 min-w-0">
-          <h1 className="text-lg font-semibold truncate">
-            {agent ? (agent.displayName || agent.name) : "Loading..."}
-          </h1>
-          <p className="text-xs text-muted-foreground">
-            {sessionId ? `Session: ${sessionId.slice(0, 8)}...` : "No active session"}
-          </p>
-        </div>
-        <div className="flex items-center gap-3 shrink-0">
-          {/* Credential group picker — shown to all users when the caller belongs to more than
-              one eligible user group, letting them choose which group's shared-MCP credentials
-              this chat uses. */}
-          {credentialGroups.length > 1 && (
-            <Select
-              value={selectedGroupId?.toString() ?? "__default__"}
-              onValueChange={(v) => setSelectedGroupId(v === "__default__" ? undefined : parseInt(v))}
-              disabled={loading || messages.length > 0}
-            >
-              <SelectTrigger
-                className="w-48 h-8 text-xs"
-                title={messages.length > 0
-                  ? "Credential group is locked for this session. Clear the chat to change it."
-                  : "Credential group for shared MCP tools"}
-              >
-                <SelectValue placeholder="Credential group" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__default__" className="text-xs">Default credential group</SelectItem>
-                {credentialGroups.map((g) => (
-                  <SelectItem key={g.id} value={g.id.toString()} className="text-xs">{g.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-          {/* LLM config/model pickers and Detailed toggle are admin-only. */}
-          {isAdmin && (
-            <>
+  // Header controls (credential group + admin config/model/detailed toggle).
+  // Rendered inline on desktop and inside a settings popover on mobile.
+  const hasHeaderControls = credentialGroups.length > 1 || isAdmin;
+  const headerControls = (
+    <>
+      {/* Credential group picker — shown to all users when the caller belongs to more than
+          one eligible user group, letting them choose which group's shared-MCP credentials
+          this chat uses. */}
+      {credentialGroups.length > 1 && (
+        <Select
+          value={selectedGroupId?.toString() ?? "__default__"}
+          onValueChange={(v) => setSelectedGroupId(v === "__default__" ? undefined : parseInt(v))}
+          disabled={loading || messages.length > 0}
+        >
+          <SelectTrigger
+            className="w-full md:w-48 h-8 text-xs"
+            title={messages.length > 0
+              ? "Credential group is locked for this session. Clear the chat to change it."
+              : "Credential group for shared MCP tools"}
+          >
+            <SelectValue placeholder="Credential group" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__default__" className="text-xs">Default credential group</SelectItem>
+            {credentialGroups.map((g) => (
+              <SelectItem key={g.id} value={g.id.toString()} className="text-xs">{g.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+      {/* LLM config/model pickers and Detailed toggle are admin-only. */}
+      {isAdmin && (
+        <>
           {/* LLM Config picker — lets user test agent against different providers */}
           {availableLlmConfigs.length > 0 && (
             <Select
@@ -834,7 +834,7 @@ export function AgentChat() {
               onValueChange={(v) => setSelectedConfigId(v === "__default__" ? undefined : parseInt(v))}
               disabled={loading}
             >
-              <SelectTrigger className="w-44 h-8 text-xs">
+              <SelectTrigger className="w-full md:w-44 h-8 text-xs">
                 <SelectValue placeholder="Config" />
               </SelectTrigger>
               <SelectContent>
@@ -848,7 +848,7 @@ export function AgentChat() {
             </Select>
           )}
           <Select value={selectedModel || "__default__"} onValueChange={(v) => setSelectedModel(v === "__default__" ? "" : v)} disabled={loading}>
-            <SelectTrigger className="w-52 h-8 text-xs">
+            <SelectTrigger className="w-full md:w-52 h-8 text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -866,13 +866,49 @@ export function AgentChat() {
             <Switch id="detailed" checked={detailedMode} onCheckedChange={setDetailedMode} />
             <Label htmlFor="detailed" className="text-xs cursor-pointer">Detailed</Label>
           </div>
-            </>
+        </>
+      )}
+    </>
+  );
+
+  return (
+    <div className="flex flex-col h-[calc(100dvh-7rem)] md:h-[calc(100dvh-8rem)]">
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-4 shrink-0">
+        <Button variant="ghost" size="icon" onClick={() => navigate("/agents")}>
+          <ArrowLeft className="size-4" />
+        </Button>
+        <div className="flex-1 min-w-0">
+          <h1 className="text-lg font-semibold truncate">
+            {agent ? (agent.displayName || agent.name) : "Loading..."}
+          </h1>
+          <p className="text-xs text-muted-foreground">
+            {sessionId ? `Session: ${sessionId.slice(0, 8)}...` : "No active session"}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {hasHeaderControls && (
+            isMobile ? (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="ghost" size="icon" title="Chat settings" aria-label="Chat settings">
+                    <SlidersHorizontal className="size-4" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-72 flex flex-col gap-3">
+                  {headerControls}
+                </PopoverContent>
+              </Popover>
+            ) : (
+              <div className="flex items-center gap-3">{headerControls}</div>
+            )
           )}
           <Button variant="ghost" size="icon" onClick={clearChat} title="Clear chat">
             <RotateCcw className="size-4" />
           </Button>
         </div>
       </div>
+
 
       <Separator className="mb-4 shrink-0" />
 
@@ -922,10 +958,10 @@ export function AgentChat() {
                 </AvatarFallback>
               </Avatar>
 
-              <div className={cn("flex flex-col max-w-[80%]", m.role === "user" ? "items-end" : "items-start")}>
+              <div className={cn("flex flex-col max-w-[85%] min-w-0", m.role === "user" ? "items-end" : "items-start")}>
                 {/* Bubble */}
                 <div className={cn(
-                  "rounded-2xl px-4 py-3 text-sm leading-relaxed",
+                  "rounded-2xl px-4 py-3 text-sm leading-relaxed min-w-0 max-w-full",
                   m.role === "user"
                     ? "rounded-tr-sm bg-primary text-primary-foreground whitespace-pre-wrap"
                     : m.error

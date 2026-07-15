@@ -225,7 +225,7 @@ export function McpServerManager() {
             <Button variant="ghost" size="sm" onClick={closeForm}><X className="h-4 w-4" /></Button>
           </CardHeader>
           <CardContent className="grid gap-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label>Name</Label>
                 <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. weather-server" />
@@ -269,7 +269,7 @@ export function McpServerManager() {
                   <Label>Command</Label>
                   <Input value={form.command} onChange={(e) => setForm({ ...form, command: e.target.value })} placeholder="e.g. npx or docker" />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <Label>Arguments <span className="text-xs text-muted-foreground">(one per line)</span></Label>
                     <Textarea rows={3} value={form.argsText} onChange={(e) => setForm({ ...form, argsText: e.target.value })} placeholder={"-y\n@modelcontextprotocol/server-weather"} className="font-mono text-xs" />

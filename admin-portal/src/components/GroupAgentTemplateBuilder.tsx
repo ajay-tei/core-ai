@@ -704,7 +704,7 @@ export function GroupAgentTemplateBuilder() {
               <CardDescription>Basic information about this shared agent template</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <Label htmlFor="name">Name (slug) <span className="text-destructive">*</span></Label>
                   <Input
@@ -851,7 +851,7 @@ export function GroupAgentTemplateBuilder() {
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <Label>Temperature: {(form.temperature ?? 0.7).toFixed(1)}</Label>
                   <Slider

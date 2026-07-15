@@ -153,9 +153,29 @@ export default function SessionDetail() {
           <Row label="Iterations" value={session.totalIterations} />
           <Row label="Tool Calls" value={session.totalToolCalls} />
           {session.totalDelegations > 0 && <Row label="Delegations" value={session.totalDelegations} />}
-          {(session.totalInputTokens > 0 || session.totalOutputTokens > 0) && (
-            <Row label="Tokens" value={`↑ ${fmtNum(session.totalInputTokens)} / ↓ ${fmtNum(session.totalOutputTokens)}`} />
-          )}
+          {(() => {
+            const cache = session.totalCacheReadTokens + session.totalCacheCreationTokens;
+            const effIn = session.totalInputTokens + cache;
+            if (effIn === 0 && session.totalOutputTokens === 0) return null;
+            const rollupCache = session.rollupCacheReadTokens + session.rollupCacheCreationTokens;
+            const rollupEffIn = session.rollupInputTokens + rollupCache;
+            return (
+              <>
+                <Row
+                  label="Tokens"
+                  title={`Input ${fmtNum(effIn)} = ${fmtNum(session.totalInputTokens)} fresh + ${fmtNum(cache)} cached · Output ${fmtNum(session.totalOutputTokens)}`}
+                  value={`↑ ${fmtNum(effIn)} / ↓ ${fmtNum(session.totalOutputTokens)}`}
+                />
+                {session.subAgentSessionCount > 0 && (
+                  <Row
+                    label="Incl. sub-agents"
+                    title={`This session + ${session.subAgentSessionCount} delegated sub-agent session(s). Each sub-agent keeps its own totals on its session page.`}
+                    value={`↑ ${fmtNum(rollupEffIn)} / ↓ ${fmtNum(session.rollupOutputTokens)} · +${session.subAgentSessionCount}`}
+                  />
+                )}
+              </>
+            );
+          })()}
         </dl>
 
         <div className="flex flex-wrap gap-2">
@@ -428,11 +448,11 @@ function TreeNodes({ nodes, depth }: { nodes: SessionTreeNode[]; depth: number }
   );
 }
 
-function Row({ label, value }: { label: string; value: string | number }) {
+function Row({ label, value, title }: { label: string; value: React.ReactNode; title?: string }) {
   return (
     <div className="flex justify-between gap-2">
       <dt className="text-muted-foreground shrink-0">{label}</dt>
-      <dd className="text-right truncate">{value}</dd>
+      <dd className="text-right truncate" title={title}>{value}</dd>
     </div>
   );
 }

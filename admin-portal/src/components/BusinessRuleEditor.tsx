@@ -203,7 +203,7 @@ export function BusinessRuleEditor() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Archetype</Label>
               <Select value={agentType} onValueChange={setAgentType} disabled={!isNew}>
@@ -231,7 +231,7 @@ export function BusinessRuleEditor() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Rule Key *</Label>
               <Input

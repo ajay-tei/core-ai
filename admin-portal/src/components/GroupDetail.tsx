@@ -391,7 +391,7 @@ function RulesTab({ groupId }: { groupId: number }) {
             <DialogTitle>{editRule ? "Edit Rule" : "New Shared Rule"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label>Agent Type <span className="text-xs text-muted-foreground">(* = all)</span></Label>
                 <Select value={form.agentType} onValueChange={v => p("agentType", v)}>
@@ -409,7 +409,7 @@ function RulesTab({ groupId }: { groupId: number }) {
                 <Input type="number" value={form.priority} onChange={e => p("priority", Number(e.target.value))} />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label>Category</Label>
                 <Input value={form.ruleCategory} onChange={e => p("ruleCategory", e.target.value)} placeholder="e.g. tone" />
@@ -583,7 +583,7 @@ function PromptsTab({ groupId }: { groupId: number }) {
             <DialogTitle>{editItem ? "Edit Override" : "New Shared Prompt Override"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label>Agent Type <span className="text-xs text-muted-foreground">(* = all)</span></Label>
                 <Select value={form.agentType} onValueChange={v => p("agentType", v)}>
@@ -905,7 +905,7 @@ function SchedulesTab({ groupId }: { groupId: number }) {
             <DialogTitle>{editTask ? "Edit Schedule" : isCloning ? "Clone Group Schedule" : "New Group Schedule"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label>Name</Label>
                 <Input value={form.name} onChange={e => p("name", e.target.value)} placeholder="Weekly Report" />
@@ -915,7 +915,7 @@ function SchedulesTab({ groupId }: { groupId: number }) {
                 <Input value={form.agentType} onChange={e => p("agentType", e.target.value)} placeholder="ReportAgent" />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label>Schedule Type</Label>
                 <Select value={form.scheduleType} onValueChange={v => p("scheduleType", v)}>
