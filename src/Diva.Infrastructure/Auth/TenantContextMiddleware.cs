@@ -93,6 +93,14 @@ public sealed class TenantContextMiddleware
                 _ => "user",
             };
 
+            // Extract X-Tenant-* custom headers from the inbound request so they propagate
+            // to MCP tool servers (via McpRequestContext.ToHeaders) when PassTenantHeaders=true.
+            // X-Tenant-ID is excluded — it is carried as TenantContext.TenantId, not CustomHeaders.
+            var apiKeyCustomHeaders = context.Request.Headers
+                .Where(h => h.Key.StartsWith("X-Tenant-", StringComparison.OrdinalIgnoreCase)
+                         && !h.Key.Equals("X-Tenant-ID", StringComparison.OrdinalIgnoreCase))
+                .ToDictionary(h => h.Key["X-Tenant-".Length..], h => h.Value.ToString());
+
             var apiKeyTenant = new TenantContext
             {
                 TenantId = validatedKey.TenantId,
@@ -106,6 +114,7 @@ public sealed class TenantContextMiddleware
                 CurrentSiteId = int.TryParse(context.Request.Headers["X-Site-ID"].FirstOrDefault(), out var sid) ? sid : 0,
                 InboundApiKey = apiKeyHeader,
                 PlatformApiKeyId = validatedKey.Id,
+                CustomHeaders = apiKeyCustomHeaders,
             };
 
             context.Items["TenantContext"] = apiKeyTenant;
