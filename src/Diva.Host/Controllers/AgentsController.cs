@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Diva.Agents.Registry;
 using Diva.Agents.Workers;
 using Diva.Core.Configuration;
+using Diva.Core.Extensions;
 using Diva.Core.Models;
 using Diva.Host.Auth;
 using Diva.Infrastructure.AgentExport;
@@ -105,6 +106,58 @@ public class AgentsController : ControllerBase
         }
 
         return Ok(all);
+    }
+
+    // ── GET /api/agents/paged — search + pagination for the admin Agents list page. ───────────
+    // Kept as a SEPARATE endpoint (not a modification of GET /api/agents above) because that
+    // endpoint is also called by ~9 other components (selectors/dropdowns via api.listAgents())
+    // that expect the full unbounded array — changing its response shape would break them.
+    [HttpGet("paged")]
+    public async Task<IActionResult> ListPaged(
+        [FromQuery] string? search,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 25,
+        CancellationToken ct = default)
+    {
+        var tenant = Tenant;
+        using var db = _db.CreateDbContext(tenant);
+        var ownAgents = await db.AgentDefinitions
+            .OrderByDescending(a => a.CreatedAt)
+            .Select(a => new AgentSummaryDto(a.Id, a.Name, a.DisplayName, a.AgentType, a.Status, a.IsEnabled, a.CreatedAt, false, null, null, a.LlmConfigId))
+            .ToListAsync(ct);
+
+        // Merge shared group templates (read-only — the tenant cannot edit these)
+        var groupTemplates = await _groups.GetAgentTemplatesForTenantAsync(tenant.TenantId, ct);
+        var overlayMap = (await _overlays.GetOverlaysAsync(tenant.TenantId, ct))
+            .ToDictionary(o => o.GroupTemplateId);
+        var sharedSummaries = groupTemplates
+            .Where(t => ownAgents.All(own => own.Id != t.Id))  // don't duplicate if tenant has own copy
+            .Select(t =>
+            {
+                overlayMap.TryGetValue(t.Id, out var ov);
+                return new AgentSummaryDto(t.Id, t.Name, t.DisplayName, t.AgentType, t.Status, t.IsEnabled,
+                    t.CreatedAt, true, t.GroupId, t.Group?.Name, t.LlmConfigId,
+                    IsActivated: ov?.IsEnabled ?? false, OverlayGuid: ov?.Guid);
+            });
+
+        IEnumerable<AgentSummaryDto> all = ownAgents.Concat(sharedSummaries);
+
+        // Non-admin users (e.g. user / viewer) only see agents they may invoke.
+        if (!tenant.IsAdmin && !tenant.IsMasterAdmin)
+        {
+            var denied = await _agentGroups.GetDeniedAgentIdsAsync(tenant, ct);
+            all = all.Where(a => !denied.Contains(a.Id));
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var q = search.Trim();
+            all = all.Where(a =>
+                a.Name.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                a.DisplayName.Contains(q, StringComparison.OrdinalIgnoreCase));
+        }
+
+        return Ok(all.ToPagedResult(page, pageSize));
     }
 
     // ── GET /api/agents/{id} ──────────────────────────────────────────────────

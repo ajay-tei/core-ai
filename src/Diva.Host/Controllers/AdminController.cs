@@ -1,4 +1,5 @@
 using Diva.Core.Configuration;
+using Diva.Core.Extensions;
 using Diva.Core.Models;
 using Diva.Host.Auth;
 using Diva.Infrastructure.Auth;
@@ -49,14 +50,28 @@ public class AdminController : ControllerBase
 
     // ── Business Rules ────────────────────────────────────────────────────────
 
-    // GET /api/admin/business-rules?tenantId=1&agentType=*&agentId=<optional>
+    // GET /api/admin/business-rules?tenantId=1&agentType=*&agentId=<optional>&search=&page=1&pageSize=25
     [HttpGet("business-rules")]
     public async Task<IActionResult> GetRules(
         [FromQuery] int tenantId = 1,
         [FromQuery] string agentType = "*",
         [FromQuery] string? agentId = null,
+        [FromQuery] string? search = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 25,
         CancellationToken ct = default)
-        => Ok(await _rules.GetRulesAsync(EffectiveTenantId(tenantId), agentType, ct, agentId));
+    {
+        var rules = await _rules.GetRulesAsync(EffectiveTenantId(tenantId), agentType, ct, agentId);
+        var filtered = rules.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var q = search.Trim();
+            filtered = filtered.Where(r =>
+                r.RuleKey.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                (r.PromptInjection ?? string.Empty).Contains(q, StringComparison.OrdinalIgnoreCase));
+        }
+        return Ok(filtered.ToPagedResult(page, pageSize));
+    }
 
     // POST /api/admin/business-rules
     [HttpPost("business-rules")]
@@ -239,14 +254,28 @@ public class AdminController : ControllerBase
 
     // ── Prompt Overrides ──────────────────────────────────────────────────────
 
-    // GET /api/admin/prompt-overrides?tenantId=1&agentType=*&agentId=
+    // GET /api/admin/prompt-overrides?tenantId=1&agentType=*&agentId=&search=&page=1&pageSize=25
     [HttpGet("prompt-overrides")]
     public async Task<IActionResult> GetPromptOverrides(
         [FromQuery] int tenantId = 1,
         [FromQuery] string? agentType = null,
         [FromQuery] string? agentId = null,
+        [FromQuery] string? search = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 25,
         CancellationToken ct = default)
-        => Ok(await _rules.ListAllPromptOverridesAsync(EffectiveTenantId(tenantId), agentType, agentId, ct));
+    {
+        var overrides = await _rules.ListAllPromptOverridesAsync(EffectiveTenantId(tenantId), agentType, agentId, ct);
+        var filtered = overrides.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var q = search.Trim();
+            filtered = filtered.Where(o =>
+                o.Section.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                o.CustomText.Contains(q, StringComparison.OrdinalIgnoreCase));
+        }
+        return Ok(filtered.ToPagedResult(page, pageSize));
+    }
 
     // POST /api/admin/prompt-overrides
     [HttpPost("prompt-overrides")]
@@ -378,9 +407,32 @@ public class SsoConfigController : ControllerBase
     }
 
     // GET /api/admin/sso-configs?tenantId=1
+    // Returns the full unbounded array — used by dropdown/selector callers (WidgetEditor.tsx).
     [HttpGet]
     public async Task<IActionResult> List([FromQuery] int tenantId = 1, CancellationToken ct = default)
         => Ok(await _sso.GetForTenantAsync(EffectiveTenantId(tenantId), ct));
+
+    // GET /api/admin/sso-configs/paged?tenantId=1&search=&page=1&pageSize=25
+    // Dedicated paginated endpoint for the admin SSO Configs list page.
+    [HttpGet("paged")]
+    public async Task<IActionResult> ListPaged(
+        [FromQuery] int tenantId = 1,
+        [FromQuery] string? search = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 25,
+        CancellationToken ct = default)
+    {
+        var configs = await _sso.GetForTenantAsync(EffectiveTenantId(tenantId), ct);
+        var filtered = configs.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var q = search.Trim();
+            filtered = filtered.Where(c =>
+                c.ProviderName.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                c.Issuer.Contains(q, StringComparison.OrdinalIgnoreCase));
+        }
+        return Ok(filtered.ToPagedResult(page, pageSize));
+    }
 
     // GET /api/admin/sso-configs/{id}?tenantId=1
     [HttpGet("{id:int}")]
@@ -448,6 +500,8 @@ public class UserProfilesController : ControllerBase
     }
 
     // GET /api/admin/user-profiles?tenantId=1&search=alice&role=admin
+    // Returns the full unbounded array — kept for existing dropdown/selector callers
+    // (ScheduledTasks.tsx "Run As User", UserGroups.tsx member picker).
     [HttpGet]
     public async Task<IActionResult> List(
         [FromQuery] int tenantId = 1,
@@ -455,6 +509,21 @@ public class UserProfilesController : ControllerBase
         [FromQuery] string? role = null,
         CancellationToken ct = default)
         => Ok(await _profiles.GetForTenantAsync(EffectiveTenantId(tenantId), search, role, ct));
+
+    // GET /api/admin/user-profiles/paged?tenantId=1&search=alice&role=admin&page=1&pageSize=25
+    // Dedicated paginated endpoint for the admin User Profiles list page.
+    [HttpGet("paged")]
+    public async Task<IActionResult> ListPaged(
+        [FromQuery] int tenantId = 1,
+        [FromQuery] string? search = null,
+        [FromQuery] string? role = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 25,
+        CancellationToken ct = default)
+    {
+        var profiles = await _profiles.GetForTenantAsync(EffectiveTenantId(tenantId), search, role, ct);
+        return Ok(profiles.ToPagedResult(page, pageSize));
+    }
 
     // GET /api/admin/user-profiles/{id}?tenantId=1
     [HttpGet("{id:int}")]
@@ -533,9 +602,30 @@ public class WidgetAdminController : ControllerBase
     }
 
     // GET /api/admin/widgets?tenantId=1
+    // Returns the full unbounded array — used by dropdown/selector callers (WidgetEditor.tsx).
     [HttpGet]
     public async Task<IActionResult> List([FromQuery] int tenantId = 1, CancellationToken ct = default)
         => Ok(await _widgets.GetForTenantAsync(EffectiveTenantId(tenantId), ct));
+
+    // GET /api/admin/widgets/paged?tenantId=1&search=&page=1&pageSize=25
+    // Dedicated paginated endpoint for the admin Chat Widgets list page.
+    [HttpGet("paged")]
+    public async Task<IActionResult> ListPaged(
+        [FromQuery] int tenantId = 1,
+        [FromQuery] string? search = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 25,
+        CancellationToken ct = default)
+    {
+        var widgets = await _widgets.GetForTenantAsync(EffectiveTenantId(tenantId), ct);
+        var filtered = widgets.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var q = search.Trim();
+            filtered = filtered.Where(w => w.Name.Contains(q, StringComparison.OrdinalIgnoreCase));
+        }
+        return Ok(filtered.ToPagedResult(page, pageSize));
+    }
 
     // POST /api/admin/widgets?tenantId=1
     [HttpPost]

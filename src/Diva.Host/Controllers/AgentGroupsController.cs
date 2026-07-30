@@ -1,3 +1,4 @@
+using Diva.Core.Extensions;
 using Diva.Host.Auth;
 using Diva.Infrastructure.Auth;
 using Diva.TenantAdmin.Services;
@@ -31,12 +32,36 @@ public class AgentGroupsController : ControllerBase
     }
 
     // GET /api/agent-groups?tenantId=1
+    // Returns the full unbounded array — used by dropdown/selector callers (ApiKeyManager.tsx).
     [HttpGet]
     public async Task<IActionResult> List([FromQuery] int tenantId = 1, CancellationToken ct = default)
     {
         var tid = EffectiveTenantId(tenantId);
         var groups = await _service.ListAsync(tid, ct);
         return Ok(groups.Select(ToDto));
+    }
+
+    // GET /api/agent-groups/paged?tenantId=1&search=&page=1&pageSize=25
+    // Dedicated paginated endpoint for the admin Agent Access Groups list page.
+    [HttpGet("paged")]
+    public async Task<IActionResult> ListPaged(
+        [FromQuery] int tenantId = 1,
+        [FromQuery] string? search = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 25,
+        CancellationToken ct = default)
+    {
+        var tid = EffectiveTenantId(tenantId);
+        var groups = await _service.ListAsync(tid, ct);
+        var filtered = groups.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var q = search.Trim();
+            filtered = filtered.Where(g =>
+                g.Name.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                (g.Description ?? string.Empty).Contains(q, StringComparison.OrdinalIgnoreCase));
+        }
+        return Ok(filtered.ToPagedResult(page, pageSize).MapItems(ToDto));
     }
 
     // GET /api/agent-groups/{id}?tenantId=1

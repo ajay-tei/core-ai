@@ -4,6 +4,7 @@ using Diva.Host.Auth;
 using Diva.Infrastructure.Auth;
 using Diva.Infrastructure.Data;
 using Diva.Infrastructure.Data.Entities;
+using Diva.Infrastructure.Extensions;
 using Diva.Infrastructure.Sessions;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -97,11 +98,8 @@ public class SessionsController : ControllerBase
 
         query = query.Where(s => s.Status != "deleted");
 
-        var total = await query.CountAsync(ct);
-        var items = await query
+        var projected = query
             .OrderByDescending(s => s.CreatedAt)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
             .Select(s => new SessionSummary
             {
                 SessionId = s.SessionId,
@@ -123,17 +121,10 @@ public class SessionsController : ControllerBase
                 TotalOutputTokens = s.TotalOutputTokens,
                 TotalCacheReadTokens = s.TotalCacheReadTokens,
                 TotalCacheCreationTokens = s.TotalCacheCreationTokens,
-            })
-            .ToListAsync(ct);
+            });
 
-        return Ok(new PagedResult<SessionSummary>
-        {
-            Items = items,
-            Page = page,
-            PageSize = pageSize,
-            TotalCount = total,
-            TotalPages = (int)Math.Ceiling((double)total / pageSize),
-        });
+        var result = await projected.ToPagedResultAsync(page, pageSize, ct);
+        return Ok(result);
     }
 
     /// <summary>GET /api/sessions/{id} — session metadata + turn list.</summary>

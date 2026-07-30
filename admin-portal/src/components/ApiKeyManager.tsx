@@ -1,5 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
-import { api, type PlatformApiKey, type ApiKeyCreatedResult, type CreateApiKeyDto, type UpdateApiKeyDto, type AgentGroup } from "@/api";
+import { useState, useEffect } from "react";
+import { api, type PlatformApiKey, type PlatformApiKeyListParams, type ApiKeyCreatedResult, type CreateApiKeyDto, type UpdateApiKeyDto, type AgentGroup } from "@/api";
+import { usePagedList } from "@/hooks/usePagedList";
+import { ListToolbar, ListPagination } from "@/components/ui/list-toolbar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,8 +15,8 @@ import { toast } from "sonner";
 const SCOPES = ["invoke", "admin", "readonly"] as const;
 
 export function ApiKeyManager() {
-  const [keys, setKeys] = useState<PlatformApiKey[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { result, loading, params, update, updateDebounced, setPage, reload } =
+    usePagedList<PlatformApiKey, PlatformApiKeyListParams>(api.listApiKeysPaged, { page: 1, pageSize: 25 });
   const [showCreate, setShowCreate] = useState(false);
   const [newKeyResult, setNewKeyResult] = useState<ApiKeyCreatedResult | null>(null);
   const [form, setForm] = useState<CreateApiKeyDto>({ name: "", scope: "invoke" });
@@ -22,18 +24,9 @@ export function ApiKeyManager() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<UpdateApiKeyDto>({});
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [keyList, groupList] = await Promise.all([api.listApiKeys(), api.listAgentGroups().catch(() => [])]);
-      setKeys(keyList);
-      setGroups(groupList);
-    }
-    catch { toast.error("Failed to load API keys"); }
-    finally { setLoading(false); }
+  useEffect(() => {
+    api.listAgentGroups().then(setGroups).catch(() => setGroups([]));
   }, []);
-
-  useEffect(() => { load(); }, [load]);
 
   const handleCreate = async () => {
     if (!form.name.trim()) { toast.error("Name is required"); return; }
@@ -42,7 +35,7 @@ export function ApiKeyManager() {
       setNewKeyResult(result);
       setForm({ name: "", scope: "invoke" });
       setShowCreate(false);
-      load();
+      reload();
     } catch { toast.error("Failed to create API key"); }
   };
 
@@ -51,7 +44,7 @@ export function ApiKeyManager() {
     try {
       await api.revokeApiKey(id);
       toast.success(`API key "${name}" revoked`);
-      load();
+      reload();
     } catch { toast.error("Failed to revoke API key"); }
   };
 
@@ -61,7 +54,7 @@ export function ApiKeyManager() {
       const result = await api.rotateApiKey(id);
       setNewKeyResult(result);
       toast.success(`API key "${name}" rotated`);
-      load();
+      reload();
     } catch { toast.error("Failed to rotate API key"); }
   };
 
@@ -87,7 +80,7 @@ export function ApiKeyManager() {
       await api.updateApiKey(id, editForm);
       toast.success("API key updated");
       cancelEdit();
-      load();
+      reload();
     } catch { toast.error("Failed to update API key"); }
   };
 
@@ -178,13 +171,22 @@ export function ApiKeyManager() {
         </Card>
       )}
 
+      <ListToolbar
+        searchValue={params.search}
+        onSearchChange={v => updateDebounced({ search: v || undefined })}
+        searchPlaceholder="Search API keys…"
+        pageSize={params.pageSize}
+        onPageSizeChange={pageSize => update({ pageSize })}
+        pageSizeOptions={[25, 50, 100]}
+      />
+
       {loading ? (
         <div className="space-y-3">{[1,2,3].map(i => <Skeleton key={i} className="h-16 w-full" />)}</div>
-      ) : keys.length === 0 ? (
+      ) : (result?.items.length ?? 0) === 0 ? (
         <Card><CardContent className="py-8 text-center text-muted-foreground">No API keys created. Click "Create API Key" to get started.</CardContent></Card>
       ) : (
         <div className="space-y-3">
-          {keys.map((k) => (
+          {(result?.items ?? []).map((k) => (
             <Card key={k.id}>
               {editingId === k.id ? (
                 <CardContent className="grid gap-4 py-4">
@@ -273,6 +275,16 @@ export function ApiKeyManager() {
             </Card>
           ))}
         </div>
+      )}
+
+      {result && (
+        <ListPagination
+          page={result.page}
+          totalPages={result.totalPages}
+          totalCount={result.totalCount}
+          onPageChange={setPage}
+          itemLabel="total"
+        />
       )}
     </div>
   );

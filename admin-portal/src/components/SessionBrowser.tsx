@@ -1,7 +1,9 @@
-import { useEffect, useState, useCallback } from "react";
+import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { api } from "../api";
-import type { SessionSummary, PagedResult, SessionListParams } from "../api";
+import type { SessionSummary, SessionListParams } from "../api";
+import { usePagedList } from "../hooks/usePagedList";
+import { ListToolbar, ListPagination } from "@/components/ui/list-toolbar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,43 +11,25 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
-import { ChevronLeft, ChevronRight, Trash2, MessageSquare } from "lucide-react";
+import { Trash2, MessageSquare } from "lucide-react";
 
 export default function SessionBrowser() {
   const navigate = useNavigate();
-  const [result, setResult] = useState<PagedResult<SessionSummary> | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [params, setParams] = useState<SessionListParams>({ page: 1, pageSize: 50 });
+  const { result, loading, error, params, update, updateDebounced, setPage, reload } =
+    usePagedList<SessionSummary, SessionListParams>(api.getSessions, { page: 1, pageSize: 50 });
+  const [actionError, setActionError] = useState<string | null>(null);
   const [purgeOpen, setPurgeOpen] = useState(false);
   const [purgeDays, setPurgeDays] = useState(30);
   const [purgeStatus, setPurgeStatus] = useState("all");
   const [purging, setPurging] = useState(false);
   const [purgeResult, setPurgeResult] = useState<string | null>(null);
 
-  const load = useCallback((p: SessionListParams) => {
-    setLoading(true);
-    setError(null);
-    api.getSessions(p)
-      .then(setResult)
-      .catch(e => setError(String(e)))
-      .finally(() => setLoading(false));
-  }, []);
-
-  useEffect(() => { load(params); }, [params]);
-
-  const update = (patch: Partial<SessionListParams>) =>
-    setParams(prev => ({ ...prev, ...patch, page: 1 }));
-
-  const setPage = (page: number) =>
-    setParams(prev => ({ ...prev, page }));
-
   const handleContinue = async (sessionId: string) => {
     try {
       const res = await api.continueSession(sessionId);
       navigate(`/agents/${res.agentId}/chat?sessionId=${encodeURIComponent(res.sessionId)}`);
     } catch (e) {
-      setError(String(e));
+      setActionError(String(e));
     }
   };
 
@@ -55,7 +39,7 @@ export default function SessionBrowser() {
     try {
       const res = await api.purgeSessions(purgeDays, purgeStatus === "all" ? undefined : purgeStatus);
       setPurgeResult(`Deleted ${res.deleted} session${res.deleted !== 1 ? "s" : ""}.`);
-      load(params); // refresh list
+      reload(); // refresh list
     } catch (e) {
       setPurgeResult(`Error: ${e}`);
     } finally {
@@ -126,48 +110,38 @@ export default function SessionBrowser() {
       </Dialog>
 
       {/* Filter bar */}
-      <Card>
-        <CardContent className="p-4 flex flex-wrap gap-3 items-center">
-          <Input
-            placeholder="Search session ID or agent…"
-            className="w-64"
-            onChange={e => update({ q: e.target.value || undefined })}
-          />
-          <Select onValueChange={v => update({ status: v === "all" ? undefined : v })}>
-            <SelectTrigger className="w-36">
-              <SelectValue placeholder="All statuses" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All statuses</SelectItem>
-              <SelectItem value="active">Active</SelectItem>
-              <SelectItem value="completed">Completed</SelectItem>
-              <SelectItem value="failed">Failed</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select defaultValue="50" onValueChange={v => update({ pageSize: Number(v) })}>
-            <SelectTrigger className="w-24">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="25">25 / page</SelectItem>
-              <SelectItem value="50">50 / page</SelectItem>
-              <SelectItem value="100">100 / page</SelectItem>
-            </SelectContent>
-          </Select>
-          <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
-            <input type="checkbox" className="rounded"
-              onChange={e => update({ supervisorOnly: e.target.checked || undefined })} />
-            Supervisors only
-          </label>
-          <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
-            <input type="checkbox" className="rounded"
-              onChange={e => update({ hasErrors: e.target.checked || undefined })} />
-            Errors only
-          </label>
-        </CardContent>
-      </Card>
+      <ListToolbar
+        searchValue={params.q}
+        onSearchChange={v => updateDebounced({ q: v || undefined })}
+        searchPlaceholder="Search session ID or agent…"
+        pageSize={params.pageSize}
+        onPageSizeChange={pageSize => update({ pageSize })}
+        pageSizeOptions={[25, 50, 100]}
+      >
+        <Select onValueChange={v => update({ status: v === "all" ? undefined : v })}>
+          <SelectTrigger className="w-36">
+            <SelectValue placeholder="All statuses" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All statuses</SelectItem>
+            <SelectItem value="active">Active</SelectItem>
+            <SelectItem value="completed">Completed</SelectItem>
+            <SelectItem value="failed">Failed</SelectItem>
+          </SelectContent>
+        </Select>
+        <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+          <input type="checkbox" className="rounded"
+            onChange={e => update({ supervisorOnly: e.target.checked || undefined })} />
+          Supervisors only
+        </label>
+        <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+          <input type="checkbox" className="rounded"
+            onChange={e => update({ hasErrors: e.target.checked || undefined })} />
+          Errors only
+        </label>
+      </ListToolbar>
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {(error || actionError) && <p className="text-sm text-destructive">{error || actionError}</p>}
 
       <Card>
         <CardHeader className="px-4 py-3 flex flex-row items-center justify-between">
@@ -241,20 +215,14 @@ export default function SessionBrowser() {
       </Card>
 
       {/* Pagination — always shown when there are results */}
-      {result && result.totalCount > 0 && (
-        <div className="flex items-center gap-2 text-sm">
-          <Button variant="outline" size="sm" disabled={result.page <= 1}
-            onClick={() => setPage(result.page - 1)}>
-            <ChevronLeft className="size-4" /> Prev
-          </Button>
-          <span className="text-muted-foreground">
-            Page {result.page} of {result.totalPages || 1} &nbsp;·&nbsp; {result.totalCount} total
-          </span>
-          <Button variant="outline" size="sm" disabled={result.page >= (result.totalPages || 1)}
-            onClick={() => setPage(result.page + 1)}>
-            Next <ChevronRight className="size-4" />
-          </Button>
-        </div>
+      {result && (
+        <ListPagination
+          page={result.page}
+          totalPages={result.totalPages}
+          totalCount={result.totalCount}
+          onPageChange={setPage}
+          itemLabel="total"
+        />
       )}
     </div>
   );

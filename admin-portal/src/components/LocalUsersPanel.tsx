@@ -1,5 +1,7 @@
-import { useState, useEffect } from "react";
-import { api, type LocalUser, type CreateLocalUserDto } from "@/api";
+import { useState } from "react";
+import { api, type LocalUser, type LocalUserListParams, type CreateLocalUserDto } from "@/api";
+import { usePagedList } from "@/hooks/usePagedList";
+import { ListToolbar, ListPagination } from "@/components/ui/list-toolbar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,6 +12,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Plus, Trash2, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 
+// Note: if `tenantId` needs to change after mount (e.g. TenantDetail.tsx), render this
+// component with `key={tenantId}` at the call site to force a clean remount — usePagedList
+// only captures its initial params once.
 export function LocalUsersPanel({
   tenantId,
   availableRoles = ["admin", "user", "viewer"],
@@ -24,25 +29,14 @@ export function LocalUsersPanel({
     displayName: "", roles: defaultRoles,
   };
 
-  const [users,       setUsers]       = useState<LocalUser[]>([]);
-  const [loading,     setLoading]     = useState(true);
+  const { result, loading, params, update, updateDebounced, setPage, reload } =
+    usePagedList<LocalUser, LocalUserListParams>(api.listLocalUsers, { tenantId, page: 1, pageSize: 25 });
   const [addOpen,     setAddOpen]     = useState(false);
   const [form,        setForm]        = useState<CreateLocalUserDto>(emptyForm);
   const [saving,      setSaving]      = useState(false);
   const [resetUser,   setResetUser]   = useState<LocalUser | null>(null);
   const [newPassword, setNewPassword] = useState("");
 
-  async function load() {
-    try {
-      setUsers(await api.listLocalUsers(tenantId));
-    } catch (e) {
-      toast.error(`Failed to load users: ${e}`);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => { load(); }, [tenantId]);
 
   async function addUser() {
     setSaving(true);
@@ -51,7 +45,7 @@ export function LocalUsersPanel({
       toast.success("User created");
       setAddOpen(false);
       setForm(emptyForm);
-      load();
+      reload();
     } catch (e) {
       toast.error(`Failed: ${e}`);
     } finally {
@@ -64,7 +58,7 @@ export function LocalUsersPanel({
     try {
       await api.deleteLocalUser(u.id, tenantId);
       toast.success("Deleted");
-      load();
+      reload();
     } catch (e) {
       toast.error(`Failed: ${e}`);
     }
@@ -97,6 +91,15 @@ export function LocalUsersPanel({
         </Button>
       </div>
 
+      <ListToolbar
+        searchValue={params.search}
+        onSearchChange={v => updateDebounced({ search: v || undefined })}
+        searchPlaceholder="Search users…"
+        pageSize={params.pageSize}
+        onPageSizeChange={pageSize => update({ pageSize })}
+        pageSizeOptions={[25, 50, 100]}
+      />
+
       <Table>
         <TableHeader>
           <TableRow>
@@ -112,9 +115,9 @@ export function LocalUsersPanel({
         <TableBody>
           {loading ? (
             <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">Loading…</TableCell></TableRow>
-          ) : users.length === 0 ? (
+          ) : (result?.items.length ?? 0) === 0 ? (
             <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">No local users for this tenant.</TableCell></TableRow>
-          ) : users.map(u => (
+          ) : (result?.items ?? []).map(u => (
             <TableRow key={u.id}>
               <TableCell className="font-mono text-sm">{u.username}</TableCell>
               <TableCell className="text-sm">{u.email}</TableCell>
@@ -146,6 +149,16 @@ export function LocalUsersPanel({
           ))}
         </TableBody>
       </Table>
+
+      {result && (
+        <ListPagination
+          page={result.page}
+          totalPages={result.totalPages}
+          totalCount={result.totalCount}
+          onPageChange={setPage}
+          itemLabel="total"
+        />
+      )}
 
       {/* Add user dialog */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>

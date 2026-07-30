@@ -1,5 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
-import { api, type SuggestedRule } from "@/api";
+import { useState } from "react";
+import { api, type SuggestedRule, type PendingRulesListParams } from "@/api";
+import { usePagedList } from "@/hooks/usePagedList";
+import { ListToolbar, ListPagination } from "@/components/ui/list-toolbar";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -14,10 +16,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { RefreshCw, CheckCircle, XCircle, Brain } from "lucide-react";
 
-interface RuleWithId extends SuggestedRule {
-  id: number;
-}
-
 const CATEGORY_COLORS: Record<string, string> = {
   general:         "bg-blue-500/10 text-blue-400 border-blue-500/20",
   tone:            "bg-purple-500/10 text-purple-400 border-purple-500/20",
@@ -28,29 +26,18 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 export function PendingRules() {
-  const [rules, setRules]               = useState<RuleWithId[]>([]);
-  const [loading, setLoading]           = useState(true);
+  const { result, loading, params, update, updateDebounced, setPage, reload } =
+    usePagedList<SuggestedRule, PendingRulesListParams>(api.getPendingRules, { page: 1, pageSize: 25 });
   const [busy, setBusy]                 = useState<Set<number>>(new Set());
   const [rejectDialogId, setRejectDialogId] = useState<number | null>(null);
   const [rejectNote, setRejectNote]     = useState("");
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await api.getPendingRules();
-      setRules(data.map((r, i) => ({ ...r, id: i + 1 })));
-    } catch (e: unknown) { toast.error(String(e)); }
-    finally { setLoading(false); }
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
-
-  const approve = async (rule: RuleWithId) => {
+  const approve = async (rule: SuggestedRule) => {
     setBusy(prev => new Set(prev).add(rule.id));
     try {
       await api.approveRule(rule.id);
-      setRules(prev => prev.filter(r => r.id !== rule.id));
       toast.success("Rule approved and promoted to business rules.");
+      reload();
     } catch (e: unknown) { toast.error(String(e)); }
     finally { setBusy(prev => { const s = new Set(prev); s.delete(rule.id); return s; }); }
   };
@@ -59,14 +46,14 @@ export function PendingRules() {
 
   const confirmReject = async () => {
     if (!rejectDialogId) return;
-    const rule = rules.find(r => r.id === rejectDialogId);
+    const rule = (result?.items ?? []).find(r => r.id === rejectDialogId);
     if (!rule) return;
     setBusy(prev => new Set(prev).add(rule.id));
     setRejectDialogId(null);
     try {
       await api.rejectRule(rule.id, rejectNote);
-      setRules(prev => prev.filter(r => r.id !== rule.id));
       toast.success("Rule rejected.");
+      reload();
     } catch (e: unknown) { toast.error(String(e)); }
     finally { setBusy(prev => { const s = new Set(prev); s.delete(rule.id); return s; }); }
   };
@@ -80,11 +67,20 @@ export function PendingRules() {
             Rules detected from agent conversations. Approve to promote into active business rules.
           </p>
         </div>
-        <Button size="sm" variant="outline" onClick={load} disabled={loading} className="h-8">
+        <Button size="sm" variant="outline" onClick={reload} disabled={loading} className="h-8">
           <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${loading ? "animate-spin" : ""}`} />
           Refresh
         </Button>
       </div>
+
+      <ListToolbar
+        searchValue={params.search}
+        onSearchChange={v => updateDebounced({ search: v || undefined })}
+        searchPlaceholder="Search rules…"
+        pageSize={params.pageSize}
+        onPageSizeChange={pageSize => update({ pageSize })}
+        pageSizeOptions={[25, 50, 100]}
+      />
 
       {loading ? (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -99,16 +95,16 @@ export function PendingRules() {
             </Card>
           ))}
         </div>
-      ) : rules.length === 0 ? (
+      ) : (result?.items.length ?? 0) === 0 ? (
         <EmptyState
           icon={Brain}
           title="No pending rules"
           description="Agents will suggest rules as they learn from conversations."
-          action={{ label: "Refresh", onClick: load }}
+          action={{ label: "Refresh", onClick: reload }}
         />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {rules.map(rule => {
+          {(result?.items ?? []).map(rule => {
             const catCls    = CATEGORY_COLORS[rule.ruleCategory || "general"] ?? "bg-muted text-muted-foreground";
             const confidence = Math.round(rule.confidence * 100);
             const confColor  = confidence >= 80
@@ -182,6 +178,16 @@ export function PendingRules() {
             );
           })}
         </div>
+      )}
+
+      {result && (
+        <ListPagination
+          page={result.page}
+          totalPages={result.totalPages}
+          totalCount={result.totalCount}
+          onPageChange={setPage}
+          itemLabel="total"
+        />
       )}
 
       <Dialog

@@ -1,8 +1,10 @@
 using Diva.Core.Configuration;
+using Diva.Core.Extensions;
 using Diva.Host.Auth;
 using Diva.Infrastructure.Auth;
 using Diva.Infrastructure.Data;
 using Diva.Infrastructure.Data.Entities;
+using Diva.Infrastructure.Extensions;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -34,6 +36,8 @@ public class CredentialsController : ControllerBase
     }
 
     // GET /api/admin/credentials?tenantId=1
+    // Returns the full unbounded array — used by dropdown/selector callers (AgentBuilder.tsx,
+    // McpServerManager.tsx's own credential-mapping dropdowns).
     [HttpGet]
     public async Task<IActionResult> List([FromQuery] int tenantId = 1, CancellationToken ct = default)
     {
@@ -43,41 +47,67 @@ public class CredentialsController : ControllerBase
             .Where(c => c.TenantId == tid)
             .OrderByDescending(c => c.CreatedAt)
             .AsNoTracking()
-            .Select(c => new
-            {
-                c.Id,
-                c.Name,
-                c.AuthScheme,
-                c.CustomHeaderName,
-                c.Description,
-                c.CreatedAt,
-                c.ExpiresAt,
-                c.IsActive,
-                c.LastUsedAt,
-                c.CreatedByUserId,
-                c.EncryptedApiKey
-            })
+            .Select(ProjectRow)
             .ToListAsync(ct);
 
         // Decrypt in memory to expose only a short masked hint (last 4 chars) for verification.
-        // Never return the full key. Decryption can fail if the master key was rotated — mask as null.
-        var items = rows.Select(c => new
-        {
-            c.Id,
-            c.Name,
-            c.AuthScheme,
-            c.CustomHeaderName,
-            c.Description,
-            c.CreatedAt,
-            c.ExpiresAt,
-            c.IsActive,
-            c.LastUsedAt,
-            c.CreatedByUserId,
-            ApiKeyHint = MaskKey(c.EncryptedApiKey)
-        });
-
-        return Ok(items);
+        return Ok(rows.Select(ToListItem));
     }
+
+    // GET /api/admin/credentials/paged?tenantId=1&search=&page=1&pageSize=25
+    // Dedicated paginated endpoint for the admin MCP Credentials list page.
+    [HttpGet("paged")]
+    public async Task<IActionResult> ListPaged(
+        [FromQuery] int tenantId = 1,
+        [FromQuery] string? search = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 25,
+        CancellationToken ct = default)
+    {
+        var tid = EffectiveTenantId(tenantId);
+        using var db = _db.CreateDbContext(Core.Models.TenantContext.System(tid));
+        var query = db.McpCredentials.Where(c => c.TenantId == tid);
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var q = search.Trim();
+            query = query.Where(c => c.Name.Contains(q));
+        }
+
+        var paged = await query
+            .OrderByDescending(c => c.CreatedAt)
+            .AsNoTracking()
+            .Select(ProjectRow)
+            .ToPagedResultAsync(page, pageSize, ct);
+
+        // Decrypt only this page's rows in memory to expose a short masked hint (last 4 chars).
+        // Never return the full key. Decryption can fail if the master key was rotated — mask as null.
+        return Ok(paged.MapItems(ToListItem));
+    }
+
+    private static readonly System.Linq.Expressions.Expression<Func<McpCredentialEntity, CredentialRow>> ProjectRow = c => new CredentialRow(
+        c.Id, c.Name, c.AuthScheme, c.CustomHeaderName, c.Description,
+        c.CreatedAt, c.ExpiresAt, c.IsActive, c.LastUsedAt, c.CreatedByUserId, c.EncryptedApiKey);
+
+    private object ToListItem(CredentialRow c) => new
+    {
+        c.Id,
+        c.Name,
+        c.AuthScheme,
+        c.CustomHeaderName,
+        c.Description,
+        c.CreatedAt,
+        c.ExpiresAt,
+        c.IsActive,
+        c.LastUsedAt,
+        c.CreatedByUserId,
+        ApiKeyHint = MaskKey(c.EncryptedApiKey)
+    };
+
+    private sealed record CredentialRow(
+        int Id, string Name, string AuthScheme, string? CustomHeaderName, string? Description,
+        DateTime CreatedAt, DateTime? ExpiresAt, bool IsActive, DateTime? LastUsedAt,
+        string? CreatedByUserId, string? EncryptedApiKey);
+
 
     /// <summary>
     /// Decrypts a stored key and returns a masked hint exposing only the last 4 characters

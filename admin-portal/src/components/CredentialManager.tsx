@@ -1,5 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
-import { api, type McpCredential, type CreateCredentialDto, type UpdateCredentialDto } from "@/api";
+import { useState } from "react";
+import { api, type McpCredential, type McpCredentialListParams, type CreateCredentialDto, type UpdateCredentialDto } from "@/api";
+import { usePagedList } from "@/hooks/usePagedList";
+import { ListToolbar, ListPagination } from "@/components/ui/list-toolbar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,19 +15,10 @@ import { toast } from "sonner";
 const AUTH_SCHEMES = ["Bearer", "ApiKey", "Custom"] as const;
 
 export function CredentialManager() {
-  const [credentials, setCredentials] = useState<McpCredential[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { result, loading, params, update, updateDebounced, setPage, reload } =
+    usePagedList<McpCredential, McpCredentialListParams>(api.listCredentialsPaged, { page: 1, pageSize: 25 });
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState<CreateCredentialDto>({ name: "", apiKey: "" });
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try { setCredentials(await api.listCredentials()); }
-    catch { toast.error("Failed to load credentials"); }
-    finally { setLoading(false); }
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
 
   const handleCreate = async () => {
     if (!form.name.trim() || !form.apiKey.trim()) {
@@ -37,7 +30,7 @@ export function CredentialManager() {
       toast.success(`Credential "${form.name}" created`);
       setForm({ name: "", apiKey: "" });
       setShowCreate(false);
-      load();
+      reload();
     } catch { toast.error("Failed to create credential"); }
   };
 
@@ -46,7 +39,7 @@ export function CredentialManager() {
     try {
       await api.deleteCredential(id);
       toast.success(`Credential "${name}" deleted`);
-      load();
+      reload();
     } catch { toast.error("Failed to delete credential"); }
   };
 
@@ -54,7 +47,7 @@ export function CredentialManager() {
     try {
       await api.updateCredential(cred.id, { isActive: !cred.isActive } as UpdateCredentialDto);
       toast.success(`Credential "${cred.name}" ${cred.isActive ? "deactivated" : "activated"}`);
-      load();
+      reload();
     } catch { toast.error("Failed to update credential"); }
   };
 
@@ -108,13 +101,22 @@ export function CredentialManager() {
         </Card>
       )}
 
+      <ListToolbar
+        searchValue={params.search}
+        onSearchChange={v => updateDebounced({ search: v || undefined })}
+        searchPlaceholder="Search credentials…"
+        pageSize={params.pageSize}
+        onPageSizeChange={pageSize => update({ pageSize })}
+        pageSizeOptions={[25, 50, 100]}
+      />
+
       {loading ? (
         <div className="space-y-3">{[1,2,3].map(i => <Skeleton key={i} className="h-16 w-full" />)}</div>
-      ) : credentials.length === 0 ? (
+      ) : (result?.items.length ?? 0) === 0 ? (
         <Card><CardContent className="py-8 text-center text-muted-foreground">No credentials configured. Click "Add Credential" to create one.</CardContent></Card>
       ) : (
         <div className="space-y-3">
-          {credentials.map((c) => (
+          {(result?.items ?? []).map((c) => (
             <Card key={c.id}>
               <CardContent className="flex items-center justify-between py-4">
                 <div className="space-y-1">
@@ -148,6 +150,16 @@ export function CredentialManager() {
             </Card>
           ))}
         </div>
+      )}
+
+      {result && (
+        <ListPagination
+          page={result.page}
+          totalPages={result.totalPages}
+          totalCount={result.totalCount}
+          onPageChange={setPage}
+          itemLabel="total"
+        />
       )}
     </div>
   );

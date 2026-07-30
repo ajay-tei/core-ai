@@ -19,6 +19,12 @@ public interface IRuleLearningService
 
 public sealed class SuggestedRule
 {
+    /// <summary>
+    /// Real <c>LearnedRuleEntity.Id</c> once persisted. 0 for rules not yet saved (e.g. still
+    /// being reviewed inside <see cref="IRuleLearningService.ExtractRulesFromConversationAsync"/>
+    /// before a save decision is made).
+    /// </summary>
+    public int Id { get; init; }
     public string? AgentType { get; init; }
     public string RuleCategory { get; init; } = "";
     public string RuleKey { get; init; } = "";

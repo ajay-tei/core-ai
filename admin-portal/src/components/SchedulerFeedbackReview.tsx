@@ -1,10 +1,13 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   listSchedulerFeedback,
   approveSchedulerFeedback,
   rejectSchedulerFeedback,
   type SchedulerFeedbackItem,
+  type SchedulerFeedbackListParams,
 } from "../api";
+import { usePagedList } from "@/hooks/usePagedList";
+import { ListToolbar, ListPagination } from "@/components/ui/list-toolbar";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import {
@@ -58,28 +61,13 @@ function StatusBadge({ status }: { status: string }) {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function SchedulerFeedbackReview() {
-  const [items, setItems]               = useState<SchedulerFeedbackItem[]>([]);
-  const [loading, setLoading]           = useState(true);
+  const { result, loading, params, update, updateDebounced, setPage, reload } =
+    usePagedList<SchedulerFeedbackItem, SchedulerFeedbackListParams>(listSchedulerFeedback, { page: 1, pageSize: 25 });
   const [notice, setNotice]             = useState<{ type: "error" | "success"; msg: string } | null>(null);
   const [selected, setSelected]         = useState<SchedulerFeedbackItem | null>(null);
   const [rejectMode, setRejectMode]     = useState(false);
   const [rejectNotes, setRejectNotes]   = useState("");
   const [actionLoading, setActionLoading] = useState(false);
-
-  async function load() {
-    setLoading(true);
-    setNotice(null);
-    try {
-      const data = await listSchedulerFeedback();
-      setItems(data);
-    } catch {
-      setNotice({ type: "error", msg: "Failed to load feedback items." });
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => { load(); }, []);
 
   function openDetail(item: SchedulerFeedbackItem) {
     setSelected(item);
@@ -98,7 +86,7 @@ export function SchedulerFeedbackReview() {
     setActionLoading(true);
     try {
       await approveSchedulerFeedback(selected.id, selected.tenantId);
-      setItems(prev => prev.filter(i => i.id !== selected.id));
+      reload();
       setNotice({
         type: "success",
         msg: selected.correctionText
@@ -118,7 +106,7 @@ export function SchedulerFeedbackReview() {
     setActionLoading(true);
     try {
       await rejectSchedulerFeedback(selected.id, rejectNotes || undefined, selected.tenantId);
-      setItems(prev => prev.filter(i => i.id !== selected.id));
+      reload();
       setNotice({ type: "success", msg: "Feedback rejected." });
       closeDetail();
     } catch {
@@ -138,7 +126,7 @@ export function SchedulerFeedbackReview() {
             Review and act on feedback submitted by recipients of scheduler run emails.
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={load} disabled={loading} className="h-8">
+        <Button variant="outline" size="sm" onClick={reload} disabled={loading} className="h-8">
           <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
           Refresh
         </Button>
@@ -154,6 +142,15 @@ export function SchedulerFeedbackReview() {
           {notice.msg}
         </div>
       )}
+
+      <ListToolbar
+        searchValue={params.search}
+        onSearchChange={v => updateDebounced({ search: v || undefined })}
+        searchPlaceholder="Search by task or agent…"
+        pageSize={params.pageSize}
+        onPageSizeChange={pageSize => update({ pageSize })}
+        pageSizeOptions={[25, 50, 100]}
+      />
 
       {/* Table */}
       {loading ? (
@@ -177,7 +174,7 @@ export function SchedulerFeedbackReview() {
             </TableBody>
           </Table>
         </div>
-      ) : items.length === 0 ? (
+      ) : (result?.items.length ?? 0) === 0 ? (
         <div className="rounded-md border py-16 text-center text-sm text-muted-foreground">
           No pending feedback items.
         </div>
@@ -196,7 +193,7 @@ export function SchedulerFeedbackReview() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {items.map(item => (
+              {(result?.items ?? []).map(item => (
                 <TableRow
                   key={item.id}
                   className="cursor-pointer hover:bg-muted/50"
@@ -236,6 +233,16 @@ export function SchedulerFeedbackReview() {
             </TableBody>
           </Table>
         </div>
+      )}
+
+      {result && (
+        <ListPagination
+          page={result.page}
+          totalPages={result.totalPages}
+          totalCount={result.totalCount}
+          onPageChange={setPage}
+          itemLabel="total"
+        />
       )}
 
       {/* Detail popup */}

@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import {
   api,
   type McpServer,
+  type McpServerListParams,
   type CreateMcpServerDto,
   type McpCredential,
   type PlatformApiKey,
@@ -9,6 +10,8 @@ import {
   type UserGroup,
   type UserGroupCredentialMapping,
 } from "@/api";
+import { usePagedList } from "@/hooks/usePagedList";
+import { ListToolbar, ListPagination } from "@/components/ui/list-toolbar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -83,32 +86,25 @@ function parseMappings(json?: string): ApiKeyCredentialMapping[] {
 }
 
 export function McpServerManager() {
-  const [servers, setServers] = useState<McpServer[]>([]);
+  const { result, loading, params, update, updateDebounced, setPage, reload } =
+    usePagedList<McpServer, McpServerListParams>(api.listMcpServersPaged, { page: 1, pageSize: 25 });
   const [credentials, setCredentials] = useState<McpCredential[]>([]);
   const [apiKeys, setApiKeys] = useState<PlatformApiKey[]>([]);
   const [userGroups, setUserGroups] = useState<UserGroup[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<ServerForm>(EMPTY_FORM);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [s, c, k, ug] = await Promise.all([
-        api.listMcpServers(),
-        api.listCredentials().catch(() => [] as McpCredential[]),
-        api.listApiKeys().catch(() => [] as PlatformApiKey[]),
-        api.listUserGroups().catch(() => [] as UserGroup[]),
-      ]);
-      setServers(s);
+  useEffect(() => {
+    Promise.all([
+      api.listCredentials().catch(() => [] as McpCredential[]),
+      api.listApiKeys().catch(() => [] as PlatformApiKey[]),
+      api.listUserGroups().catch(() => [] as UserGroup[]),
+    ]).then(([c, k, ug]) => {
       setCredentials(c);
       setApiKeys(k);
       setUserGroups(ug);
-    } catch { toast.error("Failed to load MCP servers"); }
-    finally { setLoading(false); }
+    }).catch(() => toast.error("Failed to load credential/key/group options"));
   }, []);
-
-  useEffect(() => { load(); }, [load]);
 
   const openCreate = () => { setForm(EMPTY_FORM); setShowForm(true); };
 
@@ -169,7 +165,7 @@ export function McpServerManager() {
         toast.success(`MCP server "${dto.name}" created`);
       }
       closeForm();
-      load();
+      reload();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to save MCP server");
     }
@@ -180,7 +176,7 @@ export function McpServerManager() {
     try {
       await api.deleteMcpServer(id);
       toast.success(`MCP server "${name}" deleted`);
-      load();
+      reload();
     } catch { toast.error("Failed to delete MCP server"); }
   };
 
@@ -380,13 +376,22 @@ export function McpServerManager() {
         </Card>
       )}
 
+      <ListToolbar
+        searchValue={params.search}
+        onSearchChange={v => updateDebounced({ search: v || undefined })}
+        searchPlaceholder="Search MCP servers…"
+        pageSize={params.pageSize}
+        onPageSizeChange={pageSize => update({ pageSize })}
+        pageSizeOptions={[25, 50, 100]}
+      />
+
       {loading ? (
         <div className="space-y-3">{[1, 2, 3].map(i => <Skeleton key={i} className="h-16 w-full" />)}</div>
-      ) : servers.length === 0 && !showForm ? (
+      ) : (result?.items.length ?? 0) === 0 && !showForm ? (
         <Card><CardContent className="py-8 text-center text-muted-foreground">No shared MCP servers configured. Click "Add Server" to create one.</CardContent></Card>
       ) : (
         <div className="space-y-3">
-          {servers.map((s) => {
+          {(result?.items ?? []).map((s) => {
             const mappings = parseMappings(s.apiKeyCredentialMappingsJson);
             return (
               <Card key={s.id}>
@@ -420,6 +425,16 @@ export function McpServerManager() {
             );
           })}
         </div>
+      )}
+
+      {result && (
+        <ListPagination
+          page={result.page}
+          totalPages={result.totalPages}
+          totalCount={result.totalCount}
+          onPageChange={setPage}
+          itemLabel="total"
+        />
       )}
     </div>
   );

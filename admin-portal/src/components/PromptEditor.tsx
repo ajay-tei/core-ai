@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
-import { api, type AgentSummary, type ArchetypeSummary, type PromptOverride, type GroupPromptTemplateItem } from "@/api";
+import { api, type AgentSummary, type ArchetypeSummary, type PromptOverride, type PromptOverrideListParams, type GroupPromptTemplateItem } from "@/api";
+import { usePagedList } from "@/hooks/usePagedList";
+import { ListToolbar, ListPagination } from "@/components/ui/list-toolbar";
 import { toast } from "sonner";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -46,36 +48,25 @@ function MergeModeBadge({ mode }: { mode: string }) {
 }
 
 export function PromptEditor() {
-  const [overrides, setOverrides]       = useState<PromptOverride[]>([]);
   const [archetypes, setArchetypes]     = useState<ArchetypeSummary[]>([]);
   const [agents, setAgents]             = useState<AgentSummary[]>([]);
-  const [loading, setLoading]           = useState(true);
-  const [agentFilter, setFilter]        = useState<string | undefined>(undefined);
-  const [agentIdFilter, setAgentIdFilter] = useState<string | undefined>(undefined);
   const [dialogOpen, setDialogOpen]     = useState(false);
   const [editOverride, setEditOverride] = useState<PromptOverride | null>(null);
   const [deleteId, setDeleteId]         = useState<number | null>(null);
+  const { result, loading, params, update, updateDebounced, setPage, reload } =
+    usePagedList<PromptOverride, PromptOverrideListParams>(api.getPromptOverrides, { tenantId: 1, page: 1, pageSize: 25 });
 
   useEffect(() => {
     api.listArchetypes().then(setArchetypes).catch(() => {});
     api.listAgents().then(setAgents).catch(() => {});
   }, []);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try   { setOverrides(await api.getPromptOverrides(1, agentFilter, agentIdFilter)); }
-    catch (e: unknown) { toast.error(String(e)); }
-    finally { setLoading(false); }
-  }, [agentFilter, agentIdFilter]);
-
-  useEffect(() => { load(); }, [load]);
-
   const handleDelete = async () => {
     if (!deleteId) return;
     try {
       await api.deletePromptOverride(deleteId, 1);
-      setOverrides(o => o.filter(x => x.id !== deleteId));
       toast.success("Override deleted.");
+      reload();
     } catch (e: unknown) { toast.error(String(e)); }
     finally { setDeleteId(null); }
   };
@@ -83,7 +74,7 @@ export function PromptEditor() {
   const handleToggleActive = async (o: PromptOverride) => {
     try {
       await api.updatePromptOverride(o.id, { ...o, isActive: !o.isActive }, 1);
-      setOverrides(prev => prev.map(x => x.id === o.id ? { ...x, isActive: !x.isActive } : x));
+      reload();
     } catch (e: unknown) { toast.error(String(e)); }
   };
 
@@ -105,8 +96,15 @@ export function PromptEditor() {
           <TabsTrigger value="group-templates">Group Templates</TabsTrigger>
         </TabsList>
         <TabsContent value="my-overrides" className="space-y-4">
-          <div className="flex items-center gap-2 justify-end">
-            <Select value={agentFilter ?? "*"} onValueChange={v => setFilter(v === "*" ? undefined : v)}>
+          <ListToolbar
+            searchValue={params.search}
+            onSearchChange={v => updateDebounced({ search: v || undefined })}
+            searchPlaceholder="Search overrides…"
+            pageSize={params.pageSize}
+            onPageSizeChange={pageSize => update({ pageSize })}
+            pageSizeOptions={[25, 50, 100]}
+          >
+            <Select value={params.agentType ?? "*"} onValueChange={v => update({ agentType: v === "*" ? undefined : v })}>
               <SelectTrigger className="w-44 h-8 text-xs">
                 <SelectValue placeholder="All archetypes" />
               </SelectTrigger>
@@ -117,7 +115,7 @@ export function PromptEditor() {
                 ))}
               </SelectContent>
             </Select>
-            <Select value={agentIdFilter ?? "*"} onValueChange={v => setAgentIdFilter(v === "*" ? undefined : v)}>
+            <Select value={params.agentId ?? "*"} onValueChange={v => update({ agentId: v === "*" ? undefined : v })}>
               <SelectTrigger className="w-44 h-8 text-xs">
                 <SelectValue placeholder="All agents" />
               </SelectTrigger>
@@ -128,13 +126,13 @@ export function PromptEditor() {
                 ))}
               </SelectContent>
             </Select>
-            <Button size="sm" variant="outline" onClick={load} className="h-8">
+            <Button size="sm" variant="outline" onClick={reload} className="h-8">
               <RefreshCw className="h-3.5 w-3.5" />
             </Button>
             <Button size="sm" onClick={openCreate} className="h-8">
               <Plus className="h-3.5 w-3.5 mr-1" /> Add Override
             </Button>
-          </div>
+          </ListToolbar>
 
           {loading ? (
         <div className="rounded-md border">
@@ -163,7 +161,7 @@ export function PromptEditor() {
             </TableBody>
           </Table>
         </div>
-      ) : overrides.length === 0 ? (
+      ) : (result?.items.length ?? 0) === 0 ? (
         <EmptyState
           icon={FileText}
           title="No prompt overrides"
@@ -184,7 +182,7 @@ export function PromptEditor() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {overrides.map(o => (
+              {(result?.items ?? []).map(o => (
                 <TableRow key={o.id}>
                   <TableCell>
                     <div className="text-sm font-medium">
@@ -241,7 +239,7 @@ export function PromptEditor() {
         initial={editOverride}
         archetypes={archetypes}
         agents={agents}
-        onSaved={() => { setDialogOpen(false); load(); }}
+        onSaved={() => { setDialogOpen(false); reload(); }}
       />
 
       <AlertDialog open={deleteId !== null} onOpenChange={(open: boolean) => !open && setDeleteId(null)}>
@@ -263,6 +261,16 @@ export function PromptEditor() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {result && (
+        <ListPagination
+          page={result.page}
+          totalPages={result.totalPages}
+          totalCount={result.totalCount}
+          onPageChange={setPage}
+          itemLabel="total"
+        />
+      )}
         </TabsContent>
 
         <TabsContent value="group-templates">

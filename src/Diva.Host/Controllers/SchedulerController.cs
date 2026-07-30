@@ -1,4 +1,5 @@
 using Diva.Core.Configuration;
+using Diva.Core.Extensions;
 using Diva.Host.Auth;
 using Diva.Infrastructure.Auth;
 using Diva.Infrastructure.Data.Entities;
@@ -36,12 +37,26 @@ public class SchedulerController : ControllerBase
         return ctx is { TenantId: > 0 } ? ctx.TenantId : requestedTenantId;
     }
 
-    // ── GET /api/schedules ──────────────────────────────────────────────────
+    // ── GET /api/schedules?search=&page=1&pageSize=25 ────────────────────────
     [HttpGet]
     public async Task<IActionResult> List(
         [FromQuery] int tenantId = 1,
+        [FromQuery] string? search = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 25,
         CancellationToken ct = default)
-        => Ok(await _service.ListAsync(EffectiveTenantId(tenantId), ct));
+    {
+        var tasks = await _service.ListAsync(EffectiveTenantId(tenantId), ct);
+        var filtered = tasks.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var q = search.Trim();
+            filtered = filtered.Where(t =>
+                t.Name.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                (t.Description ?? string.Empty).Contains(q, StringComparison.OrdinalIgnoreCase));
+        }
+        return Ok(filtered.ToPagedResult(page, pageSize));
+    }
 
     // ── GET /api/schedules/{id} ─────────────────────────────────────────────
     [HttpGet("{id}")]
@@ -177,14 +192,19 @@ public class SchedulerController : ControllerBase
         return Ok(run);
     }
 
-    // ── GET /api/schedules/{id}/runs ───────────────────────────────────────
+    // ── GET /api/schedules/{id}/runs?page=1&pageSize=25 ────────────────────
     [HttpGet("{id}/runs")]
     public async Task<IActionResult> RunHistory(
         string id,
         [FromQuery] int tenantId = 1,
-        [FromQuery] int limit = 50,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 25,
         CancellationToken ct = default)
-        => Ok(await _service.GetRunHistoryAsync(EffectiveTenantId(tenantId), id, Math.Clamp(limit, 1, 200), ct));
+    {
+        // Service caps at 200 rows; fetch that ceiling then paginate in memory on top of it.
+        var runs = await _service.GetRunHistoryAsync(EffectiveTenantId(tenantId), id, 200, ct);
+        return Ok(runs.ToPagedResult(page, pageSize));
+    }
 
     // ── POST /api/schedules/import ─────────────────────────────────────────
     [HttpPost("import")]

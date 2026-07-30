@@ -1,10 +1,14 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router";
 import {
   api, generateSchedulerFeedbackLink, getFeedbackSettings, upsertFeedbackSettings,
-  type AgentSummary, type ScheduledTask, type ScheduledTaskRun, type CreateScheduleDto,
+  type AgentSummary, type ScheduledTask, type ScheduledTaskListParams,
+  type ScheduledTaskRun, type ScheduleRunListParams,
   type ScheduledTaskExport, type ScheduleExportEnvelope, type TenantFeedbackSettings,
-  type UserProfile,
+  type PagedResult,
 } from "@/api";
+import { usePagedList } from "@/hooks/usePagedList";
+import { ListToolbar, ListPagination } from "@/components/ui/list-toolbar";
 import { toast } from "sonner";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -12,9 +16,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose,
 } from "@/components/ui/dialog";
@@ -37,17 +38,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   MoreHorizontal, Plus, CalendarClock, Pencil, Trash2,
-  Play, History, RefreshCw, ChevronDown, ChevronRight, Copy, Download, Upload, Sparkles,
+  Play, History, RefreshCw, ChevronDown, ChevronRight, Copy, Download, Upload,
 } from "lucide-react";
-import { PromptQuickFixDialog } from "@/components/PromptQuickFixDialog";
-
-const TIMEZONES = [
-  "UTC", "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles",
-  "America/Sao_Paulo", "Europe/London", "Europe/Paris", "Europe/Berlin", "Europe/Moscow",
-  "Asia/Dubai", "Asia/Kolkata", "Asia/Singapore", "Asia/Tokyo", "Australia/Sydney",
-];
-
-const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+import { DAY_NAMES } from "@/lib/scheduleConstants";
 
 function formatUtc(iso?: string) {
   if (!iso) return "—";
@@ -82,12 +75,10 @@ function scheduleLabel(task: ScheduledTask) {
 // ── Main component ───────────────────────────────────────────────────────────
 
 export function ScheduledTasks() {
-  const [tasks, setTasks]       = useState<ScheduledTask[]>([]);
+  const navigate = useNavigate();
+  const { result, loading, params, update, updateDebounced, setPage, reload } =
+    usePagedList<ScheduledTask, ScheduledTaskListParams>(api.listSchedules, { page: 1, pageSize: 25 });
   const [agents, setAgents]     = useState<AgentSummary[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [dialogOpen,  setDialogOpen]  = useState(false);
-  const [dialogMode,   setDialogMode]   = useState<"create" | "edit" | "clone">("create");
-  const [editTask,     setEditTask]     = useState<ScheduledTask | null>(null);
   const [runsTask,     setRunsTask]     = useState<ScheduledTask | null>(null);
   const [deleteId,     setDeleteId]     = useState<string | null>(null);
 
@@ -103,20 +94,11 @@ export function ScheduledTasks() {
     api.listAgents().then(setAgents).catch(() => {});
   }, []);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try   { setTasks(await api.listSchedules(1)); }
-    catch (e: unknown) { toast.error(String(e)); }
-    finally { setLoading(false); }
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
-
   const handleDelete = async () => {
     if (!deleteId) return;
     try {
       await api.deleteSchedule(deleteId, 1);
-      setTasks(t => t.filter(x => x.id !== deleteId));
+      reload();
       toast.success("Schedule deleted.");
     } catch (e: unknown) { toast.error(String(e)); }
     finally { setDeleteId(null); }
@@ -124,8 +106,8 @@ export function ScheduledTasks() {
 
   const handleToggle = async (task: ScheduledTask) => {
     try {
-      const updated = await api.setScheduleEnabled(task.id, !task.isEnabled, 1);
-      setTasks(t => t.map(x => x.id === task.id ? updated : x));
+      await api.setScheduleEnabled(task.id, !task.isEnabled, 1);
+      reload();
     } catch (e: unknown) { toast.error(String(e)); }
   };
 
@@ -141,9 +123,9 @@ export function ScheduledTasks() {
     return a ? (a.displayName || a.name) : agentId;
   };
 
-  const openCreate = () => { setDialogMode("create"); setEditTask(null); setDialogOpen(true); };
-  const openEdit   = (task: ScheduledTask) => { setDialogMode("edit"); setEditTask(task); setDialogOpen(true); };
-  const openClone  = (task: ScheduledTask) => { setDialogMode("clone"); setEditTask(task); setDialogOpen(true); };
+  const openCreate = () => navigate("/schedules/new");
+  const openEdit   = (task: ScheduledTask) => navigate(`/schedules/${task.id}/edit`);
+  const openClone  = (task: ScheduledTask) => navigate(`/schedules/${task.id}/clone`);
 
   // ── Export helpers ──────────────────────────────────────────────────────
   const toExportTask = (t: ScheduledTask): ScheduledTaskExport => ({
@@ -164,12 +146,19 @@ export function ScheduledTasks() {
 
   const dateSlug = () => new Date().toISOString().slice(0, 10);
 
-  const handleExportAll = () => {
-    const envelope: ScheduleExportEnvelope = {
-      version: "1", exportedAt: new Date().toISOString(),
-      type: "tenant-schedules", tasks: tasks.map(toExportTask),
-    };
-    triggerDownload(JSON.stringify(envelope, null, 2), `schedules-all-${dateSlug()}.json`);
+  // "Export All" / import conflict-checking need the full tenant list, not just the current
+  // page — fetch it as a one-off large-pageSize call rather than relying on `result.items`.
+  const fetchAllTasks = async () => (await api.listSchedules({ pageSize: 10000 })).items;
+
+  const handleExportAll = async () => {
+    try {
+      const all = await fetchAllTasks();
+      const envelope: ScheduleExportEnvelope = {
+        version: "1", exportedAt: new Date().toISOString(),
+        type: "tenant-schedules", tasks: all.map(toExportTask),
+      };
+      triggerDownload(JSON.stringify(envelope, null, 2), `schedules-all-${dateSlug()}.json`);
+    } catch (e: unknown) { toast.error(String(e)); }
   };
 
   const handleExportOne = (task: ScheduledTask) => {
@@ -187,7 +176,7 @@ export function ScheduledTasks() {
     setImportParsed(null); setImportConflicts([]); setImportSkip(true);
   };
 
-  const handleImportParse = () => {
+  const handleImportParse = async () => {
     let parsed: ScheduleExportEnvelope;
     try { parsed = JSON.parse(importRaw); }
     catch { toast.error("Invalid JSON — check the file format."); return; }
@@ -197,7 +186,10 @@ export function ScheduledTasks() {
     if (parsed.type && parsed.type !== "tenant-schedules") {
       toast.error(`Wrong file type: expected "tenant-schedules", got "${parsed.type}".`); return;
     }
-    const existing = new Set(tasks.map(t => t.name.toLowerCase()));
+    let existingNames: string[] = [];
+    try { existingNames = (await fetchAllTasks()).map(t => t.name.toLowerCase()); }
+    catch { /* conflict check is best-effort; fall back to no known conflicts */ }
+    const existing = new Set(existingNames);
     const conflicts = parsed.tasks
       .filter(t => existing.has((t.name ?? "").toLowerCase()))
       .map(t => t.name);
@@ -212,7 +204,7 @@ export function ScheduledTasks() {
       const result = await api.importSchedules({ tasks: importParsed, skipConflicts: importSkip }, 1);
       toast.success(`Imported: ${result.created} created, ${result.skipped} skipped.`);
       closeImport();
-      load();
+      reload();
     } catch (e: unknown) { toast.error(String(e)); }
     finally { setImporting(false); }
   };
@@ -227,10 +219,10 @@ export function ScheduledTasks() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button size="sm" variant="outline" onClick={load} className="h-8">
+          <Button size="sm" variant="outline" onClick={reload} className="h-8">
             <RefreshCw className="h-3.5 w-3.5" />
           </Button>
-          <Button size="sm" variant="outline" onClick={handleExportAll} className="h-8" disabled={tasks.length === 0}>
+          <Button size="sm" variant="outline" onClick={handleExportAll} className="h-8" disabled={(result?.totalCount ?? 0) === 0}>
             <Download className="h-3.5 w-3.5 mr-1" /> Export All
           </Button>
           <Button size="sm" variant="outline" onClick={() => setImportOpen(true)} className="h-8">
@@ -241,6 +233,15 @@ export function ScheduledTasks() {
           </Button>
         </div>
       </div>
+
+      <ListToolbar
+        searchValue={params.search}
+        onSearchChange={v => updateDebounced({ search: v || undefined })}
+        searchPlaceholder="Search schedules…"
+        pageSize={params.pageSize}
+        onPageSizeChange={pageSize => update({ pageSize })}
+        pageSizeOptions={[25, 50, 100]}
+      />
 
       {loading ? (
         <div className="rounded-md border">
@@ -269,7 +270,7 @@ export function ScheduledTasks() {
             </TableBody>
           </Table>
         </div>
-      ) : tasks.length === 0 ? (
+      ) : (result?.items.length ?? 0) === 0 ? (
         <EmptyState
           icon={CalendarClock}
           title="No schedules"
@@ -290,7 +291,7 @@ export function ScheduledTasks() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {tasks.map(task => (
+              {(result?.items ?? []).map(task => (
                 <TableRow key={task.id}>
                   <TableCell>
                     <div className="flex items-center gap-2">
@@ -375,16 +376,18 @@ export function ScheduledTasks() {
         </div>
       )}
 
-      <TaskDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        mode={dialogMode}
-        source={editTask}
-        agents={agents}
-        onSaved={() => { setDialogOpen(false); load(); }}
-      />
+      {result && (
+        <ListPagination
+          page={result.page}
+          totalPages={result.totalPages}
+          totalCount={result.totalCount}
+          onPageChange={setPage}
+          itemLabel="total"
+        />
+      )}
 
       <RunHistorySheet
+        key={runsTask?.id ?? "closed"}
         task={runsTask}
         agentName={runsTask ? agentName(runsTask.agentId) : ""}
         onClose={() => setRunsTask(null)}
@@ -595,354 +598,6 @@ function FeedbackSettingsPanel() {
   );
 }
 
-// ── Task form dialog ──────────────────────────────────────────────────────────
-
-interface TaskDialogProps {
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
-  mode: "create" | "edit" | "clone";
-  source: ScheduledTask | null;
-  agents: AgentSummary[];
-  onSaved: () => void;
-}
-
-function TaskDialog({ open, onOpenChange, mode, source, agents, onSaved }: TaskDialogProps) {
-  const [agentId,       setAgentId]       = useState("");
-  const [name,          setName]          = useState("");
-  const [description,   setDescription]   = useState("");
-  const [scheduleType,  setScheduleType]  = useState("once");
-  const [scheduledAt,   setScheduledAt]   = useState("");
-  const [runAtTime,     setRunAtTime]     = useState("09:00");
-  const [dayOfWeek,     setDayOfWeek]     = useState<number>(1);
-  const [timeZoneId,    setTimeZoneId]    = useState("UTC");
-  const [payloadType,   setPayloadType]   = useState("prompt");
-  const [promptText,    setPromptText]    = useState("");
-  const [parametersRaw, setParametersRaw] = useState('{\n  "variable": "value"\n}');
-  const [isEnabled,     setIsEnabled]     = useState(true);
-  const [notifyEmails,  setNotifyEmails]  = useState("");
-  const [notifyOn,      setNotifyOn]      = useState<string | undefined>(undefined);
-  const [successKeywords, setSuccessKeywords] = useState("");
-  const [runAsUserId,   setRunAsUserId]   = useState("");
-  const [users,         setUsers]         = useState<UserProfile[]>([]);
-  const [saving,        setSaving]        = useState(false);
-  const [quickFixOpen,  setQuickFixOpen]  = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    api.listUserProfiles(1).then(setUsers).catch(() => setUsers([]));
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const isClone = mode === "clone";
-    setAgentId(source?.agentId ?? (agents[0]?.id ?? ""));
-    // Clone: append suffix and clear one-time date; Edit/Create: use source as-is
-    setName(source ? (isClone ? `${source.name} (copy)` : source.name) : "");
-    setDescription(source?.description ?? "");
-    setScheduleType(source?.scheduleType ?? "once");
-    // Gap 2 fix: never carry a past one-time date into a clone
-    setScheduledAt(
-      !isClone && source?.scheduledAtUtc ? source.scheduledAtUtc.slice(0, 16) : ""
-    );
-    setRunAtTime(source?.runAtTime ?? "09:00");
-    setDayOfWeek(source?.dayOfWeek ?? 1);
-    setTimeZoneId(source?.timeZoneId ?? "UTC");
-    setPayloadType(source?.payloadType ?? "prompt");
-    setPromptText(source?.promptText ?? "");
-    setParametersRaw(
-      source?.parametersJson
-        ? (() => { try { return JSON.stringify(JSON.parse(source.parametersJson), null, 2); } catch { return source.parametersJson; } })()
-        : '{\n  "variable": "value"\n}'
-    );
-    // Gap 1 fix: clone always starts disabled
-    setIsEnabled(isClone ? false : (source?.isEnabled ?? true));
-    setNotifyEmails(source?.notifyEmails ?? "");
-    setNotifyOn(source?.notifyOn ?? undefined);
-    setSuccessKeywords(source?.successKeywords ?? "");
-    setRunAsUserId(source?.runAsUserId ?? "");
-  }, [open, mode, source, agents]);
-
-  const save = async () => {
-    if (!agentId)            { toast.error("Select an agent."); return; }
-    if (!name.trim())        { toast.error("Name is required."); return; }
-    if (!promptText.trim())  { toast.error("Prompt text is required."); return; }
-    if (scheduleType === "once" && !scheduledAt) { toast.error("Select a date/time."); return; }
-
-    let parsedParams: string | undefined;
-    if (payloadType === "template") {
-      try { JSON.parse(parametersRaw); parsedParams = parametersRaw; }
-      catch { toast.error("Parameters JSON is not valid."); return; }
-    }
-
-    setSaving(true);
-    try {
-      const runAsUser = runAsUserId ? users.find(u => u.userId === runAsUserId) : undefined;
-      const dto: CreateScheduleDto = {
-        agentId,
-        name:           name.trim(),
-        description:    description.trim() || undefined,
-        scheduleType,
-        scheduledAtUtc: scheduleType === "once" ? new Date(scheduledAt).toISOString() : undefined,
-        runAtTime:      (scheduleType === "daily" || scheduleType === "weekly") ? runAtTime : undefined,
-        dayOfWeek:      scheduleType === "weekly" ? dayOfWeek : undefined,
-        timeZoneId,
-        payloadType,
-        promptText:     promptText.trim(),
-        parametersJson: parsedParams,
-        isEnabled,
-        notifyEmails: notifyEmails.trim() || undefined,
-        notifyOn:     notifyOn || undefined,
-        successKeywords: successKeywords.trim() || undefined,
-        runAsUserId:    runAsUserId || "",
-        runAsUserEmail: runAsUser?.email || undefined,
-        runAsUserLabel: runAsUser ? (runAsUser.displayName || runAsUser.email || runAsUser.userId) : undefined,
-      };
-      if (mode === "edit") {
-        await api.updateSchedule(source!.id, dto, 1);
-      } else {
-        await api.createSchedule(dto, 1);
-      }
-      toast.success(mode === "edit" ? "Schedule updated." : mode === "clone" ? "Schedule cloned." : "Schedule created.");
-      onSaved();
-    } catch (e: unknown) { toast.error(String(e)); }
-    finally { setSaving(false); }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>{mode === "edit" ? "Edit Schedule" : mode === "clone" ? "Clone Schedule" : "New Schedule"}</DialogTitle>
-        </DialogHeader>
-
-        <div className="grid gap-4 py-2">
-          {/* Agent & name */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Agent *</Label>
-              <Select value={agentId} onValueChange={setAgentId}>
-                <SelectTrigger><SelectValue placeholder="Select agent" /></SelectTrigger>
-                <SelectContent>
-                  {agents.map(a => (
-                    <SelectItem key={a.id} value={a.id}>{a.displayName || a.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Schedule Name *</Label>
-              <Input value={name} onChange={e => setName(e.target.value)} placeholder="Daily report" />
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>Description</Label>
-            <Input
-              value={description}
-              onChange={e => setDescription(e.target.value)}
-              placeholder="Optional description"
-            />
-          </div>
-
-          {/* Schedule type */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="space-y-1.5">
-              <Label>Schedule Type</Label>
-              <Select value={scheduleType} onValueChange={setScheduleType}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="once">Once</SelectItem>
-                  <SelectItem value="hourly">Hourly</SelectItem>
-                  <SelectItem value="daily">Daily</SelectItem>
-                  <SelectItem value="weekly">Weekly</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {scheduleType === "once" && (
-              <div className="space-y-1.5 col-span-2">
-                <Label>Run At (local) *</Label>
-                <Input
-                  type="datetime-local"
-                  value={scheduledAt}
-                  onChange={e => setScheduledAt(e.target.value)}
-                />
-              </div>
-            )}
-
-            {(scheduleType === "daily" || scheduleType === "weekly") && (
-              <div className="space-y-1.5">
-                <Label>Time of Day *</Label>
-                <Input type="time" value={runAtTime} onChange={e => setRunAtTime(e.target.value)} />
-              </div>
-            )}
-
-            {scheduleType === "weekly" && (
-              <div className="space-y-1.5">
-                <Label>Day of Week</Label>
-                <Select value={String(dayOfWeek)} onValueChange={v => setDayOfWeek(Number(v))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {DAY_NAMES.map((d, i) => (
-                      <SelectItem key={i} value={String(i)}>{d}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            <div className="space-y-1.5">
-              <Label>Timezone</Label>
-              <Select value={timeZoneId} onValueChange={setTimeZoneId}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {TIMEZONES.map(tz => <SelectItem key={tz} value={tz}>{tz}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* Payload */}
-          <div className="space-y-1.5">
-            <Label>Payload Type</Label>
-            <Select value={payloadType} onValueChange={setPayloadType}>
-              <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="prompt">Fixed Prompt</SelectItem>
-                <SelectItem value="template">Template (&#123;&#123;var&#125;&#125;)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <Label>
-                {payloadType === "template"
-                  ? "Prompt Template * (use {{variable}} for substitutions)"
-                  : "Prompt Text *"}
-              </Label>
-              {agentId && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setQuickFixOpen(true)}
-                  className="gap-1.5 h-7 text-xs"
-                >
-                  <Sparkles className="size-3 text-amber-500" />
-                  Quick Fix
-                </Button>
-              )}
-            </div>
-            <Textarea
-              value={promptText}
-              onChange={e => setPromptText(e.target.value)}
-              rows={4}
-              className="resize-y"
-              placeholder={
-                payloadType === "template"
-                  ? "Generate a {{reportType}} summary for {{period}}."
-                  : "Summarise today's key events and flag any anomalies."
-              }
-            />
-          </div>
-
-          <PromptQuickFixDialog
-            onImprove={(instruction) =>
-              api.improvePrompt(agentId, instruction, promptText).then((r) => r.improvedPrompt)
-            }
-            currentPrompt={promptText}
-            open={quickFixOpen}
-            onOpenChange={setQuickFixOpen}
-            onAccept={(improved) => setPromptText(improved)}
-          />
-
-          {payloadType === "template" && (
-            <div className="space-y-1.5">
-              <Label>Template Parameters (JSON)</Label>
-              <Textarea
-                value={parametersRaw}
-                onChange={e => setParametersRaw(e.target.value)}
-                rows={4}
-                className="font-mono text-sm resize-y"
-                placeholder={'{\n  "reportType": "weekly"\n}'}
-              />
-            </div>
-          )}
-
-          <div className="flex items-center gap-2">
-            <Switch id="task-enabled" checked={isEnabled} onCheckedChange={setIsEnabled} />
-            <Label htmlFor="task-enabled">Enabled (run according to schedule)</Label>
-          </div>
-
-          <div className="space-y-2 rounded-md border p-3">
-            <Label className="text-sm font-medium">Run as user</Label>
-            <select
-              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
-              value={runAsUserId}
-              onChange={e => setRunAsUserId(e.target.value)}
-            >
-              <option value="">System (default — no user-group credentials)</option>
-              {users.map(u => (
-                <option key={u.userId} value={u.userId}>
-                  {(u.displayName || u.email || u.userId)}{u.email && u.email !== (u.displayName || "") ? ` · ${u.email}` : ""}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs text-muted-foreground">
-              When set, the task runs under this user's identity so shared MCP servers use that user's
-              user-group credentials. Leave as System to run without user-group credential selection.
-            </p>
-          </div>
-
-          <div className="space-y-3 rounded-md border p-3">
-            <Label className="text-sm font-medium">Notification</Label>
-            <div>
-              <Label className="text-xs text-muted-foreground">Notify emails (comma-separated)</Label>
-              <Input
-                value={notifyEmails}
-                onChange={e => setNotifyEmails(e.target.value)}
-                placeholder="user@example.com, ops@example.com"
-              />
-            </div>
-            <div>
-              <Label className="text-xs text-muted-foreground">Notify when</Label>
-              <select
-                className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm"
-                value={notifyOn ?? ""}
-                onChange={e => setNotifyOn(e.target.value || undefined)}
-              >
-                <option value="">— disabled —</option>
-                <option value="failure">On failure</option>
-                <option value="success">On success</option>
-                <option value="always">Always</option>
-              </select>
-            </div>
-            <div>
-              <Label className="text-xs text-muted-foreground">Success confirmation keywords (comma-separated)</Label>
-              <Input
-                value={successKeywords}
-                onChange={e => setSuccessKeywords(e.target.value)}
-                placeholder="email sent, sent successfully, completed"
-              />
-              <p className="text-xs text-muted-foreground mt-1">If set, at least one phrase must appear in the final agent response; otherwise the run is marked as failed.</p>
-            </div>
-          </div>
-        </div>
-
-        <DialogFooter>
-          <DialogClose asChild>
-            <Button variant="outline" disabled={saving}>Cancel</Button>
-          </DialogClose>
-          <Button onClick={save} disabled={saving}>
-            {saving ? "Saving…" : mode === "edit" ? "Save Changes" : mode === "clone" ? "Clone Schedule" : "Create Schedule"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 // ── Run history sheet ─────────────────────────────────────────────────────────
 
 interface RunHistorySheetProps {
@@ -952,20 +607,17 @@ interface RunHistorySheetProps {
 }
 
 function RunHistorySheet({ task, agentName, onClose }: RunHistorySheetProps) {
-  const [runs, setRuns]       = useState<ScheduledTaskRun[]>([]);
+  // `task` is fixed for the lifetime of this component instance — the parent remounts this
+  // component (via `key={runsTask?.id}`) whenever the selected task changes.
+  const fetchRuns = (params: ScheduleRunListParams): Promise<PagedResult<ScheduledTaskRun>> =>
+    task
+      ? api.getScheduleRuns(task.id, params)
+      : Promise.resolve({ items: [], page: 1, pageSize: params.pageSize ?? 50, totalCount: 0, totalPages: 0 });
+
+  const { result, loading, params, update, setPage, reload } =
+    usePagedList<ScheduledTaskRun, ScheduleRunListParams>(fetchRuns, { page: 1, pageSize: 50 });
   const [copyingLink, setCopyingLink] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-
-  const load = useCallback(async () => {
-    if (!task) return;
-    setLoading(true);
-    try   { setRuns(await api.getScheduleRuns(task.id, 1, 50)); }
-    catch (e: unknown) { toast.error(String(e)); }
-    finally { setLoading(false); }
-  }, [task]);
-
-  useEffect(() => { if (task) load(); }, [task, load]);
 
   const toggleExpand = (id: string) =>
     setExpanded(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -981,11 +633,17 @@ function RunHistorySheet({ task, agentName, onClose }: RunHistorySheetProps) {
         </SheetHeader>
 
         <div className="flex justify-end mb-3">
-          <Button size="sm" variant="outline" onClick={load} disabled={loading} className="h-8">
+          <Button size="sm" variant="outline" onClick={reload} disabled={loading} className="h-8">
             <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${loading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
         </div>
+
+        <ListToolbar
+          pageSize={params.pageSize}
+          onPageSizeChange={pageSize => update({ pageSize })}
+          pageSizeOptions={[25, 50, 100]}
+        />
 
         {loading ? (
           <div className="space-y-2">
@@ -993,12 +651,12 @@ function RunHistorySheet({ task, agentName, onClose }: RunHistorySheetProps) {
               <Skeleton key={i} className="h-14 w-full" />
             ))}
           </div>
-        ) : runs.length === 0 ? (
+        ) : (result?.items.length ?? 0) === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-12">No runs yet.</p>
         ) : (
-          <ScrollArea className="h-[calc(100vh-220px)]">
+          <ScrollArea className="h-[calc(100vh-320px)]">
             <div className="space-y-2 pr-1">
-              {runs.map(run => (
+              {(result?.items ?? []).map(run => (
                 <div key={run.id} className="rounded-md border bg-card p-3">
                   <div className="flex items-center gap-2 flex-wrap">
                     <StatusBadge status={run.status} />
@@ -1074,6 +732,16 @@ function RunHistorySheet({ task, agentName, onClose }: RunHistorySheetProps) {
               ))}
             </div>
           </ScrollArea>
+        )}
+
+        {result && (
+          <ListPagination
+            page={result.page}
+            totalPages={result.totalPages}
+            totalCount={result.totalCount}
+            onPageChange={setPage}
+            itemLabel="total"
+          />
         )}
       </SheetContent>
     </Sheet>

@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Diva.Core.Configuration;
+using Diva.Core.Extensions;
 using Diva.Host.Auth;
 using Diva.Infrastructure.Auth;
 using Diva.TenantAdmin.Services;
@@ -531,10 +532,15 @@ public class AuthController : ControllerBase
 
     [HttpGet("local-users")]
     [RequireTenantAdmin]
-    public async Task<IActionResult> GetLocalUsers([FromQuery] int tenantId = 1, CancellationToken ct = default)
+    public async Task<IActionResult> GetLocalUsers(
+        [FromQuery] int tenantId = 1,
+        [FromQuery] string? search = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 25,
+        CancellationToken ct = default)
     {
         var users = await _localAuth.GetUsersAsync(EffectiveTenantId(tenantId), ct);
-        return Ok(users.Select(u => new
+        var rows = users.Select(u => new
         {
             u.Id,
             u.Username,
@@ -544,7 +550,17 @@ public class AuthController : ControllerBase
             u.IsActive,
             u.CreatedAt,
             u.LastLoginAt
-        }));
+        });
+        var filtered = rows.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var q = search.Trim();
+            filtered = filtered.Where(u =>
+                u.Username.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                u.Email.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                (u.DisplayName ?? string.Empty).Contains(q, StringComparison.OrdinalIgnoreCase));
+        }
+        return Ok(filtered.ToPagedResult(page, pageSize));
     }
 
     // ── POST /api/auth/local-users?tenantId=1 ────────────────────────────────

@@ -1,4 +1,5 @@
 using Diva.Core.Configuration;
+using Diva.Core.Extensions;
 using Diva.Host.Auth;
 using Diva.Infrastructure.Auth;
 using Microsoft.AspNetCore.Mvc;
@@ -26,12 +27,34 @@ public class ApiKeysController : ControllerBase
     }
 
     // GET /api/admin/api-keys?tenantId=1
+    // Returns the full unbounded array — used by McpServerManager.tsx's credential-mapping dropdown.
     [HttpGet]
     public async Task<IActionResult> List([FromQuery] int tenantId = 1, CancellationToken ct = default)
     {
         var tid = EffectiveTenantId(tenantId);
         var keys = await _keys.ListAsync(tid, ct);
         return Ok(keys);
+    }
+
+    // GET /api/admin/api-keys/paged?tenantId=1&search=&page=1&pageSize=25
+    // Dedicated paginated endpoint for the admin Platform API Keys list page.
+    [HttpGet("paged")]
+    public async Task<IActionResult> ListPaged(
+        [FromQuery] int tenantId = 1,
+        [FromQuery] string? search = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 25,
+        CancellationToken ct = default)
+    {
+        var tid = EffectiveTenantId(tenantId);
+        var keys = await _keys.ListAsync(tid, ct);
+        var filtered = keys.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var q = search.Trim();
+            filtered = filtered.Where(k => k.Name.Contains(q, StringComparison.OrdinalIgnoreCase));
+        }
+        return Ok(filtered.ToPagedResult(page, pageSize));
     }
 
     // POST /api/admin/api-keys

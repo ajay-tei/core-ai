@@ -1,7 +1,9 @@
+using Diva.Core.Extensions;
 using Diva.Host.Auth;
 using Diva.Infrastructure.Auth;
 using Diva.Infrastructure.Data;
 using Diva.Infrastructure.Data.Entities;
+using Diva.Infrastructure.Extensions;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -34,6 +36,8 @@ public class McpServersController : ControllerBase
     }
 
     // GET /api/admin/mcp-servers?tenantId=1
+    // Returns the full unbounded array — used by dropdown/selector callers
+    // (McpServerSelector.tsx, McpServerManager.tsx's own credential-mapping dropdowns).
     [HttpGet]
     public async Task<IActionResult> List([FromQuery] int tenantId = 1, CancellationToken ct = default)
     {
@@ -47,6 +51,34 @@ public class McpServersController : ControllerBase
             .ToListAsync(ct);
 
         return Ok(items.Select(ToDto));
+    }
+
+    // GET /api/admin/mcp-servers/paged?tenantId=1&search=&page=1&pageSize=25
+    // Dedicated paginated endpoint for the admin MCP Servers list page.
+    [HttpGet("paged")]
+    public async Task<IActionResult> ListPaged(
+        [FromQuery] int tenantId = 1,
+        [FromQuery] string? search = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 25,
+        CancellationToken ct = default)
+    {
+        var tid = EffectiveTenantId(tenantId);
+        using var db = _db.CreateDbContext(Core.Models.TenantContext.System(tid));
+        var query = db.TenantMcpServers.Where(s => s.TenantId == tid);
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var q = search.Trim();
+            query = query.Where(s => s.Name.Contains(q) || (s.Description ?? "").Contains(q));
+        }
+
+        var paged = await query
+            .Include(s => s.UserGroupCredentials)
+            .OrderBy(s => s.Name)
+            .AsNoTracking()
+            .ToPagedResultAsync(page, pageSize, ct);
+
+        return Ok(paged.MapItems(ToDto));
     }
 
     // GET /api/admin/mcp-servers/{id}?tenantId=1

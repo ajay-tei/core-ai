@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
-import { api, type WidgetConfigDto } from "@/api";
+import { useState } from "react";
+import { api, type WidgetConfigDto, type WidgetConfigListParams } from "@/api";
+import { usePagedList } from "@/hooks/usePagedList";
+import { ListToolbar, ListPagination } from "@/components/ui/list-toolbar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,26 +16,17 @@ const BASE_URL = import.meta.env.VITE_API_URL ?? import.meta.env.BASE_URL.replac
 const TENANT_ID = Number(localStorage.getItem(storageKey("tenant_id")) ?? "1");
 
 export function WidgetManager() {
-  const [widgets, setWidgets] = useState<WidgetConfigDto[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { result, loading, params, update, updateDebounced, setPage, reload } =
+    usePagedList<WidgetConfigDto, WidgetConfigListParams>(api.listWidgetsPaged, { tenantId: TENANT_ID, page: 1, pageSize: 25 });
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | undefined>(undefined);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try { setWidgets(await api.listWidgets(TENANT_ID)); }
-    catch { toast.error("Failed to load widgets"); }
-    finally { setLoading(false); }
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
 
   const handleDelete = async (w: WidgetConfigDto) => {
     if (!confirm(`Delete widget "${w.name}"? This cannot be undone.`)) return;
     try {
       await api.deleteWidget(w.id, TENANT_ID);
       toast.success(`Widget "${w.name}" deleted`);
-      load();
+      reload();
     } catch { toast.error("Failed to delete widget"); }
   };
 
@@ -64,18 +57,27 @@ export function WidgetManager() {
         </Button>
       </div>
 
+      <ListToolbar
+        searchValue={params.search}
+        onSearchChange={v => updateDebounced({ search: v || undefined })}
+        searchPlaceholder="Search widgets…"
+        pageSize={params.pageSize}
+        onPageSizeChange={pageSize => update({ pageSize })}
+        pageSizeOptions={[25, 50, 100]}
+      />
+
       {loading ? (
         <div className="space-y-3">
           {[1, 2].map(i => <Skeleton key={i} className="h-24 w-full" />)}
         </div>
-      ) : widgets.length === 0 ? (
+      ) : (result?.items.length ?? 0) === 0 ? (
         <div className="border rounded-lg p-12 text-center text-muted-foreground">
           <Code2 className="w-10 h-10 mx-auto mb-3 opacity-30" />
           <p>No widgets yet. Create one to generate an embed code.</p>
         </div>
       ) : (
         <div className="space-y-3">
-          {widgets.map(w => (
+          {(result?.items ?? []).map(w => (
             <Card key={w.id}>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base flex items-center justify-between">
@@ -116,14 +118,25 @@ export function WidgetManager() {
         </div>
       )}
 
+      {result && (
+        <ListPagination
+          page={result.page}
+          totalPages={result.totalPages}
+          totalCount={result.totalCount}
+          onPageChange={setPage}
+          itemLabel="total"
+        />
+      )}
+
       {editorOpen && (
         <WidgetEditor
           tenantId={TENANT_ID}
           widgetId={editingId}
           onClose={() => setEditorOpen(false)}
-          onSaved={() => { setEditorOpen(false); load(); }}
+          onSaved={() => { setEditorOpen(false); reload(); }}
         />
       )}
     </div>
   );
 }
+

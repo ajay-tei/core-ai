@@ -9,6 +9,7 @@ import { PendingRules } from "@/components/PendingRules";
 import { BusinessRules } from "@/components/BusinessRules";
 import { PromptEditor } from "@/components/PromptEditor";
 import { ScheduledTasks } from "@/components/ScheduledTasks";
+import { ScheduleTaskEditor } from "@/components/ScheduleTaskEditor";
 import { SsoConfig } from "@/components/SsoConfig";
 import { SsoConfigEditor } from "@/components/SsoConfigEditor";
 import { UserProfiles } from "@/components/UserProfiles";
@@ -110,6 +111,9 @@ export default function App() {
             <Route path="rules/packs" element={<RulePackManager />} />
             <Route path="rules/packs/:id" element={<PackEditor />} />
             <Route path="schedules" element={<ScheduledTasks />} />
+            <Route path="schedules/new" element={<ScheduleTaskEditor />} />
+            <Route path="schedules/:id/edit" element={<ScheduleTaskEditor />} />
+            <Route path="schedules/:id/clone" element={<ScheduleTaskEditor cloneMode />} />
             <Route path="schedules/feedback" element={<SchedulerFeedbackReview />} />
             <Route path="settings/sso" element={<SsoConfig />} />
             <Route path="settings/sso/new" element={<SsoConfigEditor />} />

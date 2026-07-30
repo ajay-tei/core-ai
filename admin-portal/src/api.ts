@@ -48,6 +48,13 @@ export interface AgentSummary
   overlayGuid?: string;
 }
 
+export interface AgentListParams
+{
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
 export interface AgentDefinition
 {
   id?: string;
@@ -396,6 +403,14 @@ export interface LocalUser
   lastLoginAt?: string;
 }
 
+export interface LocalUserListParams
+{
+  tenantId?: number;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
 export interface CreateLocalUserDto
 {
   username: string;
@@ -444,6 +459,14 @@ export interface SsoConfig
   updatedAt?: string;
 }
 
+export interface SsoConfigListParams
+{
+  tenantId?: number;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
 export type CreateSsoConfigDto = Omit<SsoConfig, "id" | "tenantId" | "isActive" | "createdAt" | "updatedAt">;
 export type UpdateSsoConfigDto = Partial<Omit<SsoConfig, "id" | "tenantId" | "createdAt">> & { isActive: boolean; };
 
@@ -490,6 +513,14 @@ export interface WidgetConfigDto
   expiresAt?: string;
 }
 
+export interface WidgetConfigListParams
+{
+  tenantId?: number;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
 export interface CreateWidgetRequest
 {
   agentId: string;
@@ -524,6 +555,15 @@ export interface UserProfile
   metadataJson?: string;
 }
 
+export interface UserProfileListParams
+{
+  tenantId?: number;
+  search?: string;
+  role?: string;
+  page?: number;
+  pageSize?: number;
+}
+
 export interface UpdateUserProfileDto
 {
   displayName: string;
@@ -552,6 +592,8 @@ export interface FollowUpQuestion
 
 export interface SuggestedRule
 {
+  /** Real LearnedRuleEntity.Id once persisted (always set for pending rules returned by getPendingRules). */
+  id: number;
   agentType?: string;
   ruleCategory: string;
   ruleKey: string;
@@ -559,6 +601,14 @@ export interface SuggestedRule
   sourceSessionId: string;
   confidence: number;
   suggestedAt: string;
+}
+
+export interface PendingRulesListParams
+{
+  tenantId?: number;
+  search?: string;
+  page?: number;
+  pageSize?: number;
 }
 
 export interface BusinessRule
@@ -590,6 +640,16 @@ export interface BusinessRule
   sourceGroupRuleId?: number;
 }
 
+export interface BusinessRuleListParams
+{
+  tenantId?: number;
+  agentType?: string;
+  agentId?: string;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
 export interface PromptOverride
 {
   id: number;
@@ -602,6 +662,16 @@ export interface PromptOverride
   isActive: boolean;
   version: number;
   createdAt: string;
+}
+
+export interface PromptOverrideListParams
+{
+  tenantId?: number;
+  agentType?: string;
+  agentId?: string;
+  search?: string;
+  page?: number;
+  pageSize?: number;
 }
 
 export interface DashboardStats
@@ -904,6 +974,14 @@ export interface McpCredential
   apiKeyHint?: string;         // masked tail of the stored key, e.g. "••••cd12" (null if undecryptable)
 }
 
+export interface McpCredentialListParams
+{
+  tenantId?: number;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
 export interface CreateCredentialDto
 {
   name: string;
@@ -970,6 +1048,14 @@ export interface McpServer
   createdByUserId?: string;
 }
 
+export interface McpServerListParams
+{
+  tenantId?: number;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
 export interface CreateMcpServerDto
 {
   name: string;
@@ -1021,6 +1107,14 @@ export interface PlatformApiKey
   createdByUserId?: string;
 }
 
+export interface PlatformApiKeyListParams
+{
+  tenantId?: number;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
 export interface ApiKeyCreatedResult
 {
   id: number;
@@ -1066,6 +1160,14 @@ export interface AgentGroup
   updatedAt?: string;
 }
 
+export interface AgentGroupListParams
+{
+  tenantId?: number;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
 export interface AgentGroupRequest
 {
   name: string;
@@ -1094,6 +1196,14 @@ export interface UserGroup
   roles: string[];
   createdAt: string;
   updatedAt?: string;
+}
+
+export interface UserGroupListParams
+{
+  tenantId?: number;
+  search?: string;
+  page?: number;
+  pageSize?: number;
 }
 
 export interface UserGroupRequest
@@ -1136,6 +1246,14 @@ export interface ScheduledTask
   runAsUserLabel?: string;      // display label of the run-as user
 }
 
+export interface ScheduledTaskListParams
+{
+  tenantId?: number;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
 export interface ScheduledTaskRun
 {
   id: string;
@@ -1154,6 +1272,13 @@ export interface ScheduledTaskRun
   inputTokens?: number;
   outputTokens?: number;
   iterationCount?: number;
+}
+
+export interface ScheduleRunListParams
+{
+  tenantId?: number;
+  page?: number;
+  pageSize?: number;
 }
 
 export interface TenantNotificationSettings
@@ -1329,6 +1454,14 @@ export interface McpProbeResult
 
 export const api = {
   listAgents: () => request<AgentSummary[]>("/api/agents"),
+  listAgentsPaged: (params: AgentListParams = {}) =>
+  {
+    const qs = new URLSearchParams();
+    if (params.search) qs.set("search", params.search);
+    if (params.page) qs.set("page", String(params.page));
+    if (params.pageSize) qs.set("pageSize", String(params.pageSize));
+    return request<PagedResult<AgentSummary>>(`/api/agents/paged?${ qs }`);
+  },
   getAgent: (id: string) => request<AgentDefinition>(`/api/agents/${ id }`),
   createAgent: (dto: AgentDefinition) => request<AgentDefinition>("/api/agents", { method: "POST", body: JSON.stringify(dto) }),
   updateAgent: (id: string, dto: AgentDefinition) => request<AgentDefinition>(`/api/agents/${ id }`, { method: "PUT", body: JSON.stringify(dto) }),
@@ -1400,16 +1533,31 @@ export const api = {
     request<{ groups: CredentialGroupOption[]; }>(`/api/agents/${ id }/credential-groups`),
 
   // Learned rules (Phase 11)
-  getPendingRules: (tenantId = 1) =>
-    request<SuggestedRule[]>(`/api/learned-rules?tenantId=${ tenantId }`),
+  getPendingRules: (params: PendingRulesListParams = {}) =>
+  {
+    const qs = new URLSearchParams({ tenantId: String(params.tenantId ?? 1) });
+    if (params.search) qs.set("search", params.search);
+    if (params.page) qs.set("page", String(params.page));
+    if (params.pageSize) qs.set("pageSize", String(params.pageSize));
+    return request<PagedResult<SuggestedRule>>(`/api/learned-rules?${ qs }`);
+  },
   approveRule: (id: number, tenantId = 1) =>
     request<void>(`/api/learned-rules/${ id }/approve?tenantId=${ tenantId }`, { method: "POST" }),
   rejectRule: (id: number, notes: string, tenantId = 1) =>
     request<void>(`/api/learned-rules/${ id }/reject?tenantId=${ tenantId }`, { method: "POST", body: JSON.stringify({ notes }) }),
 
   // Business rules (Phase 6 / Tier 2)
-  getBusinessRules: (tenantId = 1, agentType = "*", agentId?: string) =>
-    request<BusinessRule[]>(`/api/admin/business-rules?tenantId=${ tenantId }&agentType=${ encodeURIComponent(agentType) }${ agentId ? `&agentId=${ encodeURIComponent(agentId) }` : "" }`),
+  getBusinessRules: (params: BusinessRuleListParams = {}) =>
+  {
+    const qs = new URLSearchParams();
+    qs.set("tenantId", String(params.tenantId ?? 1));
+    qs.set("agentType", params.agentType ?? "*");
+    if (params.agentId) qs.set("agentId", params.agentId);
+    if (params.search) qs.set("search", params.search);
+    if (params.page) qs.set("page", String(params.page));
+    if (params.pageSize) qs.set("pageSize", String(params.pageSize));
+    return request<PagedResult<BusinessRule>>(`/api/admin/business-rules?${ qs }`);
+  },
   createBusinessRule: (dto: Omit<BusinessRule, "id" | "tenantId" | "isActive" | "createdAt" | "ruleValueJson"> & { ruleValueJson?: string; }, tenantId = 1) =>
     request<BusinessRule>(`/api/admin/business-rules?tenantId=${ tenantId }`, { method: "POST", body: JSON.stringify(dto) }),
   updateBusinessRule: (id: number, dto: Partial<BusinessRule>, tenantId = 1) =>
@@ -1448,8 +1596,17 @@ export const api = {
     request<void>(`/api/admin/group-prompt-templates/${ groupOverrideId }/activate?tenantId=${ tenantId }`, { method: "DELETE" }),
 
   // Prompt overrides (Phase 6 / Tier 2)
-  getPromptOverrides: (tenantId = 1, agentType?: string, agentId?: string) =>
-    request<PromptOverride[]>(`/api/admin/prompt-overrides?tenantId=${ tenantId }${ agentType && agentType !== '*' ? `&agentType=${ encodeURIComponent(agentType) }` : '' }${ agentId ? `&agentId=${ encodeURIComponent(agentId) }` : '' }`),
+  getPromptOverrides: (params: PromptOverrideListParams = {}) =>
+  {
+    const qs = new URLSearchParams();
+    qs.set("tenantId", String(params.tenantId ?? 1));
+    if (params.agentType && params.agentType !== "*") qs.set("agentType", params.agentType);
+    if (params.agentId) qs.set("agentId", params.agentId);
+    if (params.search) qs.set("search", params.search);
+    if (params.page) qs.set("page", String(params.page));
+    if (params.pageSize) qs.set("pageSize", String(params.pageSize));
+    return request<PagedResult<PromptOverride>>(`/api/admin/prompt-overrides?${ qs }`);
+  },
   createPromptOverride: (dto: Pick<PromptOverride, "agentType" | "agentId" | "section" | "customText" | "mergeMode">, tenantId = 1) =>
     request<PromptOverride>(`/api/admin/prompt-overrides?tenantId=${ tenantId }`, { method: "POST", body: JSON.stringify(dto) }),
   updatePromptOverride: (id: number, dto: Pick<PromptOverride, "customText" | "mergeMode" | "isActive">, tenantId = 1) =>
@@ -1476,8 +1633,14 @@ export const api = {
     request<void>(`/api/platform/tenants/${ id }`, { method: "DELETE" }),
 
   // Local users — managed per tenant
-  listLocalUsers: (tenantId: number) =>
-    request<LocalUser[]>(`/api/auth/local-users?tenantId=${ tenantId }`),
+  listLocalUsers: (params: LocalUserListParams = {}) =>
+  {
+    const qs = new URLSearchParams({ tenantId: String(params.tenantId ?? 1) });
+    if (params.search) qs.set("search", params.search);
+    if (params.page) qs.set("page", String(params.page));
+    if (params.pageSize) qs.set("pageSize", String(params.pageSize));
+    return request<PagedResult<LocalUser>>(`/api/auth/local-users?${ qs }`);
+  },
   createLocalUser: (dto: CreateLocalUserDto, tenantId: number) =>
     request<LocalUser>(`/api/auth/local-users?tenantId=${ tenantId }`, { method: "POST", body: JSON.stringify(dto) }),
   deleteLocalUser: (id: number, tenantId: number) =>
@@ -1490,6 +1653,14 @@ export const api = {
   // SSO configurations (Phase 2)
   listSsoConfigs: (tenantId = 1) =>
     request<SsoConfig[]>(`/api/admin/sso-configs?tenantId=${ tenantId }`),
+  listSsoConfigsPaged: (params: SsoConfigListParams = {}) =>
+  {
+    const qs = new URLSearchParams({ tenantId: String(params.tenantId ?? 1) });
+    if (params.search) qs.set("search", params.search);
+    if (params.page) qs.set("page", String(params.page));
+    if (params.pageSize) qs.set("pageSize", String(params.pageSize));
+    return request<PagedResult<SsoConfig>>(`/api/admin/sso-configs/paged?${ qs }`);
+  },
   getSsoConfig: (id: number, tenantId = 1) =>
     request<SsoConfig>(`/api/admin/sso-configs/${ id }?tenantId=${ tenantId }`),
   createSsoConfig: (dto: CreateSsoConfigDto, tenantId = 1) =>
@@ -1500,12 +1671,23 @@ export const api = {
     request<void>(`/api/admin/sso-configs/${ id }?tenantId=${ tenantId }`, { method: "DELETE" }),
 
   // User profiles (Phase 3)
+  // Returns the full unbounded array — used by dropdown/selector callers
+  // (ScheduledTasks.tsx, UserGroups.tsx). See listUserProfilesPaged for the admin list page.
   listUserProfiles: (tenantId = 1, search?: string, role?: string) =>
   {
-    const params = new URLSearchParams({ tenantId: String(tenantId) });
-    if (search) params.set("search", search);
-    if (role) params.set("role", role);
-    return request<UserProfile[]>(`/api/admin/user-profiles?${ params }`);
+    const qs = new URLSearchParams({ tenantId: String(tenantId) });
+    if (search) qs.set("search", search);
+    if (role) qs.set("role", role);
+    return request<UserProfile[]>(`/api/admin/user-profiles?${ qs }`);
+  },
+  listUserProfilesPaged: (params: UserProfileListParams = {}) =>
+  {
+    const qs = new URLSearchParams({ tenantId: String(params.tenantId ?? 1) });
+    if (params.search) qs.set("search", params.search);
+    if (params.role) qs.set("role", params.role);
+    if (params.page) qs.set("page", String(params.page));
+    if (params.pageSize) qs.set("pageSize", String(params.pageSize));
+    return request<PagedResult<UserProfile>>(`/api/admin/user-profiles/paged?${ qs }`);
   },
   getUserProfile: (id: number, tenantId = 1) =>
     request<UserProfile>(`/api/admin/user-profiles/${ id }?tenantId=${ tenantId }`),
@@ -1517,8 +1699,14 @@ export const api = {
     request<void>(`/api/admin/user-profiles/${ id }/enable?tenantId=${ tenantId }`, { method: "POST" }),
 
   // Scheduler (Phase 15)
-  listSchedules: (tenantId = 1) =>
-    request<ScheduledTask[]>(`/api/schedules?tenantId=${ tenantId }`),
+  listSchedules: (params: ScheduledTaskListParams = {}) =>
+  {
+    const qs = new URLSearchParams({ tenantId: String(params.tenantId ?? 1) });
+    if (params.search) qs.set("search", params.search);
+    if (params.page) qs.set("page", String(params.page));
+    if (params.pageSize) qs.set("pageSize", String(params.pageSize));
+    return request<PagedResult<ScheduledTask>>(`/api/schedules?${ qs }`);
+  },
   getSchedule: (id: string, tenantId = 1) =>
     request<ScheduledTask>(`/api/schedules/${ id }?tenantId=${ tenantId }`),
   createSchedule: (dto: CreateScheduleDto, tenantId = 1) =>
@@ -1531,8 +1719,13 @@ export const api = {
     request<ScheduledTask>(`/api/schedules/${ id }/enabled?tenantId=${ tenantId }`, { method: "PATCH", body: JSON.stringify({ isEnabled }) }),
   triggerSchedule: (id: string, tenantId = 1) =>
     request<ScheduledTaskRun>(`/api/schedules/${ id }/trigger?tenantId=${ tenantId }`, { method: "POST" }),
-  getScheduleRuns: (id: string, tenantId = 1, limit = 50) =>
-    request<ScheduledTaskRun[]>(`/api/schedules/${ id }/runs?tenantId=${ tenantId }&limit=${ limit }`),
+  getScheduleRuns: (id: string, params: ScheduleRunListParams = {}) =>
+  {
+    const qs = new URLSearchParams({ tenantId: String(params.tenantId ?? 1) });
+    if (params.page) qs.set("page", String(params.page));
+    if (params.pageSize) qs.set("pageSize", String(params.pageSize));
+    return request<PagedResult<ScheduledTaskRun>>(`/api/schedules/${ id }/runs?${ qs }`);
+  },
   importSchedules: (req: ScheduleImportRequest, tenantId = 1) =>
     request<ScheduleImportResult>(`/api/schedules/import?tenantId=${ tenantId }`, { method: "POST", body: JSON.stringify(req) }),
   getNotificationSettings: (tenantId = 1) =>
@@ -1750,6 +1943,14 @@ export const api = {
   // ── MCP Credentials ─────────────────────────────────────────────────────────
   listCredentials: (tenantId?: number) =>
     request<McpCredential[]>(`/api/admin/credentials${ tenantId ? `?tenantId=${ tenantId }` : "" }`),
+  listCredentialsPaged: (params: McpCredentialListParams = {}) =>
+  {
+    const qs = new URLSearchParams({ tenantId: String(params.tenantId ?? 1) });
+    if (params.search) qs.set("search", params.search);
+    if (params.page) qs.set("page", String(params.page));
+    if (params.pageSize) qs.set("pageSize", String(params.pageSize));
+    return request<PagedResult<McpCredential>>(`/api/admin/credentials/paged?${ qs }`);
+  },
   createCredential: (dto: CreateCredentialDto) =>
     request<{ id: number; name: string; authScheme: string; }>("/api/admin/credentials", { method: "POST", body: JSON.stringify(dto) }),
   updateCredential: (id: number, dto: UpdateCredentialDto) =>
@@ -1762,6 +1963,14 @@ export const api = {
   // ── Shared MCP Servers ──────────────────────────────────────────────────────
   listMcpServers: (tenantId?: number) =>
     request<McpServer[]>(`/api/admin/mcp-servers${ tenantId ? `?tenantId=${ tenantId }` : "" }`),
+  listMcpServersPaged: (params: McpServerListParams = {}) =>
+  {
+    const qs = new URLSearchParams({ tenantId: String(params.tenantId ?? 1) });
+    if (params.search) qs.set("search", params.search);
+    if (params.page) qs.set("page", String(params.page));
+    if (params.pageSize) qs.set("pageSize", String(params.pageSize));
+    return request<PagedResult<McpServer>>(`/api/admin/mcp-servers/paged?${ qs }`);
+  },
   getMcpServer: (id: number, tenantId?: number) =>
     request<McpServer>(`/api/admin/mcp-servers/${ id }${ tenantId ? `?tenantId=${ tenantId }` : "" }`),
   createMcpServer: (dto: CreateMcpServerDto) =>
@@ -1774,6 +1983,14 @@ export const api = {
   // ── Platform API Keys ───────────────────────────────────────────────────────
   listApiKeys: (tenantId?: number) =>
     request<PlatformApiKey[]>(`/api/admin/api-keys${ tenantId ? `?tenantId=${ tenantId }` : "" }`),
+  listApiKeysPaged: (params: PlatformApiKeyListParams = {}) =>
+  {
+    const qs = new URLSearchParams({ tenantId: String(params.tenantId ?? 1) });
+    if (params.search) qs.set("search", params.search);
+    if (params.page) qs.set("page", String(params.page));
+    if (params.pageSize) qs.set("pageSize", String(params.pageSize));
+    return request<PagedResult<PlatformApiKey>>(`/api/admin/api-keys/paged?${ qs }`);
+  },
   createApiKey: (dto: CreateApiKeyDto) =>
     request<ApiKeyCreatedResult>("/api/admin/api-keys", { method: "POST", body: JSON.stringify(dto) }),
   revokeApiKey: (id: number, tenantId?: number) =>
@@ -1786,6 +2003,14 @@ export const api = {
   // ── Agent Access Groups (Phase 28) ──────────────────────────────────────────
   listAgentGroups: (tenantId?: number) =>
     request<AgentGroup[]>(`/api/agent-groups${ tenantId ? `?tenantId=${ tenantId }` : "" }`),
+  listAgentGroupsPaged: (params: AgentGroupListParams = {}) =>
+  {
+    const qs = new URLSearchParams({ tenantId: String(params.tenantId ?? 1) });
+    if (params.search) qs.set("search", params.search);
+    if (params.page) qs.set("page", String(params.page));
+    if (params.pageSize) qs.set("pageSize", String(params.pageSize));
+    return request<PagedResult<AgentGroup>>(`/api/agent-groups/paged?${ qs }`);
+  },
   getAgentGroup: (id: string, tenantId?: number) =>
     request<AgentGroup>(`/api/agent-groups/${ id }${ tenantId ? `?tenantId=${ tenantId }` : "" }`),
   createAgentGroup: (dto: AgentGroupRequest) =>
@@ -1798,6 +2023,14 @@ export const api = {
   // ── User Groups ─────────────────────────────────────────────────────────────
   listUserGroups: (tenantId?: number) =>
     request<UserGroup[]>(`/api/user-groups${ tenantId ? `?tenantId=${ tenantId }` : "" }`),
+  listUserGroupsPaged: (params: UserGroupListParams = {}) =>
+  {
+    const qs = new URLSearchParams({ tenantId: String(params.tenantId ?? 1) });
+    if (params.search) qs.set("search", params.search);
+    if (params.page) qs.set("page", String(params.page));
+    if (params.pageSize) qs.set("pageSize", String(params.pageSize));
+    return request<PagedResult<UserGroup>>(`/api/user-groups/paged?${ qs }`);
+  },
   getUserGroup: (id: number, tenantId?: number) =>
     request<UserGroup>(`/api/user-groups/${ id }${ tenantId ? `?tenantId=${ tenantId }` : "" }`),
   createUserGroup: (dto: UserGroupRequest) =>
@@ -1852,6 +2085,14 @@ export const api = {
   // ── Widget Config ────────────────────────────────────────────────────────────
   listWidgets: (tenantId = 1) =>
     request<WidgetConfigDto[]>(`/api/admin/widgets?tenantId=${ tenantId }`),
+  listWidgetsPaged: (params: WidgetConfigListParams = {}) =>
+  {
+    const qs = new URLSearchParams({ tenantId: String(params.tenantId ?? 1) });
+    if (params.search) qs.set("search", params.search);
+    if (params.page) qs.set("page", String(params.page));
+    if (params.pageSize) qs.set("pageSize", String(params.pageSize));
+    return request<PagedResult<WidgetConfigDto>>(`/api/admin/widgets/paged?${ qs }`);
+  },
   createWidget: (dto: CreateWidgetRequest, tenantId = 1) =>
     request<WidgetConfigDto>(`/api/admin/widgets?tenantId=${ tenantId }`, { method: "POST", body: JSON.stringify(dto) }),
   updateWidget: (id: string, dto: CreateWidgetRequest, tenantId = 1) =>
@@ -2469,6 +2710,14 @@ export interface SchedulerFeedbackItem
   reviewNotes?: string;
 }
 
+export interface SchedulerFeedbackListParams
+{
+  tenantId?: number;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
 /** Load run context from a feedback token (public — no auth required). */
 export async function getSchedulerFeedbackContext(token: string): Promise<SchedulerFeedbackContext>
 {
@@ -2489,9 +2738,13 @@ export async function submitSchedulerFeedback(req: SubmitSchedulerFeedbackReques
 }
 
 /** List pending feedback items (admin auth required). */
-export async function listSchedulerFeedback(tenantId = 1): Promise<SchedulerFeedbackItem[]>
+export async function listSchedulerFeedback(params: SchedulerFeedbackListParams = {}): Promise<PagedResult<SchedulerFeedbackItem>>
 {
-  const r = await fetch(`${ BASE }/api/scheduler-feedback?tenantId=${ tenantId }`, {
+  const qs = new URLSearchParams({ tenantId: String(params.tenantId ?? 1) });
+  if (params.search) qs.set("search", params.search);
+  if (params.page) qs.set("page", String(params.page));
+  if (params.pageSize) qs.set("pageSize", String(params.pageSize));
+  const r = await fetch(`${ BASE }/api/scheduler-feedback?${ qs }`, {
     headers: authHeaders(),
   });
   if (!r.ok) throw await r.json().catch(() => ({ error: r.statusText }));

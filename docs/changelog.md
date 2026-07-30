@@ -4,6 +4,72 @@
 
 ---
 
+## [2026-07-30] Server-side pagination/search across 16 admin-portal list pages + Scheduled Task full-page editor
+
+Two related pieces of work: a reusable server-side pagination + search framework retrofitted across
+16 admin-portal list pages (previously unbounded `GET` endpoints returning full arrays), and a
+conversion of the Scheduled Task create/edit/clone flow from a centered modal `Dialog` to a
+full-page route matching the existing `AgentBuilder`/`SsoConfigEditor` house style.
+
+### Pagination framework (new shared infrastructure)
+
+`PagedResult<T>` (already used by Sessions) is now the standard envelope for every list endpoint in
+scope. Two backend paging helpers cover both query shapes actually used across controllers — a true
+EF `IQueryable` path and a sync in-memory path for lists that merge/decrypt/project before paging —
+plus one frontend hook + toolbar pair that every retrofitted page now shares.
+
+| File | Change |
+|------|--------|
+| `src/Diva.Core/Models/PagedResult.cs` | Relocated from `Session/SessionDtos.cs` (was oddly namespaced under `Diva.Core.Models.Session` despite being fully generic) |
+| `src/Diva.Infrastructure/Extensions/QueryablePagingExtensions.cs` | `ToPagedResultAsync<T>(page, pageSize, ct)` — EF `CountAsync` + `Skip/Take`, mirrors `SessionsController`'s original logic |
+| `src/Diva.Core/Extensions/EnumerablePagingExtensions.cs` | `ToPagedResult<T>(page, pageSize)` (sync, in-memory) + `MapItems<T,TDto>(selector)` — for controllers that merge/decrypt/project before paging (no EF dependency, keeps `Diva.Core` dependency-free) |
+| `admin-portal/src/hooks/usePagedList.ts` | Generic `usePagedList<T, TParams>(fetchFn, initialParams)` → `{ result, loading, error, params, update, updateDebounced, setPage, reload }`; `updateDebounced` for free-text search (~300ms) |
+| `admin-portal/src/components/ui/list-toolbar.tsx` | `ListToolbar` (search + filter slot + page-size select) + `ListPagination` (Prev/Next + "Page X of Y · N total") |
+| `admin-portal/src/components/SessionBrowser.tsx` | Refactored to consume the new hook/toolbar (proves the pattern; was already the only page with real server-side paging) |
+
+**Dual-endpoint pattern**: any list method also used by an unrelated dropdown/selector keeps its
+original unbounded route/method untouched and gets a new `xxxPaged` method + `/paged` sub-route
+instead — never a breaking change to a shared method's shape. Endpoints with exactly one caller were
+converted to accept `search`/`page`/`pageSize` in place.
+
+### Retrofitted pages (16 total)
+
+| Entity | Component | Endpoint(s) | Notes |
+|---|---|---|---|
+| Agents | `AgentList.tsx` | `GET /api/agents/paged` (new; unbounded kept for 9 dropdown callers) | |
+| Business Rules | `BusinessRules.tsx` | `GET /api/admin/business-rules` (in place) | |
+| Prompt Overrides | `PromptEditor.tsx` | `GET /api/admin/prompt-overrides` (in place) | |
+| User Profiles | `UserProfiles.tsx` | `GET /api/admin/user-profiles/paged` (new) | |
+| Pending/Learned Rules | `PendingRules.tsx` | `GET /api/learned-rules` (in place) | Also fixed a latent bug: `SuggestedRule` never carried a real `Id` (frontend synthesized `i+1`), which pagination would have turned into wrong-rule approve/reject across pages |
+| MCP Credentials | `CredentialManager.tsx` | `GET /api/admin/credentials/paged` (new) | Search applied before the decrypt step — only current-page rows are decrypted |
+| Platform API Keys | `ApiKeyManager.tsx` | `GET /api/admin/api-keys/paged` (new) | |
+| Shared MCP Servers | `McpServerManager.tsx` | `GET /api/admin/mcp-servers/paged` (new) | |
+| User Groups | `UserGroups.tsx` | `GET /api/user-groups/paged` (new) | |
+| Widget Configs | `WidgetManager.tsx` | `GET /api/admin/widgets/paged` (new) | Card-grid layout, not a Table |
+| SSO Configs | `SsoConfig.tsx` | `GET /api/admin/sso-configs/paged` (new) | `tenantId` prop-change reactivity handled via `key={tenantId}` at the `TenantDetail.tsx` call site |
+| Scheduled Tasks (list) | `ScheduledTasks.tsx` | `GET /api/schedules` (in place) | "Export All"/import-conflict-check now fetch the full set via a one-off `pageSize:10000` call rather than relying on the current page |
+| Scheduled Tasks (run history) | `ScheduledTasks.tsx` (`RunHistorySheet`) | `GET /api/schedules/{id}/runs` (in place, `limit` → `page`/`pageSize`) | Reactivity to the selected task via `key={runsTask?.id}` remount |
+| Scheduler Feedback | `SchedulerFeedbackReview.tsx` | `GET /api/scheduler-feedback` (in place) | |
+| Local Users | `LocalUsersPanel.tsx` | `GET /api/auth/local-users` (in place) | `tenantId` prop-change reactivity via `key={tenantId}` at `TenantDetail.tsx` |
+| Agent Access Groups | `AgentGroups.tsx` | `GET /api/agent-groups/paged` (new) | Verified no route collision between literal `/paged` and unconstrained-string `{id}` — ASP.NET Core ranks literal segments above parameter segments unconditionally |
+
+### Scheduled Task editor: modal → full-page route
+
+The Scheduled Task create/edit/clone form was a centered `Dialog` modal (`TaskDialog`, ~350 lines
+inline in `ScheduledTasks.tsx`); converted to a dedicated full-page route matching the established
+`AgentBuilder`/`SsoConfigEditor` pattern (`ArrowLeft`-back header, Card-sectioned form, bottom-right
+Cancel/Save bar) instead of inventing a new layout style.
+
+| File | Change |
+|------|--------|
+| `admin-portal/src/components/ScheduleTaskEditor.tsx` (new) | Full-page form ported from `TaskDialog`, reorganized into Cards (Agent & Name / Timing / Prompt / Run As User / Notifications). Fetches by `id` directly via `api.getSchedule` (deep-link/refresh-safe, unlike the old dialog's in-memory `source` prop) |
+| `admin-portal/src/lib/scheduleConstants.ts` (new) | `TIMEZONES`/`DAY_NAMES` extracted out of `ScheduledTasks.tsx` — a component file exporting plain constants breaks Vite Fast Refresh (`react-refresh/only-export-components`) |
+| `admin-portal/src/components/ScheduledTasks.tsx` | Removed the `TaskDialog` modal entirely; `openCreate`/`openEdit`/`openClone` now `navigate()` to the new routes |
+| `admin-portal/src/App.tsx` | New routes: `schedules/new`, `schedules/:id/edit`, `schedules/:id/clone` (clone mode passed as a boolean prop on the `Route` element, not parsed from the URL or `location.state`) |
+
+---
+
+
 ## [2026-07-15] Responsive/mobile UI pass + chat content overflow fix + session token accounting (cache + sub-agent roll-up)
 
 Three areas: a responsive/mobile-friendly pass across the admin portal (chat-first), a fix for wide

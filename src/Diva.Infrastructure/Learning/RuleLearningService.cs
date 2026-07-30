@@ -23,10 +23,10 @@ public sealed class RuleLearningService : IRuleLearningService
         IDatabaseProviderFactory db,
         ILogger<RuleLearningService> logger)
     {
-        _extractor    = extractor;
+        _extractor = extractor;
         _sessionRules = sessionRules;
-        _db           = db;
-        _logger       = logger;
+        _db = db;
+        _logger = logger;
     }
 
     public Task<List<SuggestedRule>> ExtractRulesFromConversationAsync(
@@ -48,13 +48,13 @@ public sealed class RuleLearningService : IRuleLearningService
 
         var entity = new LearnedRuleEntity
         {
-            TenantId        = tenantId,
-            AgentType       = rule.AgentType,
-            RuleCategory    = rule.RuleCategory,
-            RuleKey         = rule.RuleKey,
+            TenantId = tenantId,
+            AgentType = rule.AgentType,
+            RuleCategory = rule.RuleCategory,
+            RuleKey = rule.RuleKey,
             PromptInjection = rule.PromptInjection,
-            Confidence      = rule.Confidence,
-            Status          = mode == RuleApprovalMode.AutoApprove ? "approved" : "pending",
+            Confidence = rule.Confidence,
+            Status = mode == RuleApprovalMode.AutoApprove ? "approved" : "pending",
             SourceSessionId = rule.SourceSessionId
         };
 
@@ -82,13 +82,14 @@ public sealed class RuleLearningService : IRuleLearningService
             .OrderByDescending(r => r.LearnedAt)
             .Select(r => new SuggestedRule
             {
-                AgentType       = r.AgentType,
-                RuleCategory    = r.RuleCategory ?? "",
-                RuleKey         = r.RuleKey ?? "",
+                Id = r.Id,
+                AgentType = r.AgentType,
+                RuleCategory = r.RuleCategory ?? "",
+                RuleKey = r.RuleKey ?? "",
                 PromptInjection = r.PromptInjection ?? "",
-                Confidence      = (float)r.Confidence,
+                Confidence = (float)r.Confidence,
                 SourceSessionId = r.SourceSessionId ?? "",
-                SuggestedAt     = r.LearnedAt
+                SuggestedAt = r.LearnedAt
             })
             .ToListAsync(ct);
     }
@@ -100,7 +101,7 @@ public sealed class RuleLearningService : IRuleLearningService
             .FirstOrDefaultAsync(r => r.TenantId == tenantId && r.Id == ruleId, ct)
             ?? throw new InvalidOperationException($"Rule {ruleId} not found for tenant {tenantId}");
 
-        entity.Status     = "approved";
+        entity.Status = "approved";
         entity.ReviewedBy = reviewedBy;
         entity.ReviewedAt = DateTime.UtcNow;
 
@@ -115,10 +116,10 @@ public sealed class RuleLearningService : IRuleLearningService
             .FirstOrDefaultAsync(r => r.TenantId == tenantId && r.Id == ruleId, ct)
             ?? throw new InvalidOperationException($"Rule {ruleId} not found for tenant {tenantId}");
 
-        entity.Status      = "rejected";
-        entity.ReviewedBy  = reviewedBy;
+        entity.Status = "rejected";
+        entity.ReviewedBy = reviewedBy;
         entity.ReviewNotes = notes;
-        entity.ReviewedAt  = DateTime.UtcNow;
+        entity.ReviewedAt = DateTime.UtcNow;
 
         await db.SaveChangesAsync(ct);
         _logger.LogInformation("Rule {RuleId} rejected by {ReviewedBy}", ruleId, reviewedBy);
@@ -131,12 +132,12 @@ public sealed class RuleLearningService : IRuleLearningService
     {
         db.BusinessRules.Add(new TenantBusinessRuleEntity
         {
-            TenantId        = tenantId,
-            AgentType       = entity.AgentType ?? "*",
-            RuleCategory    = entity.RuleCategory ?? "learned",
-            RuleKey         = entity.RuleKey ?? $"learned_{entity.Id}",
+            TenantId = tenantId,
+            AgentType = entity.AgentType ?? "*",
+            RuleCategory = entity.RuleCategory ?? "learned",
+            RuleKey = entity.RuleKey ?? $"learned_{entity.Id}",
             PromptInjection = entity.PromptInjection,
-            IsActive        = true
+            IsActive = true
         });
         await db.SaveChangesAsync(ct);
     }

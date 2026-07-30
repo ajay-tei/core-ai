@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router";
-import { api, type AgentSummary, type ArchetypeSummary, type BusinessRule, type RulePack, type GroupRuleTemplateItem } from "@/api";
+import { api, type AgentSummary, type ArchetypeSummary, type BusinessRule, type BusinessRuleListParams, type RulePack, type GroupRuleTemplateItem } from "@/api";
+import { usePagedList } from "@/hooks/usePagedList";
+import { ListToolbar, ListPagination } from "@/components/ui/list-toolbar";
 import { toast } from "sonner";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -69,34 +71,23 @@ function CategoryBadge({ category }: { category: string }) {
 
 export function BusinessRules() {
   const navigate = useNavigate();
-  const [rules, setRules]             = useState<BusinessRule[]>([]);
   const [agents, setAgents]           = useState<AgentSummary[]>([]);
   const [archetypes, setArchetypes]   = useState<ArchetypeSummary[]>([]);
-  const [loading, setLoading]         = useState(true);
-  const [agentFilter, setFilter]      = useState("*");
-  const [agentIdFilter, setAgentIdFilter] = useState<string | undefined>(undefined);
   const [deleteId, setDeleteId]       = useState<number | null>(null);
+  const { result, loading, params, update, updateDebounced, setPage, reload } =
+    usePagedList<BusinessRule, BusinessRuleListParams>(api.getBusinessRules, { tenantId: 1, agentType: "*", page: 1, pageSize: 25 });
 
   useEffect(() => {
     api.listAgents().then(setAgents).catch(() => {});
     api.listArchetypes().then(setArchetypes).catch(() => {});
   }, []);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try   { setRules(await api.getBusinessRules(1, agentFilter, agentIdFilter)); }
-    catch (e: unknown) { toast.error(String(e)); }
-    finally { setLoading(false); }
-  }, [agentFilter, agentIdFilter]);
-
-  useEffect(() => { load(); }, [load]);
-
   const handleDelete = async () => {
     if (!deleteId) return;
     try {
       await api.deleteBusinessRule(deleteId, 1);
-      setRules(r => r.filter(x => x.id !== deleteId));
       toast.success("Rule deleted.");
+      reload();
     } catch (e: unknown) { toast.error(String(e)); }
     finally { setDeleteId(null); }
   };
@@ -104,7 +95,7 @@ export function BusinessRules() {
   const handleToggleActive = async (rule: BusinessRule) => {
     try {
       await api.updateBusinessRule(rule.id, { ...rule, isActive: !rule.isActive }, 1);
-      setRules(r => r.map(x => x.id === rule.id ? { ...x, isActive: !x.isActive } : x));
+      reload();
     } catch (e: unknown) { toast.error(String(e)); }
   };
 
@@ -132,9 +123,16 @@ export function BusinessRules() {
 
         <TabsContent value="my-rules">
         <div className="space-y-4 pt-2">
-          <div className="flex items-center gap-2 justify-end">
+          <ListToolbar
+            searchValue={params.search}
+            onSearchChange={v => updateDebounced({ search: v || undefined })}
+            searchPlaceholder="Search rules…"
+            pageSize={params.pageSize}
+            onPageSizeChange={pageSize => update({ pageSize })}
+            pageSizeOptions={[25, 50, 100]}
+          >
             {/* Filter by archetype */}
-            <Select value={agentFilter} onValueChange={v => { setFilter(v); setAgentIdFilter(undefined); }}>
+            <Select value={params.agentType ?? "*"} onValueChange={v => update({ agentType: v, agentId: undefined })}>
               <SelectTrigger className="w-44 h-8 text-xs">
                 <SelectValue placeholder="All archetypes" />
               </SelectTrigger>
@@ -147,8 +145,8 @@ export function BusinessRules() {
             </Select>
             {/* Filter by specific agent */}
             <Select
-              value={agentIdFilter ?? "__all__"}
-              onValueChange={v => setAgentIdFilter(v === "__all__" ? undefined : v)}
+              value={params.agentId ?? "__all__"}
+              onValueChange={v => update({ agentId: v === "__all__" ? undefined : v })}
             >
               <SelectTrigger className="w-40 h-8 text-xs">
                 <SelectValue placeholder="Any agent" />
@@ -160,13 +158,13 @@ export function BusinessRules() {
                 ))}
               </SelectContent>
             </Select>
-            <Button size="sm" variant="outline" onClick={load} className="h-8">
+            <Button size="sm" variant="outline" onClick={reload} className="h-8">
               <RefreshCw className="h-3.5 w-3.5" />
             </Button>
             <Button size="sm" onClick={() => navigate("/rules/business/new")} className="h-8">
               <Plus className="h-3.5 w-3.5 mr-1" /> Add Rule
             </Button>
-          </div>
+          </ListToolbar>
 
           {loading ? (
         <div className="rounded-md border">
@@ -195,7 +193,7 @@ export function BusinessRules() {
             </TableBody>
           </Table>
         </div>
-      ) : rules.length === 0 ? (
+      ) : (result?.items.length ?? 0) === 0 ? (
         <EmptyState
           icon={BookOpen}
           title="No business rules"
@@ -217,7 +215,7 @@ export function BusinessRules() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rules.map(rule => (
+              {(result?.items ?? []).map(rule => (
                 <TableRow key={rule.id}>
                   <TableCell>
                     <div className="font-mono text-xs text-muted-foreground">{rule.ruleKey}</div>
@@ -300,6 +298,16 @@ export function BusinessRules() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {result && (
+        <ListPagination
+          page={result.page}
+          totalPages={result.totalPages}
+          totalCount={result.totalCount}
+          onPageChange={setPage}
+          itemLabel="total"
+        />
+      )}
         </div>
         </TabsContent>
 

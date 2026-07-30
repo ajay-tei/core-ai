@@ -1,3 +1,4 @@
+using Diva.Core.Extensions;
 using Diva.Host.Auth;
 using Diva.Infrastructure.Auth;
 using Diva.Infrastructure.Data.Entities;
@@ -32,12 +33,37 @@ public class UserGroupsController : ControllerBase
     }
 
     // GET /api/user-groups?tenantId=1
+    // Returns the full unbounded array — used by dropdown/selector callers
+    // (AgentGroups.tsx, McpServerManager.tsx's credential-mapping dropdown).
     [HttpGet]
     public async Task<IActionResult> List([FromQuery] int tenantId = 1, CancellationToken ct = default)
     {
         var tid = EffectiveTenantId(tenantId);
         var groups = await _service.ListAsync(tid, ct);
         return Ok(groups.Select(ToDto));
+    }
+
+    // GET /api/user-groups/paged?tenantId=1&search=&page=1&pageSize=25
+    // Dedicated paginated endpoint for the admin User Groups list page.
+    [HttpGet("paged")]
+    public async Task<IActionResult> ListPaged(
+        [FromQuery] int tenantId = 1,
+        [FromQuery] string? search = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 25,
+        CancellationToken ct = default)
+    {
+        var tid = EffectiveTenantId(tenantId);
+        var groups = await _service.ListAsync(tid, ct);
+        var filtered = groups.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var q = search.Trim();
+            filtered = filtered.Where(g =>
+                g.Name.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                (g.Description ?? string.Empty).Contains(q, StringComparison.OrdinalIgnoreCase));
+        }
+        return Ok(filtered.ToPagedResult(page, pageSize).MapItems(ToDto));
     }
 
     // GET /api/user-groups/{id}?tenantId=1

@@ -104,9 +104,9 @@ export function BusinessRuleEditor() {
     if (isNew || !id) return;
     setLoading(true);
     try {
-      // getBusinessRules returns the list — find by id.
-      // Alternatively use a direct GET if available. We load all and find ours.
-      const rules = await api.getBusinessRules(1, "*");
+      // No GET-by-id endpoint exists for business rules — fetch a large page and find by id
+      // client-side (rule counts per tenant are realistically well under this cap).
+      const { items: rules } = await api.getBusinessRules({ tenantId: 1, agentType: "*", pageSize: 1000 });
       const rule = rules.find((r) => r.id === Number(id));
       if (!rule) { toast.error("Rule not found"); navigate(returnTo); return; }
 

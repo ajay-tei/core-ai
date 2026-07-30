@@ -1,10 +1,13 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   api,
   type UserGroup,
+  type UserGroupListParams,
   type UserGroupRequest,
   type UserProfile,
 } from "@/api";
+import { usePagedList } from "@/hooks/usePagedList";
+import { ListToolbar, ListPagination } from "@/components/ui/list-toolbar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -107,31 +110,17 @@ function UserPicker({ users, selected, onToggle, onClear }: UserPickerProps) {
 }
 
 export function UserGroups() {
-  const [groups, setGroups] = useState<UserGroup[]>([]);
+  const { result, loading, params, update, updateDebounced, setPage, reload } =
+    usePagedList<UserGroup, UserGroupListParams>(api.listUserGroupsPaged, { page: 1, pageSize: 25 });
   const [users, setUsers] = useState<UserProfile[]>([]);
-  const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<UserGroupRequest>(EMPTY);
   const [roleInput, setRoleInput] = useState("");
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [g, u] = await Promise.all([
-        api.listUserGroups(),
-        api.listUserProfiles().catch(() => []),
-      ]);
-      setGroups(g);
-      setUsers(u);
-    } catch {
-      toast.error("Failed to load user groups");
-    } finally {
-      setLoading(false);
-    }
+  useEffect(() => {
+    api.listUserProfiles().then(setUsers).catch(() => setUsers([]));
   }, []);
-
-  useEffect(() => { load(); }, [load]);
 
   const openCreate = () => {
     setEditingId(null);
@@ -190,7 +179,7 @@ export function UserGroups() {
       }
       setShowForm(false);
       setEditingId(null);
-      load();
+      reload();
     } catch {
       toast.error("Failed to save user group");
     }
@@ -201,7 +190,7 @@ export function UserGroups() {
     try {
       await api.deleteUserGroup(g.id);
       toast.success(`User group "${g.name}" deleted`);
-      load();
+      reload();
     } catch {
       toast.error("Failed to delete user group");
     }
@@ -271,13 +260,22 @@ export function UserGroups() {
         </Card>
       )}
 
+      <ListToolbar
+        searchValue={params.search}
+        onSearchChange={v => updateDebounced({ search: v || undefined })}
+        searchPlaceholder="Search user groups…"
+        pageSize={params.pageSize}
+        onPageSizeChange={pageSize => update({ pageSize })}
+        pageSizeOptions={[25, 50, 100]}
+      />
+
       {loading ? (
         <div className="space-y-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-20 w-full" />)}</div>
-      ) : groups.length === 0 ? (
+      ) : (result?.items.length ?? 0) === 0 ? (
         <Card><CardContent className="py-8 text-center text-muted-foreground">No user groups yet. Click "New Group" to create one.</CardContent></Card>
       ) : (
         <div className="space-y-3">
-          {groups.map((g) => (
+          {(result?.items ?? []).map((g) => (
             <Card key={g.id}>
               <CardContent className="flex items-start justify-between py-4">
                 <div className="space-y-1.5">
@@ -296,6 +294,16 @@ export function UserGroups() {
             </Card>
           ))}
         </div>
+      )}
+
+      {result && (
+        <ListPagination
+          page={result.page}
+          totalPages={result.totalPages}
+          totalCount={result.totalCount}
+          onPageChange={setPage}
+          itemLabel="total"
+        />
       )}
     </div>
   );

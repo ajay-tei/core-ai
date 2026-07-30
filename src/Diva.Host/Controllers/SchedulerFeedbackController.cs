@@ -1,4 +1,5 @@
 using Diva.Core.Configuration;
+using Diva.Core.Extensions;
 using Diva.Infrastructure.Auth;
 using Diva.Infrastructure.Scheduler;
 using Microsoft.AspNetCore.Mvc;
@@ -178,11 +179,22 @@ public class SchedulerFeedbackController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetPending(
         [FromQuery] int tenantId = 1,
+        [FromQuery] string? search = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 25,
         CancellationToken ct = default)
     {
         var tid = EffectiveTenantId(tenantId);
         var items = await _feedbackSvc.GetPendingAsync(tid, ct);
-        return Ok(items);
+        var filtered = items.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var q = search.Trim();
+            filtered = filtered.Where(i =>
+                (i.TaskName ?? string.Empty).Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                (i.AgentDisplayName ?? string.Empty).Contains(q, StringComparison.OrdinalIgnoreCase));
+        }
+        return Ok(filtered.ToPagedResult(page, pageSize));
     }
 
     // ── Admin: approve ────────────────────────────────────────────────────────

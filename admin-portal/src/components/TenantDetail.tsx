@@ -83,11 +83,11 @@ export function TenantDetail() {
         </TabsList>
 
         <TabsContent value="sso" className="mt-4">
-          <SsoConfig tenantId={tenantId} />
+          <SsoConfig key={tenantId} tenantId={tenantId} />
         </TabsContent>
 
         <TabsContent value="users" className="mt-4">
-          <LocalUsersPanel tenantId={tenantId} />
+          <LocalUsersPanel key={tenantId} tenantId={tenantId} />
         </TabsContent>
 
         <TabsContent value="llm" className="mt-4">

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
 import {
@@ -9,7 +9,6 @@ import {
   MoreHorizontal,
   Plus,
   RefreshCw,
-  Search,
   Settings2,
   Share2,
   Trash2,
@@ -17,7 +16,8 @@ import {
   ToggleRight,
   Upload,
 } from "lucide-react";
-import { api, type AgentSummary, type AgentImportResult } from "@/api";
+import { api, type AgentSummary, type AgentListParams, type AgentImportResult } from "@/api";
+import { usePagedList } from "@/hooks/usePagedList";
 import { auth } from "@/lib/auth";
 import { triggerJsonDownload } from "@/lib/download";
 import { AgentImportDialog } from "@/components/AgentImportDialog";
@@ -30,7 +30,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -52,6 +51,7 @@ import {
   Card,
   CardContent,
   CardHeader,
+  CardTitle,
 } from "@/components/ui/card";
 import {
   Dialog,
@@ -61,6 +61,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ListToolbar, ListPagination } from "@/components/ui/list-toolbar";
 import { EmptyState } from "@/components/ui/empty-state";
 
 function StatusBadge({ agent }: { agent: AgentSummary }) {
@@ -89,9 +90,8 @@ function SharedBadge({ agent }: { agent: AgentSummary }) {
 export function AgentList() {
   const navigate = useNavigate();
   const isAdmin = auth.isAdmin();
-  const [agents, setAgents] = useState<AgentSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
+  const { result, loading, params, update, updateDebounced, setPage, reload } =
+    usePagedList<AgentSummary, AgentListParams>(api.listAgentsPaged, { page: 1, pageSize: 25 });
   const [deleteTarget, setDeleteTarget] = useState<AgentSummary | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [publishTarget, setPublishTarget] = useState<AgentSummary | null>(null);
@@ -101,22 +101,11 @@ export function AgentList() {
   const [publishing, setPublishing] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
 
-  const load = async () => {
-    setLoading(true);
-    try {
-      setAgents(await api.listAgents());
-    } catch (e: unknown) {
-      toast.error("Failed to load agents", { description: String(e) });
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleActivate = async (agent: AgentSummary) => {
     try {
       await api.applyOverlay(agent.id, { isEnabled: true });
       toast.success(`"${agent.displayName || agent.name}" activated`);
-      load();
+      reload();
     } catch (e: unknown) {
       toast.error("Failed to activate agent", { description: String(e) });
     }
@@ -126,7 +115,7 @@ export function AgentList() {
     try {
       await api.setOverlayEnabled(agent.id, false);
       toast.success(`"${agent.displayName || agent.name}" deactivated`);
-      load();
+      reload();
     } catch (e: unknown) {
       toast.error("Failed to deactivate agent", { description: String(e) });
     }
@@ -186,30 +175,23 @@ export function AgentList() {
     toast.success(`Imported "${result.agentName}" (${result.rulesImported} rule${result.rulesImported !== 1 ? "s" : ""})`, {
       description: msg,
     });
-    load();
+    reload();
   };
-
-  useEffect(() => { load(); }, []);
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
       await api.deleteAgent(deleteTarget.id);
-      setAgents((prev) => prev.filter((a) => a.id !== deleteTarget.id));
       toast.success(`Agent "${deleteTarget.displayName || deleteTarget.name}" deleted`);
       setDeleteTarget(null);
+      reload();
     } catch (e: unknown) {
       toast.error("Failed to delete agent", { description: String(e) });
     } finally {
       setDeleting(false);
     }
   };
-
-  const filtered = agents.filter((a) => {
-    const q = search.toLowerCase();
-    return !q || a.name.toLowerCase().includes(q) || (a.displayName ?? "").toLowerCase().includes(q);
-  });
 
   return (
     <div className="space-y-4">
@@ -236,23 +218,23 @@ export function AgentList() {
         )}
       </div>
 
+      <ListToolbar
+        searchValue={params.search}
+        onSearchChange={v => updateDebounced({ search: v || undefined })}
+        searchPlaceholder="Search agents…"
+        pageSize={params.pageSize}
+        onPageSizeChange={pageSize => update({ pageSize })}
+        pageSizeOptions={[25, 50, 100]}
+      />
+
       <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center gap-3">
-            <div className="relative flex-1 max-w-sm">
-              <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
-              <Input
-                placeholder="Search agents…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-            <Button variant="ghost" size="icon" onClick={load} disabled={loading} className="size-9">
-              <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
-            </Button>
-            <span className="text-sm text-muted-foreground">{agents.length} agent{agents.length !== 1 ? "s" : ""}</span>
-          </div>
+        <CardHeader className="px-4 py-3 flex flex-row items-center justify-between">
+          <CardTitle className="text-sm font-medium">
+            {result ? `${result.totalCount} agent${result.totalCount !== 1 ? "s" : ""}` : "Loading…"}
+          </CardTitle>
+          <Button variant="ghost" size="icon" onClick={reload} disabled={loading} className="size-8">
+            <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
+          </Button>
         </CardHeader>
         <CardContent className="p-0">
           {loading ? (
@@ -270,13 +252,13 @@ export function AgentList() {
                 </div>
               ))}
             </div>
-          ) : filtered.length === 0 ? (
+          ) : (result?.items.length ?? 0) === 0 ? (
             <EmptyState
               icon={Bot}
-              title={search ? "No agents match your search" : "No agents yet"}
-              description={search ? "Try a different search term" : isAdmin ? "Create your first AI agent to get started" : "No agents have been shared with you yet"}
+              title={params.search ? "No agents match your search" : "No agents yet"}
+              description={params.search ? "Try a different search term" : isAdmin ? "Create your first AI agent to get started" : "No agents have been shared with you yet"}
               action={
-                !search && isAdmin ? (
+                !params.search && isAdmin ? (
                   <Button asChild>
                     <Link to="/agents/new"><Plus className="mr-2 size-4" />Create Agent</Link>
                   </Button>
@@ -295,7 +277,7 @@ export function AgentList() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map((agent) => (
+                {(result?.items ?? []).map((agent) => (
                   <TableRow
                     key={agent.id}
                     className={agent.isShared || !isAdmin ? "opacity-100 cursor-pointer" : "cursor-pointer"}
@@ -399,6 +381,16 @@ export function AgentList() {
           )}
         </CardContent>
       </Card>
+
+      {result && (
+        <ListPagination
+          page={result.page}
+          totalPages={result.totalPages}
+          totalCount={result.totalCount}
+          onPageChange={setPage}
+          itemLabel="total"
+        />
+      )}
 
       {/* Publish to Group dialog */}
       <Dialog open={!!publishTarget} onOpenChange={(open) => !open && setPublishTarget(null)}>

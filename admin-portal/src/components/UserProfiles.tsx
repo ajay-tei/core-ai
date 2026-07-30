@@ -1,5 +1,7 @@
-import { useState, useEffect } from "react";
-import { api, type UserProfile, type UpdateUserProfileDto } from "@/api";
+import { useState } from "react";
+import { api, type UserProfile, type UserProfileListParams, type UpdateUserProfileDto } from "@/api";
+import { usePagedList } from "@/hooks/usePagedList";
+import { ListPagination } from "@/components/ui/list-toolbar";
 import { auth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,28 +23,11 @@ function initials(name: string) {
 export function UserProfiles() {
   // Re-read per render so master admin navigating between tenants gets the right scope
   const tenantId = auth.getTenantId() || 1;
-  const [profiles, setProfiles] = useState<UserProfile[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
+  const { result, loading, params, updateDebounced, setPage, reload } =
+    usePagedList<UserProfile, UserProfileListParams>(api.listUserProfilesPaged, { tenantId, page: 1, pageSize: 25 });
   const [editing, setEditing] = useState<UserProfile | null>(null);
   const [form, setForm] = useState<UpdateUserProfileDto>({ displayName: "", avatarUrl: "", agentAccessOverrides: [], metadataJson: "" });
   const [saving, setSaving] = useState(false);
-
-  async function load() {
-    try {
-      setProfiles(await api.listUserProfiles(tenantId, search || undefined));
-    } catch (e) {
-      toast.error(`Failed to load profiles: ${e}`);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => { load(); }, []);
-  useEffect(() => {
-    const t = setTimeout(() => load(), 300);
-    return () => clearTimeout(t);
-  }, [search]);
 
   function openEdit(p: UserProfile) {
     setEditing(p);
@@ -65,7 +50,7 @@ export function UserProfiles() {
       }, tenantId);
       toast.success("Profile updated");
       setEditing(null);
-      load();
+      reload();
     } catch (e) {
       toast.error(`Save failed: ${e}`);
     } finally {
@@ -77,7 +62,7 @@ export function UserProfiles() {
     try {
       if (p.isActive) await api.disableUser(p.id, tenantId);
       else await api.enableUser(p.id, tenantId);
-      load();
+      reload();
     } catch (e) {
       toast.error(`Update failed: ${e}`);
     }
@@ -95,8 +80,8 @@ export function UserProfiles() {
           <Input
             className="pl-8 w-64"
             placeholder="Search by name or email…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
+            defaultValue={params.search}
+            onChange={e => updateDebounced({ search: e.target.value || undefined })}
           />
         </div>
       </div>
@@ -117,9 +102,9 @@ export function UserProfiles() {
             <TableBody>
               {loading ? (
                 <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">Loading…</TableCell></TableRow>
-              ) : profiles.length === 0 ? (
+              ) : (result?.items.length ?? 0) === 0 ? (
                 <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">No users have logged in yet.</TableCell></TableRow>
-              ) : profiles.map(p => (
+              ) : (result?.items ?? []).map(p => (
                 <TableRow key={p.id}>
                   <TableCell>
                     <div className="flex items-center gap-2">
@@ -169,6 +154,16 @@ export function UserProfiles() {
           </Table>
         </CardContent>
       </Card>
+
+      {result && (
+        <ListPagination
+          page={result.page}
+          totalPages={result.totalPages}
+          totalCount={result.totalCount}
+          onPageChange={setPage}
+          itemLabel="total"
+        />
+      )}
 
       {/* Edit drawer */}
       <Sheet open={!!editing} onOpenChange={open => !open && setEditing(null)}>

@@ -1,11 +1,14 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   api,
   type AgentGroup,
+  type AgentGroupListParams,
   type AgentGroupRequest,
   type AgentSummary,
   type UserGroup,
 } from "@/api";
+import { usePagedList } from "@/hooks/usePagedList";
+import { ListToolbar, ListPagination } from "@/components/ui/list-toolbar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -138,34 +141,19 @@ function CheckableList({
 }
 
 export function AgentGroups() {
-  const [groups, setGroups] = useState<AgentGroup[]>([]);
+  const { result, loading, params, update, updateDebounced, setPage, reload } =
+    usePagedList<AgentGroup, AgentGroupListParams>(api.listAgentGroupsPaged, { page: 1, pageSize: 25 });
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [userGroups, setUserGroups] = useState<UserGroup[]>([]);
-  const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<AgentGroupRequest>(EMPTY);
   const [roleInput, setRoleInput] = useState("");
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [g, a, ug] = await Promise.all([
-        api.listAgentGroups(),
-        api.listAgents().catch(() => []),
-        api.listUserGroups().catch(() => []),
-      ]);
-      setGroups(g);
-      setAgents(a);
-      setUserGroups(ug);
-    } catch {
-      toast.error("Failed to load agent groups");
-    } finally {
-      setLoading(false);
-    }
+  useEffect(() => {
+    api.listAgents().then(setAgents).catch(() => setAgents([]));
+    api.listUserGroups().then(setUserGroups).catch(() => setUserGroups([]));
   }, []);
-
-  useEffect(() => { load(); }, [load]);
 
   const openCreate = () => {
     setEditingId(null);
@@ -249,7 +237,7 @@ export function AgentGroups() {
       }
       setShowForm(false);
       setEditingId(null);
-      load();
+      reload();
     } catch {
       toast.error("Failed to save group");
     }
@@ -260,7 +248,7 @@ export function AgentGroups() {
     try {
       await api.deleteAgentGroup(g.id);
       toast.success(`Group "${g.name}" deleted`);
-      load();
+      reload();
     } catch {
       toast.error("Failed to delete group");
     }
@@ -282,6 +270,15 @@ export function AgentGroups() {
           <Plus className="h-4 w-4 mr-1" />{showForm && !editingId ? "Cancel" : "New Group"}
         </Button>
       </div>
+
+      <ListToolbar
+        searchValue={params.search}
+        onSearchChange={v => updateDebounced({ search: v || undefined })}
+        searchPlaceholder="Search agent groups…"
+        pageSize={params.pageSize}
+        onPageSizeChange={pageSize => update({ pageSize })}
+        pageSizeOptions={[25, 50, 100]}
+      />
 
       {showForm && (
         <Card>
@@ -364,11 +361,11 @@ export function AgentGroups() {
 
       {loading ? (
         <div className="space-y-3">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-20 w-full" />)}</div>
-      ) : groups.length === 0 ? (
+      ) : (result?.items.length ?? 0) === 0 ? (
         <Card><CardContent className="py-8 text-center text-muted-foreground">No agent groups yet. Click "New Group" to create one.</CardContent></Card>
       ) : (
         <div className="space-y-3">
-          {groups.map((g) => (
+          {(result?.items ?? []).map((g) => (
             <Card key={g.id}>
               <CardContent className="flex items-start justify-between py-4">
                 <div className="space-y-1.5">
@@ -397,6 +394,16 @@ export function AgentGroups() {
             </Card>
           ))}
         </div>
+      )}
+
+      {result && (
+        <ListPagination
+          page={result.page}
+          totalPages={result.totalPages}
+          totalCount={result.totalCount}
+          onPageChange={setPage}
+          itemLabel="total"
+        />
       )}
     </div>
   );

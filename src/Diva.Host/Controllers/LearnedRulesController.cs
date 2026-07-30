@@ -1,3 +1,4 @@
+using Diva.Core.Extensions;
 using Diva.Host.Auth;
 using Diva.Infrastructure.Auth;
 using Diva.Infrastructure.Learning;
@@ -20,10 +21,26 @@ public class LearnedRulesController : ControllerBase
         return ctx is { TenantId: > 0 } ? ctx.TenantId : requestedTenantId;
     }
 
-    // GET /api/learned-rules?tenantId=1
+    // GET /api/learned-rules?tenantId=1&search=&page=1&pageSize=25
     [HttpGet]
-    public async Task<IActionResult> GetPending([FromQuery] int tenantId = 1, CancellationToken ct = default)
-        => Ok(await _learning.GetPendingRulesAsync(EffectiveTenantId(tenantId), ct));
+    public async Task<IActionResult> GetPending(
+        [FromQuery] int tenantId = 1,
+        [FromQuery] string? search = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 25,
+        CancellationToken ct = default)
+    {
+        var rules = await _learning.GetPendingRulesAsync(EffectiveTenantId(tenantId), ct);
+        var filtered = rules.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var q = search.Trim();
+            filtered = filtered.Where(r =>
+                r.RuleKey.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                r.PromptInjection.Contains(q, StringComparison.OrdinalIgnoreCase));
+        }
+        return Ok(filtered.ToPagedResult(page, pageSize));
+    }
 
     // POST /api/learned-rules/{id}/approve?tenantId=1
     [HttpPost("{id:int}/approve")]
