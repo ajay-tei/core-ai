@@ -214,6 +214,16 @@ export interface RulePack
   rules: HookRule[];
 }
 
+export interface RulePackListParams
+{
+  tenantId?: number;
+  search?: string;
+  status?: "all" | "enabled" | "disabled";
+  type?: "all" | "mandatory" | "group" | "starter";
+  page?: number;
+  pageSize?: number;
+}
+
 export interface CreateRulePackDto
 {
   name: string;
@@ -1873,6 +1883,16 @@ export const api = {
   // Rule Packs (Phase 16)
   getRulePacks: (tenantId = 1) =>
     request<RulePack[]>(`/api/admin/rule-packs?tenantId=${ tenantId }`),
+  getRulePacksPaged: (params: RulePackListParams = {}) =>
+  {
+    const qs = new URLSearchParams({ tenantId: String(params.tenantId ?? 1) });
+    if (params.search) qs.set("search", params.search);
+    if (params.status && params.status !== "all") qs.set("status", params.status);
+    if (params.type && params.type !== "all") qs.set("type", params.type);
+    if (params.page) qs.set("page", String(params.page));
+    if (params.pageSize) qs.set("pageSize", String(params.pageSize));
+    return request<PagedResult<RulePack>>(`/api/admin/rule-packs/paged?${ qs }`);
+  },
   getRulePack: (id: number, tenantId = 1) =>
     request<RulePack>(`/api/admin/rule-packs/${ id }?tenantId=${ tenantId }`),
   getStarterPacks: () =>
@@ -2510,6 +2530,26 @@ export async function getOptimizationRuns(agentId: string): Promise<Optimization
   return r.json();
 }
 
+export interface OptimizationRunListParams
+{
+  tenantId?: number;
+  page?: number;
+  pageSize?: number;
+}
+
+export async function getOptimizationRunsPaged(
+  agentId: string,
+  params: OptimizationRunListParams = {}
+): Promise<PagedResult<OptimizationRunSummary>>
+{
+  const qs = new URLSearchParams({ tenantId: String(params.tenantId ?? 1) });
+  if (params.page) qs.set("page", String(params.page));
+  if (params.pageSize) qs.set("pageSize", String(params.pageSize));
+  const r = await fetch(`${ BASE }/api/admin/agents/${ agentId }/optimize/runs/paged?${ qs }`, { headers: authHeaders() });
+  if (!r.ok) throw await r.json().catch(() => ({ error: r.statusText }));
+  return r.json();
+}
+
 export async function getOptimizationRunsBySession(sessionId: string): Promise<OptimizationRunSummary[]>
 {
   const r = await fetch(`${ BASE }/api/admin/sessions/${ sessionId }/optimize/runs`, { headers: authHeaders() });
@@ -2524,16 +2564,28 @@ export async function getOptimizationRunDetail(agentId: string, runId: number): 
   return r.json();
 }
 
+export interface OptimizationSuggestionListParams
+{
+  status?: string;
+  type?: string;
+  runId?: number;
+  minConfidence?: number;
+  page?: number;
+  pageSize?: number;
+}
+
 export async function getOptimizationSuggestions(
   agentId: string,
-  opts?: { status?: string; type?: string; runId?: number; minConfidence?: number; }
-): Promise<OptimizationSuggestion[]>
+  opts?: OptimizationSuggestionListParams
+): Promise<PagedResult<OptimizationSuggestion>>
 {
   const params = new URLSearchParams();
   if (opts?.status) params.set("status", opts.status);
   if (opts?.type) params.set("type", opts.type);
   if (opts?.runId != null) params.set("runId", String(opts.runId));
   if (opts?.minConfidence != null && opts.minConfidence > 0) params.set("minConfidence", String(opts.minConfidence));
+  if (opts?.page) params.set("page", String(opts.page));
+  if (opts?.pageSize) params.set("pageSize", String(opts.pageSize));
   const qs = params.toString();
   const r = await fetch(`${ BASE }/api/admin/agents/${ agentId }/optimize/suggestions${ qs ? `?${ qs }` : "" }`, { headers: authHeaders() });
   if (!r.ok) throw await r.json().catch(() => ({ error: r.statusText }));

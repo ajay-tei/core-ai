@@ -2,15 +2,17 @@ import { useEffect, useState } from "react";
 import { useParams, useSearchParams, Link } from "react-router";
 import type {
   OptimizationRunSummary, OptimizationRunDetail, OptimizationSuggestion,
-  OptimizationScheduleConfig, SessionSummary,
+  OptimizationScheduleConfig, SessionSummary, OptimizationRunListParams,
 } from "@/api";
 import {
   triggerOptimizationRun, triggerSessionOptimization,
-  getOptimizationRuns, getOptimizationRunsBySession, getOptimizationRunDetail,
+  getOptimizationRunsPaged, getOptimizationRunsBySession, getOptimizationRunDetail,
   getOptimizationSuggestions, reviewSuggestion,
   getOptimizationSchedule, saveOptimizationSchedule,
   api,
 } from "@/api";
+import { usePagedList } from "@/hooks/usePagedList";
+import { ListPagination } from "@/components/ui/list-toolbar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -118,7 +120,6 @@ export default function AgentOptimizer()
   const { id: agentId }  = useParams<{ id: string }>();
   const [searchParams]   = useSearchParams();
 
-  const [runs, setRuns]               = useState<OptimizationRunSummary[]>([]);
   const [detail, setDetail]           = useState<OptimizationRunDetail | null>(null);
   const [suggestions, setSuggestions] = useState<OptimizationSuggestion[]>([]);
   const [schedule, setSchedule]       = useState<OptimizationScheduleConfig>({
@@ -141,6 +142,12 @@ export default function AgentOptimizer()
 
   const aid = agentId!;
 
+  const { result: runsResult, setPage: setRunsPage, reload: reloadRuns } =
+    usePagedList<OptimizationRunSummary, OptimizationRunListParams>(
+      (params) => getOptimizationRunsPaged(aid, params),
+      { page: 1, pageSize: 25 }
+    );
+
   async function loadDetail(agId: string, runId: number): Promise<OptimizationRunDetail | null>
   {
     const d = await getOptimizationRunDetail(agId, runId).catch(() => null);
@@ -158,13 +165,11 @@ export default function AgentOptimizer()
   {
     try
     {
-      const [r, s, sc, sess] = await Promise.all([
-        getOptimizationRuns(aid).catch(() => [] as OptimizationRunSummary[]),
-        getOptimizationSuggestions(aid).catch(() => [] as OptimizationSuggestion[]),
+      const [s, sc, sess] = await Promise.all([
+        getOptimizationSuggestions(aid, { pageSize: 100 }).then(r => r.items).catch(() => [] as OptimizationSuggestion[]),
         getOptimizationSchedule(aid).catch(() => ({ scheduleType: "manual", timezone: "UTC", isEnabled: true } as OptimizationScheduleConfig)),
         api.getSessions({ agentId: aid, pageSize: 30 }).catch(() => ({ items: [] as SessionSummary[] })),
       ]);
-      setRuns(r);
       setSuggestions(s);
       setSchedule(sc);
       setRecentSessions(sess?.items ?? []);
@@ -238,8 +243,8 @@ export default function AgentOptimizer()
         setPollRun(null);
         setRunning(false);
         setDetail(d);
-        setRuns(await getOptimizationRuns(aid).catch(() => runs));
-        setSuggestions(await getOptimizationSuggestions(aid).catch(() => suggestions));
+        reloadRuns();
+        setSuggestions(await getOptimizationSuggestions(aid, { pageSize: 100 }).then(r => r.items).catch(() => suggestions));
       }
     }, 3000);
     return () => clearInterval(timer);
@@ -269,7 +274,7 @@ export default function AgentOptimizer()
         setPollAid(aid);
         setPollRun(runId);
       }
-      setRuns(await getOptimizationRuns(aid).catch(() => runs));
+      reloadRuns();
       setSessionHasRun(true);
     }
     catch (e: unknown)
@@ -294,7 +299,7 @@ export default function AgentOptimizer()
   {
     try { await reviewSuggestion(aid, id, action); }
     catch (e: unknown) { setError((e as { error?: string })?.error ?? "Failed"); }
-    setSuggestions(await getOptimizationSuggestions(aid).catch(() => suggestions));
+    setSuggestions(await getOptimizationSuggestions(aid, { pageSize: 100 }).then(r => r.items).catch(() => suggestions));
   }
 
   async function handleSaveSchedule()
@@ -640,7 +645,7 @@ export default function AgentOptimizer()
           <CardTitle className="text-base">Run History</CardTitle>
         </CardHeader>
         <CardContent>
-          {runs.length === 0 ? (
+          {(runsResult?.items.length ?? 0) === 0 ? (
             <p className="text-sm text-muted-foreground">No runs yet.</p>
           ) : (
             <Table>
@@ -656,7 +661,7 @@ export default function AgentOptimizer()
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {runs.map(r => (
+                {(runsResult?.items ?? []).map(r => (
                   <TableRow key={r.id} className="cursor-pointer" onClick={() => loadDetail(aid, r.id)}>
                     <TableCell>{r.id}</TableCell>
                     <TableCell><StatusBadge status={r.status} /></TableCell>
@@ -674,6 +679,15 @@ export default function AgentOptimizer()
                 ))}
               </TableBody>
             </Table>
+          )}
+          {runsResult && (
+            <ListPagination
+              page={runsResult.page}
+              totalPages={runsResult.totalPages}
+              totalCount={runsResult.totalCount}
+              onPageChange={setRunsPage}
+              itemLabel="total"
+            />
           )}
         </CardContent>
       </Card>

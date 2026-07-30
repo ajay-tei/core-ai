@@ -1,11 +1,13 @@
 import { useEffect, useState, useMemo } from "react";
 import { useParams, Link } from "react-router";
-import type { OptimizationSuggestion, OptimizationRunSummary } from "@/api";
+import type { OptimizationSuggestion, OptimizationRunSummary, OptimizationSuggestionListParams } from "@/api";
 import {
   getOptimizationSuggestions, getOptimizationRuns,
   reviewSuggestion, applySuggestion,
   mergePrompt, applyMerged,
 } from "@/api";
+import { usePagedList } from "@/hooks/usePagedList";
+import { ListPagination } from "@/components/ui/list-toolbar";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -469,15 +471,27 @@ export default function AgentOptimizationSuggestions() {
   const { id: agentId } = useParams<{ id: string }>();
   const aid = agentId!;
 
+  const { result, loading, params, update, setPage, reload } =
+    usePagedList<OptimizationSuggestion, OptimizationSuggestionListParams>(
+      (p) => getOptimizationSuggestions(aid, p),
+      { page: 1, pageSize: 25 }
+    );
   const [suggestions, setSuggestions] = useState<OptimizationSuggestion[]>([]);
   const [runs, setRuns]               = useState<OptimizationRunSummary[]>([]);
-  const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState<string | null>(null);
 
-  // Filters
-  const [filterStatus, setFilterStatus]   = useState("all");
-  const [filterRunId, setFilterRunId]     = useState<number | "all">("all");
-  const [minConfidence, setMinConfidence] = useState(0);
+  // Mirror the current page's fetched suggestions into local state so row actions can
+  // optimistically update status without a full re-fetch (existing behavior, preserved).
+  useEffect(() => { if (result) setSuggestions(result.items); }, [result]);
+
+  // Filters — now server-side (sent as query params via `params`/`update`) instead of
+  // client-side; kept as local aliases so the existing FilterBar props stay unchanged.
+  const filterStatus = params.status ?? "all";
+  const setFilterStatus = (v: string) => update({ status: v === "all" ? undefined : v });
+  const filterRunId = params.runId ?? "all";
+  const setFilterRunId = (v: number | "all") => update({ runId: v === "all" ? undefined : v });
+  const minConfidence = params.minConfidence ?? 0;
+  const setMinConfidence = (v: number) => update({ minConfidence: v || undefined });
 
   // Per-tab selection
   const [promptSelected, setPromptSelected] = useState<Set<number>>(new Set());
@@ -497,36 +511,12 @@ export default function AgentOptimizationSuggestions() {
   // Config tab working state
   const [configWorking, setConfigWorking] = useState(false);
 
-  async function load() {
-    setLoading(true);
-    setError(null);
-    try {
-      const [s, r] = await Promise.all([
-        getOptimizationSuggestions(aid),
-        getOptimizationRuns(aid).catch(() => [] as OptimizationRunSummary[]),
-      ]);
-      setSuggestions(s);
-      setRuns(r);
-    } catch (e: unknown) {
-      setError((e as { error?: string })?.error ?? "Failed to load suggestions");
-    } finally {
-      setLoading(false);
-    }
-  }
+  useEffect(() => {
+    getOptimizationRuns(aid).then(setRuns).catch(() => setRuns([]));
+  }, [aid]);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { load(); }, [aid]);
-
-  const visible = useMemo(() => {
-    let list = suggestions.slice();
-    if (filterStatus !== "all") list = list.filter(s => s.status === filterStatus);
-    if (filterRunId !== "all") list = list.filter(s => s.runId === filterRunId);
-    if (minConfidence > 0) list = list.filter(s => s.confidence >= minConfidence);
-    return list;
-  }, [suggestions, filterStatus, filterRunId, minConfidence]);
-
-  const promptVisible = useMemo(() => visible.filter(s => PROMPT_TYPES.has(s.type)), [visible]);
-  const configVisible = useMemo(() => visible.filter(s => !PROMPT_TYPES.has(s.type)), [visible]);
+  const promptVisible = useMemo(() => suggestions.filter(s => PROMPT_TYPES.has(s.type)), [suggestions]);
+  const configVisible = useMemo(() => suggestions.filter(s => !PROMPT_TYPES.has(s.type)), [suggestions]);
 
   // ── Prompt tab handlers ───────────────────────────────────────────────────
 
@@ -665,7 +655,7 @@ export default function AgentOptimizationSuggestions() {
           </Link>
           <h1 className="text-2xl font-bold mt-1">Optimization Suggestions</h1>
         </div>
-        <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+        <Button variant="outline" size="sm" onClick={reload} disabled={loading}>
           Refresh
         </Button>
       </div>
@@ -703,8 +693,8 @@ export default function AgentOptimizationSuggestions() {
               filterRunId={filterRunId} setFilterRunId={setFilterRunId}
               minConfidence={minConfidence} setMinConfidence={setMinConfidence}
               runs={runs}
-              shownCount={visible.length}
-              totalCount={suggestions.length}
+              shownCount={result?.items.length ?? 0}
+              totalCount={result?.totalCount ?? 0}
             />
 
             <TabsContent value="prompt" className="px-4 pb-4 mt-0">
@@ -743,6 +733,16 @@ export default function AgentOptimizationSuggestions() {
           </Tabs>
         </CardContent>
       </Card>
+
+      {result && (
+        <ListPagination
+          page={result.page}
+          totalPages={result.totalPages}
+          totalCount={result.totalCount}
+          onPageChange={setPage}
+          itemLabel="total"
+        />
+      )}
 
       {/* Merge preview dialog */}
       {mergePreview && (

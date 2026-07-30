@@ -1,9 +1,11 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using Diva.Core.Configuration;
+using Diva.Core.Extensions;
 using Diva.Core.Models;
 using Diva.Infrastructure.Data;
 using Diva.Infrastructure.Data.Entities;
+using Diva.Infrastructure.Extensions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -179,6 +181,29 @@ public sealed class AgentOptimizationService : IAgentOptimizationService
             .ToListAsync(ct);
     }
 
+    public async Task<PagedResult<OptimizationRunSummary>> GetRunsPagedAsync(string agentId, int tenantId, int page, int pageSize, CancellationToken ct)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<DivaDbContext>();
+        return await db.OptimizationRuns
+            .Where(r => r.AgentId == agentId && r.TenantId == tenantId)
+            .OrderByDescending(r => r.StartedAt)
+            .Select(r => new OptimizationRunSummary
+            {
+                Id               = r.Id,
+                AgentId          = r.AgentId,
+                SessionId        = r.SessionId,
+                StartedAt        = r.StartedAt,
+                CompletedAt      = r.CompletedAt,
+                Status           = r.Status,
+                TriggerSource    = r.TriggerSource,
+                SessionsAnalyzed = r.SessionsAnalyzed,
+                TurnsAnalyzed    = r.TurnsAnalyzed,
+                SuggestionCount  = r.Suggestions.Count
+            })
+            .ToPagedResultAsync(page, pageSize, ct);
+    }
+
     public async Task<List<OptimizationRunSummary>> GetRunsBySessionAsync(string sessionId, int tenantId, CancellationToken ct)
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
@@ -236,10 +261,11 @@ public sealed class AgentOptimizationService : IAgentOptimizationService
         };
     }
 
-    public async Task<List<OptimizationSuggestionDto>> GetSuggestionsAsync(
+    public async Task<PagedResult<OptimizationSuggestionDto>> GetSuggestionsAsync(
         string agentId, int tenantId,
         string? status = null, string? type = null,
         int? runId = null, float minConfidence = 0f,
+        int page = 1, int pageSize = 25,
         CancellationToken ct = default)
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
@@ -249,7 +275,8 @@ public sealed class AgentOptimizationService : IAgentOptimizationService
         if (!string.IsNullOrEmpty(type))      q = q.Where(s => s.Type == type);
         if (runId.HasValue)                   q = q.Where(s => s.RunId == runId.Value);
         if (minConfidence > 0f)               q = q.Where(s => s.Confidence >= minConfidence);
-        return await q.OrderByDescending(s => s.CreatedAt).Select(s => MapSuggestion(s)).ToListAsync(ct);
+        var paged = await q.OrderByDescending(s => s.CreatedAt).ToPagedResultAsync(page, pageSize, ct);
+        return paged.MapItems(MapSuggestion);
     }
 
     public async Task<string> MergePromptAsync(

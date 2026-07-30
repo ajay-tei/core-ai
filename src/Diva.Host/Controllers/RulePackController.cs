@@ -1,3 +1,4 @@
+using Diva.Core.Extensions;
 using Diva.Core.Models;
 using Diva.Host.Auth;
 using Diva.Infrastructure.Auth;
@@ -47,6 +48,45 @@ public class RulePackController : ControllerBase
     [HttpGet("starters")]
     public async Task<IActionResult> GetStarterPacks(CancellationToken ct = default)
         => Ok(await _packs.GetStarterPacksAsync(ct));
+
+    // GET /api/admin/rule-packs/paged?tenantId=1&search=&status=all&type=all&page=1&pageSize=25
+    // Combines tenant packs + starter packs (mirrors RulePackManager.tsx's client-side merge, done
+    // server-side) — search/status/type filter the merged set, then paginate in-memory since the
+    // two sources are fetched from separate (cached) service calls, not one translatable query.
+    [HttpGet("paged")]
+    public async Task<IActionResult> GetPacksPaged(
+        [FromQuery] int tenantId = 1,
+        [FromQuery] string? search = null,
+        [FromQuery] string? status = null,
+        [FromQuery] string? type = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 25,
+        CancellationToken ct = default)
+    {
+        var tid = EffectiveTenantId(tenantId);
+        var packs = await _packs.GetPacksAsync(tid, ct);
+        var starters = await _packs.GetStarterPacksAsync(ct);
+        var all = packs.Concat(starters).AsEnumerable();
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var q = search.Trim();
+            all = all.Where(p => p.Name.Contains(q, StringComparison.OrdinalIgnoreCase));
+        }
+        if (string.Equals(status, "enabled", StringComparison.OrdinalIgnoreCase))
+            all = all.Where(p => p.IsEnabled);
+        else if (string.Equals(status, "disabled", StringComparison.OrdinalIgnoreCase))
+            all = all.Where(p => !p.IsEnabled);
+
+        if (string.Equals(type, "mandatory", StringComparison.OrdinalIgnoreCase))
+            all = all.Where(p => p.IsMandatory);
+        else if (string.Equals(type, "group", StringComparison.OrdinalIgnoreCase))
+            all = all.Where(p => p.GroupId.HasValue);
+        else if (string.Equals(type, "starter", StringComparison.OrdinalIgnoreCase))
+            all = all.Where(p => p.TenantId == 0);
+
+        return Ok(all.ToPagedResult(page, pageSize));
+    }
 
     // GET /api/admin/rule-packs/{id}?tenantId=1
     [HttpGet("{id:int}")]

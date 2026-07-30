@@ -65,6 +65,16 @@ public class AgentOptimizationController : ControllerBase
         CancellationToken ct = default)
         => Ok(await _service.GetRunsAsync(agentId, EffectiveTenantId(tenantId), ct));
 
+    // GET /api/admin/agents/{agentId}/optimize/runs/paged?tenantId=1&page=1&pageSize=25
+    [HttpGet("agents/{agentId}/optimize/runs/paged")]
+    public async Task<IActionResult> GetRunsPaged(
+        string agentId,
+        [FromQuery] int tenantId = 1,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 25,
+        CancellationToken ct = default)
+        => Ok(await _service.GetRunsPagedAsync(agentId, EffectiveTenantId(tenantId), page, pageSize, ct));
+
     [HttpGet("agents/{agentId}/optimize/runs/{runId:int}")]
     public async Task<IActionResult> GetRunDetail(
         string agentId, int runId,
@@ -85,9 +95,11 @@ public class AgentOptimizationController : ControllerBase
         [FromQuery] int? runId = null,
         [FromQuery] float minConfidence = 0f,
         [FromQuery] int tenantId = 1,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 25,
         CancellationToken ct = default)
         => Ok(await _service.GetSuggestionsAsync(
-            agentId, EffectiveTenantId(tenantId), status, type, runId, minConfidence, ct));
+            agentId, EffectiveTenantId(tenantId), status, type, runId, minConfidence, page, pageSize, ct));
 
     [HttpPost("agents/{agentId}/optimize/suggestions/{id:int}/approve")]
     public async Task<IActionResult> ApproveSuggestion(

@@ -4,6 +4,24 @@
 
 ---
 
+## [2026-07-30] Server-side pagination/search: Rule Packs + Optimization Suggestions/Runs
+
+Continuation of the admin-portal pagination retrofit (Track 1 Phase 3): converts `RulePackManager.tsx`
+from client-side slicing to real server-side paging, and wires up `AgentOptimizationSuggestions.tsx`
++ `AgentOptimizer.tsx` to server-side filtering/pagination (the status/type/runId/minConfidence
+filters already existed end-to-end but were never actually passed by the frontend until now).
+
+| Area | Change |
+|------|--------|
+| Rule Packs | `RulePackManager.tsx` fetched ALL tenant packs + ALL starter packs, merged, filtered, and `Array.slice`'d client-side for "pages". New `GET /api/admin/rule-packs/paged` merges both (cached) sources server-side via `.Concat()`, applies `search`/`status`/`type`, then paginates with `EnumerablePagingExtensions.ToPagedResult`. Dual endpoint — `GET /api/admin/rule-packs` kept unbounded for `BusinessRuleEditor.tsx`/`BusinessRules.tsx` pack-selector dropdowns |
+| Optimization Suggestions | `GetSuggestionsAsync`/`getOptimizationSuggestions` converted in place (only 2 callers, both compatible with the new shape) from `List<T>` → `PagedResult<T>`; now accepts `page`/`pageSize` alongside the pre-existing `status`/`type`/`runId`/`minConfidence` filters, which the frontend now actually sends server-side instead of filtering an unbounded fetch client-side. Backend paginates the raw entity query first, then maps only the current page (mirrors the MCP Credentials decrypt-only-current-page pattern) |
+| Optimization Runs | Dual endpoint — kept `GetRunsAsync`/`getOptimizationRuns` unbounded (used by `AgentOptimizationSuggestions.tsx`'s "Run" filter dropdown, and by an existing unit test that calls it directly), added new `GetRunsPagedAsync`/`getOptimizationRunsPaged` + `GET .../optimize/runs/paged` for `AgentOptimizer.tsx`'s Run History table |
+| Few-Shot Examples | Deliberately left unpaginated — `AgentFewShotExamples.tsx` uses a manual drag/move-up-down reorder that requires the full list in memory; pagination would break the reorder UX. Per plan guidance, this list is expected to stay small |
+
+**Files**: `src/Diva.Host/Controllers/RulePackController.cs`, `src/Diva.Host/Controllers/AgentOptimizationController.cs`, `src/Diva.Infrastructure/Optimization/{IAgentOptimizationService,AgentOptimizationService}.cs`, `admin-portal/src/api.ts`, `admin-portal/src/components/{RulePackManager,AgentOptimizer,AgentOptimizationSuggestions}.tsx`.
+
+---
+
 ## [2026-07-30] Server-side pagination/search across 16 admin-portal list pages + Scheduled Task full-page editor
 
 Two related pieces of work: a reusable server-side pagination + search framework retrofitted across
