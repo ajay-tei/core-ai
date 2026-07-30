@@ -1225,6 +1225,28 @@ export interface UserGroupRequest
   tenantId?: number;
 }
 
+// ── Environment-based agent management (foundation) ──────────────────────────
+
+export interface TenantEnvironment
+{
+  id: number;
+  tenantId: number;
+  slug: string;
+  displayName: string;
+  rank: number;
+  isDefault: boolean;
+  createdAt: string;
+}
+
+export interface EnvironmentRequest
+{
+  slug: string;
+  displayName: string;
+  rank: number;
+  isDefault: boolean;
+  tenantId?: number;
+}
+
 // ── Scheduler types ───────────────────────────────────────────────────────────
 
 export interface ScheduledTask
@@ -2059,6 +2081,18 @@ export const api = {
     request<UserGroup>(`/api/user-groups/${ id }`, { method: "PUT", body: JSON.stringify(dto) }),
   deleteUserGroup: (id: number, tenantId?: number) =>
     request<void>(`/api/user-groups/${ id }${ tenantId ? `?tenantId=${ tenantId }` : "" }`, { method: "DELETE" }),
+
+  // ── Environments (foundation) ────────────────────────────────────────────────
+  listEnvironments: (tenantId = 1) =>
+    request<TenantEnvironment[]>(`/api/admin/environments?tenantId=${ tenantId }`),
+  getEnvironment: (id: number, tenantId = 1) =>
+    request<TenantEnvironment>(`/api/admin/environments/${ id }?tenantId=${ tenantId }`),
+  createEnvironment: (dto: EnvironmentRequest) =>
+    request<TenantEnvironment>("/api/admin/environments", { method: "POST", body: JSON.stringify(dto) }),
+  updateEnvironment: (id: number, dto: EnvironmentRequest) =>
+    request<TenantEnvironment>(`/api/admin/environments/${ id }`, { method: "PUT", body: JSON.stringify(dto) }),
+  deleteEnvironment: (id: number, tenantId = 1) =>
+    request<void>(`/api/admin/environments/${ id }?tenantId=${ tenantId }`, { method: "DELETE" }),
 
   // ── A2A Config ────────────────────────────────────────────────────────────
   getA2AConfig: () => request<A2AConfig>("/api/admin/a2a-config"),

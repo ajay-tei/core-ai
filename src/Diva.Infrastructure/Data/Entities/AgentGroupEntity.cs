@@ -32,6 +32,15 @@ public class AgentGroupEntity : ITenantEntity
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
 
+    // ── Environment-based agent management (foundation) ───────────────────────
+    /// <summary>FK to TenantEnvironmentEntity — which environment this physical row belongs to.
+    /// Nullable during rollout; backfilled to the tenant's default ("Production") environment
+    /// for all pre-existing rows. Unused by any read path until environment-scoped routing ships.</summary>
+    public int? EnvironmentId { get; set; }
+    /// <summary>Stable identifier shared across all environment-copies of "the same" group.
+    /// Backfilled from this row's own Id for pre-existing data (this Id is already a GUID string).</summary>
+    public Guid? LogicalId { get; set; }
+
     /// <summary>User groups granted access to this agent group's member agents.</summary>
     public ICollection<AgentGroupUserGroupEntity> UserGroupLinks { get; set; } = new List<AgentGroupUserGroupEntity>();
 }

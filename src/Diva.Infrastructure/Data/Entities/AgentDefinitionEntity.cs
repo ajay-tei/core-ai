@@ -41,6 +41,16 @@ public class AgentDefinitionEntity : ITenantEntity
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? PublishedAt { get; set; }
 
+    // ── Environment-based agent management (foundation) ───────────────────────
+    /// <summary>FK to TenantEnvironmentEntity — which environment this physical row belongs to.
+    /// Nullable during rollout; backfilled to the tenant's default ("Production") environment
+    /// for all pre-existing rows. Unused by any read path until environment-scoped routing ships.</summary>
+    public int? EnvironmentId { get; set; }
+    /// <summary>Stable identifier shared across all environment-copies of "the same" agent.
+    /// Backfilled from this row's own Id for pre-existing data (this Id is already a GUID string),
+    /// so DelegateAgentIdsJson/ScheduledTaskEntity.AgentId/etc. need no rewrite.</summary>
+    public Guid? LogicalId { get; set; }
+
     // ── Phase 15: Custom Agent Framework ──────────────────────────────────────
 
     /// <summary>Archetype ID (e.g. "rag", "code-analyst"). Null = "general".</summary>

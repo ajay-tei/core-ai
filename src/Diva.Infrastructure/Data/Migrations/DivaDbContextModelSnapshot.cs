@@ -15,7 +15,7 @@ namespace Diva.Infrastructure.Data.Migrations
         protected override void BuildModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
-            modelBuilder.HasAnnotation("ProductVersion", "10.0.9");
+            modelBuilder.HasAnnotation("ProductVersion", "10.0.10");
 
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.AgentDefinitionEntity", b =>
                 {
@@ -77,6 +77,9 @@ namespace Diva.Infrastructure.Data.Migrations
                     b.Property<bool?>("EnableHistoryCaching")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int?>("EnvironmentId")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("ExecutionMode")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -89,6 +92,9 @@ namespace Diva.Infrastructure.Data.Migrations
 
                     b.Property<int?>("LlmConfigId")
                         .HasColumnType("INTEGER");
+
+                    b.Property<Guid?>("LogicalId")
+                        .HasColumnType("TEXT");
 
                     b.Property<int?>("MaxContinuations")
                         .HasColumnType("INTEGER");
@@ -157,6 +163,10 @@ namespace Diva.Infrastructure.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("EnvironmentId");
+
+                    b.HasIndex("TenantId", "EnvironmentId", "LogicalId");
+
                     b.ToTable("AgentDefinitions");
                 });
 
@@ -180,6 +190,12 @@ namespace Diva.Infrastructure.Data.Migrations
                     b.Property<string>("Description")
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("EnvironmentId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid?>("LogicalId")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -192,7 +208,11 @@ namespace Diva.Infrastructure.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("EnvironmentId");
+
                     b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "EnvironmentId", "LogicalId");
 
                     b.ToTable("AgentGroups");
                 });
@@ -1515,6 +1535,9 @@ namespace Diva.Infrastructure.Data.Migrations
                     b.Property<string>("Description")
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("EnvironmentId")
+                        .HasColumnType("INTEGER");
+
                     b.Property<bool>("IsEnabled")
                         .HasColumnType("INTEGER");
 
@@ -1522,6 +1545,9 @@ namespace Diva.Infrastructure.Data.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<string>("LastRunStatus")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("LogicalId")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Name")
@@ -1582,6 +1608,10 @@ namespace Diva.Infrastructure.Data.Migrations
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("EnvironmentId");
+
+                    b.HasIndex("TenantId", "EnvironmentId", "LogicalId");
 
                     b.HasIndex("TenantId", "IsEnabled", "NextRunUtc");
 
@@ -1856,6 +1886,40 @@ namespace Diva.Infrastructure.Data.Migrations
                     b.ToTable("Tenants");
                 });
 
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.TenantEnvironmentEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsDefault")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("Rank")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TenantId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "Slug")
+                        .IsUnique();
+
+                    b.ToTable("TenantEnvironments");
+                });
+
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.TenantFeedbackSettingsEntity", b =>
                 {
                     b.Property<int>("TenantId")
@@ -2065,6 +2129,12 @@ namespace Diva.Infrastructure.Data.Migrations
                     b.Property<string>("EnvJson")
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("EnvironmentId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid?>("LogicalId")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -2087,8 +2157,12 @@ namespace Diva.Infrastructure.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("EnvironmentId");
+
                     b.HasIndex("TenantId", "Name")
                         .IsUnique();
+
+                    b.HasIndex("TenantId", "EnvironmentId", "LogicalId");
 
                     b.ToTable("TenantMcpServers");
                 });
@@ -2450,6 +2524,22 @@ namespace Diva.Infrastructure.Data.Migrations
                     b.ToTable("WidgetConfigs");
                 });
 
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.AgentDefinitionEntity", b =>
+                {
+                    b.HasOne("Diva.Infrastructure.Data.Entities.TenantEnvironmentEntity", null)
+                        .WithMany()
+                        .HasForeignKey("EnvironmentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.AgentGroupEntity", b =>
+                {
+                    b.HasOne("Diva.Infrastructure.Data.Entities.TenantEnvironmentEntity", null)
+                        .WithMany()
+                        .HasForeignKey("EnvironmentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.AgentGroupUserGroupEntity", b =>
                 {
                     b.HasOne("Diva.Infrastructure.Data.Entities.AgentGroupEntity", "AgentGroup")
@@ -2618,6 +2708,14 @@ namespace Diva.Infrastructure.Data.Migrations
                     b.Navigation("UserGroup");
                 });
 
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.ScheduledTaskEntity", b =>
+                {
+                    b.HasOne("Diva.Infrastructure.Data.Entities.TenantEnvironmentEntity", null)
+                        .WithMany()
+                        .HasForeignKey("EnvironmentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.ScheduledTaskRunEntity", b =>
                 {
                     b.HasOne("Diva.Infrastructure.Data.Entities.ScheduledTaskEntity", "ScheduledTask")
@@ -2678,6 +2776,14 @@ namespace Diva.Infrastructure.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Group");
+                });
+
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.TenantMcpServerEntity", b =>
+                {
+                    b.HasOne("Diva.Infrastructure.Data.Entities.TenantEnvironmentEntity", null)
+                        .WithMany()
+                        .HasForeignKey("EnvironmentId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.UserGroupMemberEntity", b =>

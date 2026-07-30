@@ -64,6 +64,15 @@ public class ScheduledTaskEntity : ITenantEntity
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
 
+    // ── Environment-based agent management (foundation) ───────────────────────
+    /// <summary>FK to TenantEnvironmentEntity — which environment this physical row belongs to.
+    /// Nullable during rollout; backfilled to the tenant's default ("Production") environment
+    /// for all pre-existing rows. Unused by any read path until environment-scoped routing ships.</summary>
+    public int? EnvironmentId { get; set; }
+    /// <summary>Stable identifier shared across all environment-copies of "the same" schedule.
+    /// Backfilled from this row's own Id for pre-existing data (this Id is already a GUID string).</summary>
+    public Guid? LogicalId { get; set; }
+
     // ── Notification config ───────────────────────────────────────────────────
 
     /// <summary>Comma-separated email addresses to notify after this job runs. Null = per-job notification disabled.</summary>

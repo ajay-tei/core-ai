@@ -321,6 +321,9 @@ builder.Services.AddSingleton<IUserGroupResolver, UserGroupMembershipCache>();
 builder.Services.AddSingleton<IUserGroupService, UserGroupService>();
 builder.Services.AddSingleton<IAgentGroupService, AgentGroupService>();
 
+// ── Environment-based agent management (foundation) ───────────────────────────────────
+builder.Services.AddSingleton<IEnvironmentService, EnvironmentService>();
+
 // ── Phase 18: Group Agent Overlays ────────────────────────────────────────────────────
 builder.Services.AddSingleton<IGroupAgentOverlayService, GroupAgentOverlayService>();
 
@@ -464,6 +467,86 @@ using (var scope = app.Services.CreateScope())
 
         if (mainConn.State == System.Data.ConnectionState.Open)
             await mainConn.CloseAsync();
+    }
+
+    // ── Environment-based agent management: backfill (both providers) ─────────
+    // Idempotent: seeds exactly one "Production" (IsDefault=true) environment for any tenant
+    // that doesn't have a default one yet, then tags any pre-existing rows of the 4
+    // promotable entity types that don't have EnvironmentId/LogicalId set. Safe on every
+    // startup — a second run is a no-op since it only touches tenants/rows still missing
+    // these values. Uses plain EF LINQ (not raw SQL) so it works identically on SQLite and
+    // SQL Server without hand-written per-provider migration SQL.
+    {
+        var tenantIds = await db.Tenants.Select(t => t.Id).ToListAsync();
+        var defaultEnvByTenant = await db.TenantEnvironments
+            .Where(e => e.IsDefault)
+            .ToDictionaryAsync(e => e.TenantId, e => e.Id);
+
+        var newEnvCount = 0;
+        foreach (var tenantId in tenantIds)
+        {
+            if (defaultEnvByTenant.ContainsKey(tenantId)) continue;
+            var env = new TenantEnvironmentEntity
+            {
+                TenantId = tenantId,
+                Slug = "production",
+                DisplayName = "Production",
+                Rank = 0,
+                IsDefault = true,
+            };
+            db.TenantEnvironments.Add(env);
+            await db.SaveChangesAsync(); // flush now so env.Id is populated below
+            defaultEnvByTenant[tenantId] = env.Id;
+            newEnvCount++;
+        }
+        if (newEnvCount > 0)
+            Log.Information("Environment backfill: seeded {Count} default 'Production' environment(s)", newEnvCount);
+
+        var agentsFixed = 0;
+        foreach (var a in await db.AgentDefinitions.Where(x => x.EnvironmentId == null).ToListAsync())
+        {
+            if (!defaultEnvByTenant.TryGetValue(a.TenantId, out var envId)) continue;
+            a.EnvironmentId = envId;
+            a.LogicalId = Guid.TryParse(a.Id, out var parsedId) ? parsedId : Guid.NewGuid();
+            agentsFixed++;
+        }
+
+        var serversFixed = 0;
+        foreach (var s in await db.TenantMcpServers.Where(x => x.EnvironmentId == null).ToListAsync())
+        {
+            if (!defaultEnvByTenant.TryGetValue(s.TenantId, out var envId)) continue;
+            s.EnvironmentId = envId;
+            // TenantMcpServerEntity.Id is an int (not a GUID) — nothing references MCP servers
+            // by Id/LogicalId (agents reference them by Name), so a fresh random value is fine.
+            s.LogicalId = Guid.NewGuid();
+            serversFixed++;
+        }
+
+        var tasksFixed = 0;
+        foreach (var t in await db.ScheduledTasks.Where(x => x.EnvironmentId == null).ToListAsync())
+        {
+            if (!defaultEnvByTenant.TryGetValue(t.TenantId, out var envId)) continue;
+            t.EnvironmentId = envId;
+            t.LogicalId = Guid.TryParse(t.Id, out var parsedId) ? parsedId : Guid.NewGuid();
+            tasksFixed++;
+        }
+
+        var groupsFixed = 0;
+        foreach (var ag in await db.AgentGroups.Where(x => x.EnvironmentId == null).ToListAsync())
+        {
+            if (!defaultEnvByTenant.TryGetValue(ag.TenantId, out var envId)) continue;
+            ag.EnvironmentId = envId;
+            ag.LogicalId = Guid.TryParse(ag.Id, out var parsedId) ? parsedId : Guid.NewGuid();
+            groupsFixed++;
+        }
+
+        if (agentsFixed + serversFixed + tasksFixed + groupsFixed > 0)
+        {
+            await db.SaveChangesAsync();
+            Log.Information(
+                "Environment backfill: tagged {Agents} agent(s), {Servers} MCP server(s), {Tasks} scheduled task(s), {Groups} agent group(s) with their tenant's default environment",
+                agentsFixed, serversFixed, tasksFixed, groupsFixed);
+        }
     }
 
     var traceDb = scope.ServiceProvider.GetRequiredService<SessionTraceDbContext>();

@@ -4,6 +4,26 @@
 
 ---
 
+## [2026-07-30] Environment-based agent management — Phase A foundation (environments & logical identity)
+
+First phase of a larger effort to let each tenant define its own environment pipeline (e.g.
+Production/Staging/Dev) so agents, MCP servers, scheduled tasks, and agent groups can eventually be
+versioned and promoted between environments at runtime. This phase lays the schema foundation only —
+no promotion engine, draft isolation, or runtime routing yet (those are later phases).
+
+| Area | Change |
+|------|--------|
+| New entity | `TenantEnvironmentEntity` (`Id`, `TenantId`, `Slug`, `DisplayName`, `Rank`, `IsDefault`, `CreatedAt`) — a tenant-scoped, ordered list of deployment environments |
+| Schema | Nullable `EnvironmentId` (FK) + `LogicalId` (GUID) added to the 4 "promotable" entity types: `AgentDefinitionEntity`, `TenantMcpServerEntity`, `ScheduledTaskEntity`, `AgentGroupEntity`. Non-unique composite index on `(TenantId, EnvironmentId, LogicalId)` on each, preparing for later enforcement |
+| Backfill | Idempotent startup routine (`Program.cs`, both SQLite and SQL Server, plain EF LINQ — no raw SQL) seeds exactly one "Production" (`IsDefault=true`) environment per existing tenant and tags all pre-existing rows of the 4 entity types with it, so this ships with zero manual migration steps and no behavior change for any existing tenant |
+| API | New `EnvironmentsController` (`GET/POST/PUT/DELETE /api/admin/environments`) + `IEnvironmentService`, with basic guardrails (unique slug per tenant, must always have one default environment, can't delete an environment still referenced by other rows) |
+| Frontend | `TenantEnvironment`/`EnvironmentRequest` types + CRUD methods in `api.ts` (API surface only — no admin UI page yet, that's a later phase) |
+
+**Migrations**: `AddEnvironments` in both `src/Diva.Infrastructure` (SQLite) and `src/Diva.Infrastructure.SqlServer` (SQL Server), verified `has-pending-model-changes` clean on both providers. Verified end-to-end against an existing populated SQL Server database (backfill correctly tagged 18 agents, 10 MCP servers, 15 scheduled tasks, and 12 agent groups on first startup after migrating).
+
+---
+
+
 ## [2026-07-30] Server-side pagination/search: Rule Packs + Optimization Suggestions/Runs
 
 Continuation of the admin-portal pagination retrofit (Track 1 Phase 3): converts `RulePackManager.tsx`

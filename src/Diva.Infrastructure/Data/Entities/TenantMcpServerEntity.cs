@@ -54,6 +54,17 @@ public class TenantMcpServerEntity : ITenantEntity
     public DateTime? UpdatedAt { get; set; }
     public string? CreatedByUserId { get; set; }
 
+    // ── Environment-based agent management (foundation) ───────────────────────
+    /// <summary>FK to TenantEnvironmentEntity — which environment this physical row belongs to.
+    /// Nullable during rollout; backfilled to the tenant's default ("Production") environment
+    /// for all pre-existing rows. Unused by any read path until environment-scoped routing ships.</summary>
+    public int? EnvironmentId { get; set; }
+    /// <summary>Stable identifier shared across all environment-copies of "the same" server.
+    /// This entity's own Id is an int (not reusable as a GUID), so pre-existing rows are
+    /// backfilled with a fresh, per-row generated value — no external reference depends on it,
+    /// since agents reference MCP servers by Name (McpServerRefsJson), not by Id/LogicalId.</summary>
+    public Guid? LogicalId { get; set; }
+
     /// <summary>
     /// Per-user-group credential mappings (relational). Applied after per-API-key mappings and
     /// before <see cref="DefaultCredentialRef"/>: a caller belonging to a mapped user group uses

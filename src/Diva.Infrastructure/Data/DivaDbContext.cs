@@ -69,6 +69,9 @@ public class DivaDbContext : DbContext
     // ── Agent Access Groups (Phase 28) ────────────────────────────────────────
     public DbSet<AgentGroupEntity> AgentGroups => Set<AgentGroupEntity>();
 
+    // ── Environment-based agent management (foundation) ───────────────────────
+    public DbSet<TenantEnvironmentEntity> TenantEnvironments => Set<TenantEnvironmentEntity>();
+
     // ── User Groups (group users; grant agent access + shared-MCP credentials) ─
     public DbSet<UserGroupEntity> UserGroups => Set<UserGroupEntity>();
     public DbSet<UserGroupMemberEntity> UserGroupMembers => Set<UserGroupMemberEntity>();
@@ -404,6 +407,50 @@ public class DivaDbContext : DbContext
             .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
         modelBuilder.Entity<AgentGroupEntity>()
             .HasIndex(e => e.TenantId);
+
+        // ── Environment-based agent management (foundation) ──
+        modelBuilder.Entity<TenantEnvironmentEntity>()
+            .HasKey(e => e.Id);
+        modelBuilder.Entity<TenantEnvironmentEntity>()
+            .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
+        modelBuilder.Entity<TenantEnvironmentEntity>()
+            .HasIndex(e => new { e.TenantId, e.Slug }).IsUnique();
+
+        // EnvironmentId is a nullable FK on the 4 promotable entity types (inert until
+        // environment-scoped runtime routing ships — see EnvironmentEntities.cs). Restrict
+        // delete so removing an environment can't silently orphan/cascade-delete live agents,
+        // MCP servers, schedules, or agent groups still tagged to it.
+        modelBuilder.Entity<AgentDefinitionEntity>()
+            .HasOne<TenantEnvironmentEntity>()
+            .WithMany()
+            .HasForeignKey(e => e.EnvironmentId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<AgentDefinitionEntity>()
+            .HasIndex(e => new { e.TenantId, e.EnvironmentId, e.LogicalId });
+
+        modelBuilder.Entity<TenantMcpServerEntity>()
+            .HasOne<TenantEnvironmentEntity>()
+            .WithMany()
+            .HasForeignKey(e => e.EnvironmentId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<TenantMcpServerEntity>()
+            .HasIndex(e => new { e.TenantId, e.EnvironmentId, e.LogicalId });
+
+        modelBuilder.Entity<ScheduledTaskEntity>()
+            .HasOne<TenantEnvironmentEntity>()
+            .WithMany()
+            .HasForeignKey(e => e.EnvironmentId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<ScheduledTaskEntity>()
+            .HasIndex(e => new { e.TenantId, e.EnvironmentId, e.LogicalId });
+
+        modelBuilder.Entity<AgentGroupEntity>()
+            .HasOne<TenantEnvironmentEntity>()
+            .WithMany()
+            .HasForeignKey(e => e.EnvironmentId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<AgentGroupEntity>()
+            .HasIndex(e => new { e.TenantId, e.EnvironmentId, e.LogicalId });
 
         // ── User Groups ───────────────────────────────────────
         modelBuilder.Entity<UserGroupEntity>()
