@@ -76,6 +76,7 @@ public class DivaDbContext : DbContext
     public DbSet<PromotableObjectEntity> PromotableObjects => Set<PromotableObjectEntity>();
     public DbSet<PromotableVersionEntity> PromotableVersions => Set<PromotableVersionEntity>();
     public DbSet<EnvironmentDeploymentEntity> EnvironmentDeployments => Set<EnvironmentDeploymentEntity>();
+    public DbSet<PromotionRunEntity> PromotionRuns => Set<PromotionRunEntity>();
 
     // ── Draft Isolation (Track 2 Phase C) ──────────────────────────────────────
     public DbSet<EntityDraftEntity> EntityDrafts => Set<EntityDraftEntity>();
@@ -518,6 +519,11 @@ public class DivaDbContext : DbContext
             .OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<EnvironmentDeploymentEntity>()
             .HasIndex(e => new { e.LogicalId, e.EnvironmentId }).IsUnique();
+
+        modelBuilder.Entity<PromotionRunEntity>()
+            .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
+        modelBuilder.Entity<PromotionRunEntity>()
+            .HasIndex(e => new { e.TenantId, e.RootLogicalId });
 
         // ── Draft Isolation (Track 2 Phase C) ──────────────────
         modelBuilder.Entity<EntityDraftEntity>()

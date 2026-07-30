@@ -335,6 +335,13 @@ builder.Services.AddScoped<IPromotableSnapshotSerializer, AgentGroupSnapshotSeri
 // ── Draft Isolation (Track 2 Phase C) ──────────────────────────────────────────────────
 builder.Services.AddSingleton<IEntityDraftService, EntityDraftService>();
 
+// ── Promotion Engine (Track 2 Phase D) ─────────────────────────────────────────────────
+builder.Services.AddScoped<IPromotionDependencyResolver, AgentPromotionDependencyResolver>();
+builder.Services.AddScoped<IPromotionDependencyResolver, McpServerPromotionDependencyResolver>();
+builder.Services.AddScoped<IPromotionDependencyResolver, ScheduledTaskPromotionDependencyResolver>();
+builder.Services.AddScoped<IPromotionDependencyResolver, AgentGroupPromotionDependencyResolver>();
+builder.Services.AddScoped<IPromotionOrchestrationService, PromotionOrchestrationService>();
+
 // ── Phase 18: Group Agent Overlays ────────────────────────────────────────────────────
 builder.Services.AddSingleton<IGroupAgentOverlayService, GroupAgentOverlayService>();
 

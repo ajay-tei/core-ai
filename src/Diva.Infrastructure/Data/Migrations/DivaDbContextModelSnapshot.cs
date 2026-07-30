@@ -1584,6 +1584,45 @@ namespace Diva.Infrastructure.Data.Migrations
                     b.ToTable("PromotableVersions");
                 });
 
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.PromotionRunEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("FromEnvironmentId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("PromotedVersionsJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("RootLogicalId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RootObjectType")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("TenantId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ToEnvironmentId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "RootLogicalId");
+
+                    b.ToTable("PromotionRuns");
+                });
+
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.RuleExecutionLogEntity", b =>
                 {
                     b.Property<long>("Id")

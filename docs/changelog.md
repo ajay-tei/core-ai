@@ -4,6 +4,24 @@
 
 ---
 
+## [2026-07-30] Environment-based agent management — Phase D (dependency-aware promotion engine)
+
+Fourth phase: promotes a promotable object (and everything it needs to function) from one
+environment to a strictly-higher-ranked one within the same tenant, plus rollback to any earlier
+recorded version. Builds directly on Phase B's ledger/serializers and Phase A's environments —
+no new schema on the 4 promotable entity types themselves.
+
+| Area | Change |
+|------|--------|
+| New entity | `PromotionRunEntity` — audit record per promotion action: root object, from/to environment, `PromotedVersionsJson` (every object actually promoted or skipped in the run, dependencies included) |
+| Dependency resolution | `IPromotionDependencyResolver` + 4 implementations. **Cascade dependencies** (auto-promoted alongside): Agent → its MCP server refs (`McpServerRefsJson`, name-resolved) + delegate agents (`DelegateAgentIdsJson`). **Forward dependencies** (validated, never auto-cascaded, per the "auto-cascade only flows toward dependencies, never dependents" rule): ScheduledTask → its Agent; AgentGroup → its member agents. MCP Server is a leaf (no dependencies either direction) |
+| Orchestration | `IPromotionOrchestrationService`/`PromotionOrchestrationService` — `PreviewAsync` (dry-run: rank check + full dependency closure, for the admin confirmation dialog), `PromoteAsync` (rank guard, BFS closure computation, forward-dependency validation with an actionable "X does not exist in {target} yet" error, leaves-first materialization via Phase B's `MaterializeAsync`, content-hash idempotent skip against the target's *own* current live version, ledger recording with `Source="promotion"` + `PromotedFromVersionId` linkage, one `PromotionRunEntity` per run), `RollbackAsync` (re-materializes an older recorded version, `Source="rollback"`) |
+| API | New `PromotionsController` — `GET /api/admin/promotions/preview`, `POST /api/admin/promotions`, `GET /api/admin/promotions/history`, `GET /api/admin/promotions/diff`, `POST /api/admin/promotions/rollback` |
+
+**Migrations**: `AddPromotionRuns` in both providers, `has-pending-model-changes` clean on both. Full build 0 errors, full test suite passes except the same pre-existing `ContextWindowTests` failure. Deployed; new endpoints verified reachable (401).
+
+---
+
 ## [2026-07-30] Environment-based agent management — Phase C (draft isolation, additive)
 
 Third phase of the environment-based agent management effort: edits to any of the 4 promotable

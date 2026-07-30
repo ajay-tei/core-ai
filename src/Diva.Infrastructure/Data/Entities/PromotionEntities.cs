@@ -79,3 +79,24 @@ public class EnvironmentDeploymentEntity : ITenantEntity
 
     public DateTime? PublishedAt { get; set; }
 }
+
+/// <summary>
+/// Audit record for one promotion action (Track 2 Phase D). Root object + the full closure of
+/// everything actually promoted alongside it (dependencies pulled in), for a human-readable trail
+/// ("Promotion #123: Agent A v5 Dev→Staging pulled in Sub-Agent B v3, MCP Server C v2").
+/// </summary>
+public class PromotionRunEntity : ITenantEntity
+{
+    public int Id { get; set; }
+    public int TenantId { get; set; }
+    public string RootObjectType { get; set; } = string.Empty;
+    public Guid RootLogicalId { get; set; }
+    public int FromEnvironmentId { get; set; }
+    public int ToEnvironmentId { get; set; }
+    public string? CreatedBy { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>JSON array of { objectType, logicalId, name, versionId, version, wasNew } for every object promoted in this run (dependencies included, root last).</summary>
+    public string PromotedVersionsJson { get; set; } = "[]";
+}
+
