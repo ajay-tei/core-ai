@@ -579,6 +579,41 @@ namespace Diva.Infrastructure.SqlServer.Migrations
                     b.ToTable("AgentTasks");
                 });
 
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.EnvironmentDeploymentEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("EnvironmentId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("LiveVersionId")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("LogicalId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("PublishedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("TenantId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EnvironmentId");
+
+                    b.HasIndex("LiveVersionId");
+
+                    b.HasIndex("LogicalId", "EnvironmentId")
+                        .IsUnique();
+
+                    b.ToTable("EnvironmentDeployments");
+                });
+
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.FewShotExampleEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -1473,6 +1508,89 @@ namespace Diva.Infrastructure.SqlServer.Migrations
                         .IsUnique();
 
                     b.ToTable("PlatformLlmConfigs");
+                });
+
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.PromotableObjectEntity", b =>
+                {
+                    b.Property<Guid>("LogicalId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ObjectType")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<int>("OriginEnvironmentId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TenantId")
+                        .HasColumnType("int");
+
+                    b.HasKey("LogicalId");
+
+                    b.HasIndex("OriginEnvironmentId");
+
+                    b.HasIndex("TenantId", "ObjectType");
+
+                    b.ToTable("PromotableObjects");
+                });
+
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.PromotableVersionEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ChangeNote")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ContentHash")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("CreatedBy")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<Guid>("LogicalId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int?>("PromotedFromVersionId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("SnapshotJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("TenantId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PromotedFromVersionId");
+
+                    b.HasIndex("LogicalId", "Version")
+                        .IsUnique();
+
+                    b.ToTable("PromotableVersions");
                 });
 
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.RuleExecutionLogEntity", b =>
@@ -2661,6 +2779,26 @@ namespace Diva.Infrastructure.SqlServer.Migrations
                     b.Navigation("Session");
                 });
 
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.EnvironmentDeploymentEntity", b =>
+                {
+                    b.HasOne("Diva.Infrastructure.Data.Entities.TenantEnvironmentEntity", null)
+                        .WithMany()
+                        .HasForeignKey("EnvironmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Diva.Infrastructure.Data.Entities.PromotableVersionEntity", null)
+                        .WithMany()
+                        .HasForeignKey("LiveVersionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Diva.Infrastructure.Data.Entities.PromotableObjectEntity", null)
+                        .WithMany()
+                        .HasForeignKey("LogicalId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.GroupAgentTemplateEntity", b =>
                 {
                     b.HasOne("Diva.Infrastructure.Data.Entities.TenantGroupEntity", "Group")
@@ -2786,6 +2924,29 @@ namespace Diva.Infrastructure.SqlServer.Migrations
                     b.Navigation("McpServer");
 
                     b.Navigation("UserGroup");
+                });
+
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.PromotableObjectEntity", b =>
+                {
+                    b.HasOne("Diva.Infrastructure.Data.Entities.TenantEnvironmentEntity", null)
+                        .WithMany()
+                        .HasForeignKey("OriginEnvironmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.PromotableVersionEntity", b =>
+                {
+                    b.HasOne("Diva.Infrastructure.Data.Entities.PromotableObjectEntity", null)
+                        .WithMany()
+                        .HasForeignKey("LogicalId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Diva.Infrastructure.Data.Entities.PromotableVersionEntity", null)
+                        .WithMany()
+                        .HasForeignKey("PromotedFromVersionId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.ScheduledTaskEntity", b =>

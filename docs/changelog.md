@@ -4,6 +4,27 @@
 
 ---
 
+## [2026-07-30] Environment-based agent management — Phase B (generic versioning ledger)
+
+Second phase of the environment-based agent management effort: an append-only, content-hash-deduped
+version history engine shared by all 4 promotable object types (agents, MCP servers, scheduled tasks,
+agent groups), plus per-type snapshot serializers that produce/consume the portable JSON stored in
+each version. This phase is backend infrastructure only — nothing calls it yet (Phase C's draft/publish
+flow and Phase D's promotion flow are the first real callers); verified via build/test/migration checks
+and a clean deploy, not a new UI or controller.
+
+| Area | Change |
+|------|--------|
+| New entities | `PromotableObjectEntity` (`LogicalId` PK, `TenantId`, `ObjectType`, `Name`, `OriginEnvironmentId`, `CreatedAt`) — one row per logical object regardless of how many per-environment copies exist. `PromotableVersionEntity` (append-only, `Version` monotonic per `LogicalId`, `ContentHash` SHA-256, `SnapshotJson`, `Source`, `PromotedFromVersionId` self-ref). `EnvironmentDeploymentEntity` (one row per `(LogicalId, EnvironmentId)`, tracks `LiveVersionId`) |
+| Schema | All new FKs (`PromotableVersionEntity.LogicalId`, `EnvironmentDeploymentEntity.LogicalId`/`LiveVersionId`, `PromotableVersionEntity.PromotedFromVersionId` self-ref) use `DeleteBehavior.Restrict` uniformly — avoids SQL Server's "multiple cascade paths" error (the object is reachable via 2 paths) and keeps the ledger's history from being silently mass-deleted as a side effect. Unique indexes on `(LogicalId, Version)` and `(LogicalId, EnvironmentId)` |
+| Service | `IPromotionLedgerService`/`PromotionLedgerService` (`Diva.Core.Models` / `Diva.Infrastructure.Promotion`) — `RecordVersionAsync` upserts the object row, hashes the snapshot, and only appends a new version if the hash differs from the latest on record (dedup — republishing unchanged content is a no-op), then updates the environment's live-version pointer. Also `GetHistoryAsync`, `GetVersionAsync`, `DiffVersionsAsync` (generic recursive JSON field-diff via `SnapshotJsonDiffer`, arrays compared atomically) |
+| Serializers | `IPromotableSnapshotSerializer` + 4 implementations, DI-registered as `IEnumerable<IPromotableSnapshotSerializer>` for future dispatch-by-`ObjectType`: `AgentSnapshotSerializer` (thin wrapper reusing the existing `IAgentExportService` bundle/import logic rather than reimplementing it), `McpServerSnapshotSerializer`, `ScheduledTaskSnapshotSerializer`, `AgentGroupSnapshotSerializer` (built directly against their entities, stripping non-portable fields — e.g. `ApiKeyCredentialMappingsJson`, `RunAsUserId`, `AllowedUserIdsJson` — and resolving cross-entity references by Name, mirroring `AgentExportService`'s delegate-name resolution pattern) |
+| Known limitation | `MaterializeAsync` matches the target row by `Name` within the tenant only (not yet environment-scoped) — safe today since every tenant still has exactly one (Phase A backfilled) environment; Phase D/E's promotion orchestration is expected to refine this to match by `(EnvironmentId, LogicalId)` once environment-scoped routing ships |
+
+**Migrations**: `AddPromotionLedger` in both `src/Diva.Infrastructure` (SQLite) and `src/Diva.Infrastructure.SqlServer` (SQL Server), verified `has-pending-model-changes` clean on both providers. Full solution build 0 errors, full test suite passes except the pre-existing (unrelated, confirmed via `git worktree` baseline comparison during Phase A) `ContextWindowTests.RunAsync_CallsMaybeCompactAnthropicBeforeLlmCall` failure. Deployed and verified the migration applies cleanly with no startup errors (new tables start empty — no backfill needed).
+
+---
+
 ## [2026-07-30] Environment-based agent management — Phase A foundation (environments & logical identity)
 
 First phase of a larger effort to let each tenant define its own environment pipeline (e.g.

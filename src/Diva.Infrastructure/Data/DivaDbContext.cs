@@ -72,6 +72,11 @@ public class DivaDbContext : DbContext
     // ── Environment-based agent management (foundation) ───────────────────────
     public DbSet<TenantEnvironmentEntity> TenantEnvironments => Set<TenantEnvironmentEntity>();
 
+    // ── Generic Versioning Ledger (Track 2 Phase B) ────────────────────────────
+    public DbSet<PromotableObjectEntity> PromotableObjects => Set<PromotableObjectEntity>();
+    public DbSet<PromotableVersionEntity> PromotableVersions => Set<PromotableVersionEntity>();
+    public DbSet<EnvironmentDeploymentEntity> EnvironmentDeployments => Set<EnvironmentDeploymentEntity>();
+
     // ── User Groups (group users; grant agent access + shared-MCP credentials) ─
     public DbSet<UserGroupEntity> UserGroups => Set<UserGroupEntity>();
     public DbSet<UserGroupMemberEntity> UserGroupMembers => Set<UserGroupMemberEntity>();
@@ -451,6 +456,65 @@ public class DivaDbContext : DbContext
             .OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<AgentGroupEntity>()
             .HasIndex(e => new { e.TenantId, e.EnvironmentId, e.LogicalId });
+
+        // ── Generic Versioning Ledger (Track 2 Phase B) ───────
+        // All Restrict (no cascade anywhere in this subsystem) — deliberate: (1) an immutable,
+        // append-only ledger should never silently mass-delete history as a side effect of
+        // deleting something else; (2) PromotableVersionEntity/EnvironmentDeploymentEntity are
+        // both reachable from PromotableObjectEntity AND (for EnvironmentDeploymentEntity) also
+        // via PromotableVersionEntity.LiveVersionId — cascading either path would hit SQL
+        // Server's "multiple cascade paths" restriction, so Restrict avoids that entirely on
+        // both providers with no isSqlite branching needed.
+        modelBuilder.Entity<PromotableObjectEntity>()
+            .HasKey(e => e.LogicalId);
+        modelBuilder.Entity<PromotableObjectEntity>()
+            .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
+        modelBuilder.Entity<PromotableObjectEntity>()
+            .HasOne<TenantEnvironmentEntity>()
+            .WithMany()
+            .HasForeignKey(e => e.OriginEnvironmentId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<PromotableObjectEntity>()
+            .HasIndex(e => new { e.TenantId, e.ObjectType });
+
+        modelBuilder.Entity<PromotableVersionEntity>()
+            .HasKey(e => e.Id);
+        modelBuilder.Entity<PromotableVersionEntity>()
+            .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
+        modelBuilder.Entity<PromotableVersionEntity>()
+            .HasOne<PromotableObjectEntity>()
+            .WithMany()
+            .HasForeignKey(e => e.LogicalId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<PromotableVersionEntity>()
+            .HasOne<PromotableVersionEntity>()
+            .WithMany()
+            .HasForeignKey(e => e.PromotedFromVersionId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<PromotableVersionEntity>()
+            .HasIndex(e => new { e.LogicalId, e.Version }).IsUnique();
+
+        modelBuilder.Entity<EnvironmentDeploymentEntity>()
+            .HasKey(e => e.Id);
+        modelBuilder.Entity<EnvironmentDeploymentEntity>()
+            .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
+        modelBuilder.Entity<EnvironmentDeploymentEntity>()
+            .HasOne<PromotableObjectEntity>()
+            .WithMany()
+            .HasForeignKey(e => e.LogicalId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<EnvironmentDeploymentEntity>()
+            .HasOne<TenantEnvironmentEntity>()
+            .WithMany()
+            .HasForeignKey(e => e.EnvironmentId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<EnvironmentDeploymentEntity>()
+            .HasOne<PromotableVersionEntity>()
+            .WithMany()
+            .HasForeignKey(e => e.LiveVersionId)
+            .OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<EnvironmentDeploymentEntity>()
+            .HasIndex(e => new { e.LogicalId, e.EnvironmentId }).IsUnique();
 
         // ── User Groups ───────────────────────────────────────
         modelBuilder.Entity<UserGroupEntity>()

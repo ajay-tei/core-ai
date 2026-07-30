@@ -19,6 +19,7 @@ using Diva.Infrastructure.Groups;
 using Diva.Infrastructure.Learning;
 using Diva.Infrastructure.Context;
 using Diva.Infrastructure.LiteLLM;
+using Diva.Infrastructure.Promotion;
 using Diva.Infrastructure.Scheduler;
 using Diva.Infrastructure.Notifications;
 using Diva.Infrastructure.Sessions;
@@ -323,6 +324,13 @@ builder.Services.AddSingleton<IAgentGroupService, AgentGroupService>();
 
 // ── Environment-based agent management (foundation) ───────────────────────────────────
 builder.Services.AddSingleton<IEnvironmentService, EnvironmentService>();
+
+// ── Generic Versioning Ledger (Track 2 Phase B) ────────────────────────────────────────
+builder.Services.AddSingleton<IPromotionLedgerService, PromotionLedgerService>();
+builder.Services.AddScoped<IPromotableSnapshotSerializer, AgentSnapshotSerializer>();
+builder.Services.AddScoped<IPromotableSnapshotSerializer, McpServerSnapshotSerializer>();
+builder.Services.AddScoped<IPromotableSnapshotSerializer, ScheduledTaskSnapshotSerializer>();
+builder.Services.AddScoped<IPromotableSnapshotSerializer, AgentGroupSnapshotSerializer>();
 
 // ── Phase 18: Group Agent Overlays ────────────────────────────────────────────────────
 builder.Services.AddSingleton<IGroupAgentOverlayService, GroupAgentOverlayService>();
