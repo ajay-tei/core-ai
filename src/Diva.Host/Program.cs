@@ -332,6 +332,9 @@ builder.Services.AddScoped<IPromotableSnapshotSerializer, McpServerSnapshotSeria
 builder.Services.AddScoped<IPromotableSnapshotSerializer, ScheduledTaskSnapshotSerializer>();
 builder.Services.AddScoped<IPromotableSnapshotSerializer, AgentGroupSnapshotSerializer>();
 
+// ── Draft Isolation (Track 2 Phase C) ──────────────────────────────────────────────────
+builder.Services.AddSingleton<IEntityDraftService, EntityDraftService>();
+
 // ── Phase 18: Group Agent Overlays ────────────────────────────────────────────────────
 builder.Services.AddSingleton<IGroupAgentOverlayService, GroupAgentOverlayService>();
 

@@ -1,4 +1,5 @@
 using Diva.Core.Extensions;
+using Diva.Core.Models;
 using Diva.Host.Auth;
 using Diva.Infrastructure.Auth;
 using Diva.Infrastructure.Data;
@@ -21,11 +22,22 @@ namespace Diva.Host.Controllers;
 public class McpServersController : ControllerBase
 {
     private readonly IDatabaseProviderFactory _db;
+    private readonly IEntityDraftService _drafts;
+    private readonly IPromotionLedgerService _ledger;
+    private readonly IPromotableSnapshotSerializer _snapshotSerializer;
     private readonly ILogger<McpServersController> _logger;
 
-    public McpServersController(IDatabaseProviderFactory db, ILogger<McpServersController> logger)
+    public McpServersController(
+        IDatabaseProviderFactory db,
+        IEntityDraftService drafts,
+        IPromotionLedgerService ledger,
+        IEnumerable<IPromotableSnapshotSerializer> snapshotSerializers,
+        ILogger<McpServersController> logger)
     {
         _db = db;
+        _drafts = drafts;
+        _ledger = ledger;
+        _snapshotSerializer = snapshotSerializers.First(s => s.ObjectType == "McpServer");
         _logger = logger;
     }
 
@@ -147,12 +159,25 @@ public class McpServersController : ControllerBase
             .FirstOrDefaultAsync(s => s.Id == id && s.TenantId == tid, ct);
         if (entity is null) return NotFound();
 
+        var (ok, error) = await ApplyMcpServerUpdateAsync(db, entity, dto, tid, ct);
+        if (!ok) return Conflict(new { error });
+
+        await db.SaveChangesAsync(ct);
+
+        _logger.LogInformation("Shared MCP server updated: {Name} for tenant {TenantId}", entity.Name, tid);
+        return Ok(ToDto(entity));
+    }
+
+    /// <summary>Shared by Update and Publish. Returns (false, error) on a name clash without applying anything.</summary>
+    private static async Task<(bool Ok, string? Error)> ApplyMcpServerUpdateAsync(
+        DivaDbContext db, TenantMcpServerEntity entity, UpdateMcpServerDto dto, int tid, CancellationToken ct)
+    {
         if (dto.Name is not null && !dto.Name.Equals(entity.Name, StringComparison.Ordinal))
         {
             var clash = await db.TenantMcpServers.AnyAsync(
-                s => s.TenantId == tid && s.Name == dto.Name && s.Id != id, ct);
+                s => s.TenantId == tid && s.Name == dto.Name && s.Id != entity.Id, ct);
             if (clash)
-                return Conflict(new { error = $"An MCP server named '{dto.Name}' already exists for this tenant." });
+                return (false, $"An MCP server named '{dto.Name}' already exists for this tenant.");
             entity.Name = dto.Name.Trim();
         }
 
@@ -175,9 +200,89 @@ public class McpServersController : ControllerBase
         }
 
         entity.UpdatedAt = DateTime.UtcNow;
+        return (true, null);
+    }
+
+    // PUT /api/admin/mcp-servers/{id}/draft — additive, does NOT touch the live row.
+    [HttpPut("{id:int}/draft")]
+    public async Task<IActionResult> SaveDraft(int id, [FromBody] UpdateMcpServerDto dto, [FromQuery] int tenantId = 1, CancellationToken ct = default)
+    {
+        var tid = EffectiveTenantId(tenantId);
+        using var db = _db.CreateDbContext(Core.Models.TenantContext.System(tid));
+        var entity = await db.TenantMcpServers.AsNoTracking().FirstOrDefaultAsync(s => s.Id == id && s.TenantId == tid, ct);
+        if (entity is null) return NotFound();
+        if (entity.LogicalId is not { } logicalId || entity.EnvironmentId is not { } environmentId)
+            return BadRequest(new { error = "MCP server is missing environment/logical identity — cannot draft." });
+
+        var ctx = HttpContext.TryGetTenantContext();
+        var json = System.Text.Json.JsonSerializer.Serialize(dto);
+        await _drafts.SaveDraftAsync(tid, "McpServer", logicalId, environmentId, json, ctx?.UserId, ct);
+        return Ok(new { message = "Draft saved." });
+    }
+
+    // GET /api/admin/mcp-servers/{id}/draft
+    [HttpGet("{id:int}/draft")]
+    public async Task<IActionResult> GetDraft(int id, [FromQuery] int tenantId = 1, CancellationToken ct = default)
+    {
+        var tid = EffectiveTenantId(tenantId);
+        using var db = _db.CreateDbContext(Core.Models.TenantContext.System(tid));
+        var entity = await db.TenantMcpServers.AsNoTracking().FirstOrDefaultAsync(s => s.Id == id && s.TenantId == tid, ct);
+        if (entity is null) return NotFound();
+        if (entity.LogicalId is not { } logicalId || entity.EnvironmentId is not { } environmentId)
+            return Ok(new { hasDraft = false });
+
+        var draft = await _drafts.GetDraftAsync(tid, "McpServer", logicalId, environmentId, ct);
+        if (draft is null) return Ok(new { hasDraft = false });
+
+        var dto = System.Text.Json.JsonSerializer.Deserialize<UpdateMcpServerDto>(draft.DraftJson);
+        return Ok(new { hasDraft = true, draft = dto, updatedAt = draft.UpdatedAt, updatedBy = draft.UpdatedBy });
+    }
+
+    // DELETE /api/admin/mcp-servers/{id}/draft
+    [HttpDelete("{id:int}/draft")]
+    public async Task<IActionResult> DiscardDraft(int id, [FromQuery] int tenantId = 1, CancellationToken ct = default)
+    {
+        var tid = EffectiveTenantId(tenantId);
+        using var db = _db.CreateDbContext(Core.Models.TenantContext.System(tid));
+        var entity = await db.TenantMcpServers.AsNoTracking().FirstOrDefaultAsync(s => s.Id == id && s.TenantId == tid, ct);
+        if (entity is null) return NotFound();
+        if (entity.LogicalId is { } logicalId && entity.EnvironmentId is { } environmentId)
+            await _drafts.ClearDraftAsync(tid, "McpServer", logicalId, environmentId, ct);
+        return NoContent();
+    }
+
+    // POST /api/admin/mcp-servers/{id}/publish — applies the draft + records a ledger version.
+    [HttpPost("{id:int}/publish")]
+    public async Task<IActionResult> Publish(int id, [FromQuery] int tenantId = 1, CancellationToken ct = default)
+    {
+        var tid = EffectiveTenantId(tenantId);
+        using var db = _db.CreateDbContext(Core.Models.TenantContext.System(tid));
+        var entity = await db.TenantMcpServers.Include(s => s.UserGroupCredentials).FirstOrDefaultAsync(s => s.Id == id && s.TenantId == tid, ct);
+        if (entity is null) return NotFound();
+        if (entity.LogicalId is not { } logicalId || entity.EnvironmentId is not { } environmentId)
+            return BadRequest(new { error = "MCP server is missing environment/logical identity — cannot publish." });
+
+        var draft = await _drafts.GetDraftAsync(tid, "McpServer", logicalId, environmentId, ct);
+        if (draft is null) return BadRequest(new { error = "No draft to publish." });
+
+        var dto = System.Text.Json.JsonSerializer.Deserialize<UpdateMcpServerDto>(draft.DraftJson)
+            ?? throw new InvalidOperationException("Invalid draft JSON.");
+
+        var (ok, error) = await ApplyMcpServerUpdateAsync(db, entity, dto, tid, ct);
+        if (!ok) return Conflict(new { error });
+
         await db.SaveChangesAsync(ct);
 
-        _logger.LogInformation("Shared MCP server updated: {Name} for tenant {TenantId}", entity.Name, tid);
+        var ctx = HttpContext.TryGetTenantContext();
+        var snapshot = await _snapshotSerializer.SerializeAsync(tid, logicalId, ct);
+        if (snapshot is not null)
+        {
+            await _ledger.RecordVersionAsync(
+                tid, logicalId, "McpServer", snapshot.Name, environmentId,
+                snapshot.SnapshotJson, "publish", null, ctx?.UserId, null, ct);
+        }
+
+        await _drafts.ClearDraftAsync(tid, "McpServer", logicalId, environmentId, ct);
         return Ok(ToDto(entity));
     }
 

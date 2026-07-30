@@ -1,5 +1,6 @@
 using Diva.Core.Configuration;
 using Diva.Core.Extensions;
+using Diva.Core.Models;
 using Diva.Host.Auth;
 using Diva.Infrastructure.Auth;
 using Diva.Infrastructure.Data.Entities;
@@ -18,17 +19,26 @@ public class SchedulerController : ControllerBase
     private readonly ILogger<SchedulerController> _logger;
     private readonly IOptions<TaskSchedulerOptions> _schedulerOpts;
     private readonly ISchedulerManualDispatch _manualDispatch;
+    private readonly IEntityDraftService _drafts;
+    private readonly IPromotionLedgerService _ledger;
+    private readonly IPromotableSnapshotSerializer _snapshotSerializer;
 
     public SchedulerController(
         IScheduledTaskService service,
         ILogger<SchedulerController> logger,
         IOptions<TaskSchedulerOptions> schedulerOpts,
-        ISchedulerManualDispatch manualDispatch)
+        ISchedulerManualDispatch manualDispatch,
+        IEntityDraftService drafts,
+        IPromotionLedgerService ledger,
+        IEnumerable<IPromotableSnapshotSerializer> snapshotSerializers)
     {
         _service = service;
         _logger = logger;
         _schedulerOpts = schedulerOpts;
         _manualDispatch = manualDispatch;
+        _drafts = drafts;
+        _ledger = ledger;
+        _snapshotSerializer = snapshotSerializers.First(s => s.ObjectType == "ScheduledTask");
     }
 
     private int EffectiveTenantId(int requestedTenantId)
@@ -127,6 +137,96 @@ public class SchedulerController : ControllerBase
         if (ex is ArgumentException argEx)
             return BadRequest(new { error = argEx.Message });
 
+        return Ok(updated);
+    }
+
+    // ── PUT /api/schedules/{id}/draft — additive, does NOT touch the live row. ──────────────
+    [HttpPut("{id}/draft")]
+    public async Task<IActionResult> SaveDraft(
+        string id, [FromBody] UpdateScheduledTaskDto dto, [FromQuery] int tenantId = 1, CancellationToken ct = default)
+    {
+        if (dto is null) return BadRequest(new { error = "Request body is required." });
+        var tid = EffectiveTenantId(tenantId);
+        var task = await _service.GetAsync(tid, id, ct);
+        if (task is null) return NotFound();
+        if (task.LogicalId is not { } logicalId || task.EnvironmentId is not { } environmentId)
+            return BadRequest(new { error = "Scheduled task is missing environment/logical identity — cannot draft." });
+
+        var ctx = HttpContext.TryGetTenantContext();
+        var json = System.Text.Json.JsonSerializer.Serialize(dto);
+        await _drafts.SaveDraftAsync(tid, "ScheduledTask", logicalId, environmentId, json, ctx?.UserId, ct);
+        return Ok(new { message = "Draft saved." });
+    }
+
+    // ── GET /api/schedules/{id}/draft ────────────────────────────────────────────────────────
+    [HttpGet("{id}/draft")]
+    public async Task<IActionResult> GetDraft(string id, [FromQuery] int tenantId = 1, CancellationToken ct = default)
+    {
+        var tid = EffectiveTenantId(tenantId);
+        var task = await _service.GetAsync(tid, id, ct);
+        if (task is null) return NotFound();
+        if (task.LogicalId is not { } logicalId || task.EnvironmentId is not { } environmentId)
+            return Ok(new { hasDraft = false });
+
+        var draft = await _drafts.GetDraftAsync(tid, "ScheduledTask", logicalId, environmentId, ct);
+        if (draft is null) return Ok(new { hasDraft = false });
+
+        var dto = System.Text.Json.JsonSerializer.Deserialize<UpdateScheduledTaskDto>(draft.DraftJson);
+        return Ok(new { hasDraft = true, draft = dto, updatedAt = draft.UpdatedAt, updatedBy = draft.UpdatedBy });
+    }
+
+    // ── DELETE /api/schedules/{id}/draft ─────────────────────────────────────────────────────
+    [HttpDelete("{id}/draft")]
+    public async Task<IActionResult> DiscardDraft(string id, [FromQuery] int tenantId = 1, CancellationToken ct = default)
+    {
+        var tid = EffectiveTenantId(tenantId);
+        var task = await _service.GetAsync(tid, id, ct);
+        if (task is null) return NotFound();
+        if (task.LogicalId is { } logicalId && task.EnvironmentId is { } environmentId)
+            await _drafts.ClearDraftAsync(tid, "ScheduledTask", logicalId, environmentId, ct);
+        return NoContent();
+    }
+
+    // ── POST /api/schedules/{id}/publish — applies the draft + records a ledger version. ────
+    [HttpPost("{id}/publish")]
+    public async Task<IActionResult> Publish(string id, [FromQuery] int tenantId = 1, CancellationToken ct = default)
+    {
+        var tid = EffectiveTenantId(tenantId);
+        var task = await _service.GetAsync(tid, id, ct);
+        if (task is null) return NotFound();
+        if (task.LogicalId is not { } logicalId || task.EnvironmentId is not { } environmentId)
+            return BadRequest(new { error = "Scheduled task is missing environment/logical identity — cannot publish." });
+
+        var draft = await _drafts.GetDraftAsync(tid, "ScheduledTask", logicalId, environmentId, ct);
+        if (draft is null) return BadRequest(new { error = "No draft to publish." });
+
+        var dto = System.Text.Json.JsonSerializer.Deserialize<UpdateScheduledTaskDto>(draft.DraftJson)
+            ?? throw new InvalidOperationException("Invalid draft JSON.");
+
+        object? updated;
+        Exception? ex = null;
+        try
+        {
+            updated = await _service.UpdateAsync(tid, id, new UpdateScheduledTaskRequest(
+                dto.AgentId, dto.Name, dto.Description,
+                dto.ScheduleType, dto.ScheduledAtUtc, dto.RunAtTime, dto.DayOfWeek,
+                dto.TimeZoneId, dto.PayloadType, dto.PromptText, dto.ParametersJson,
+                dto.IsEnabled, dto.NotifyEmails, dto.NotifyOn, dto.SuccessKeywords,
+                dto.RunAsUserId, dto.RunAsUserEmail, dto.RunAsUserLabel), ct);
+        }
+        catch (KeyNotFoundException) { return NotFound(); }
+        catch (ArgumentException e) { return BadRequest(new { error = e.Message }); }
+
+        var ctx = HttpContext.TryGetTenantContext();
+        var snapshot = await _snapshotSerializer.SerializeAsync(tid, logicalId, ct);
+        if (snapshot is not null)
+        {
+            await _ledger.RecordVersionAsync(
+                tid, logicalId, "ScheduledTask", snapshot.Name, environmentId,
+                snapshot.SnapshotJson, "publish", null, ctx?.UserId, null, ct);
+        }
+
+        await _drafts.ClearDraftAsync(tid, "ScheduledTask", logicalId, environmentId, ct);
         return Ok(updated);
     }
 

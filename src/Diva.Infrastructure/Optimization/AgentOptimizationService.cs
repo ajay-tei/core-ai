@@ -34,11 +34,11 @@ public sealed class AgentOptimizationService : IAgentOptimizationService
         ILogger<AgentOptimizationService> logger)
     {
         _scopeFactory = scopeFactory;
-        _analyzer     = analyzer;
-        _llmAnalyzer  = llmAnalyzer;
-        _appLifetime  = appLifetime;
-        _opts         = opts.Value;
-        _logger       = logger;
+        _analyzer = analyzer;
+        _llmAnalyzer = llmAnalyzer;
+        _appLifetime = appLifetime;
+        _opts = opts.Value;
+        _logger = logger;
     }
 
     public async Task<int> StartRunAsync(
@@ -49,7 +49,7 @@ public sealed class AgentOptimizationService : IAgentOptimizationService
             throw new InvalidOperationException("An optimization run is already in progress for this agent.");
 
         var from = request.From ?? DateTime.UtcNow.AddDays(-30);
-        var to   = request.To   ?? DateTime.UtcNow;
+        var to = request.To ?? DateTime.UtcNow;
 
         int runId;
         await using (var scope = _scopeFactory.CreateAsyncScope())
@@ -57,13 +57,13 @@ public sealed class AgentOptimizationService : IAgentOptimizationService
             var db = scope.ServiceProvider.GetRequiredService<DivaDbContext>();
             var run = new AgentOptimizationRunEntity
             {
-                TenantId      = tenantId,
-                AgentId       = agentId,
-                SessionId     = request.SessionId,
-                Status        = "running",
+                TenantId = tenantId,
+                AgentId = agentId,
+                SessionId = request.SessionId,
+                Status = "running",
                 TriggerSource = triggeredBy,
-                FromDate      = from,
-                ToDate        = to
+                FromDate = from,
+                ToDate = to
             };
             db.OptimizationRuns.Add(run);
             await db.SaveChangesAsync(ct);
@@ -100,26 +100,26 @@ public sealed class AgentOptimizationService : IAgentOptimizationService
                 suggestions = await _llmAnalyzer.AnalyzeAsync(report, agentDef, request.UserContext, ct);
 
             var run = await db.OptimizationRuns.FirstAsync(r => r.Id == runId, ct);
-            run.Status           = "completed";
-            run.CompletedAt      = DateTime.UtcNow;
+            run.Status = "completed";
+            run.CompletedAt = DateTime.UtcNow;
             run.SessionsAnalyzed = report.TotalSessions;
-            run.TurnsAnalyzed    = report.TotalTurns;
-            run.ReportJson       = JsonSerializer.Serialize(report);
+            run.TurnsAnalyzed = report.TotalTurns;
+            run.ReportJson = JsonSerializer.Serialize(report);
 
             foreach (var s in suggestions)
             {
                 db.OptimizationSuggestions.Add(new AgentOptimizationSuggestionEntity
                 {
-                    TenantId       = tenantId,
-                    RunId          = runId,
-                    AgentId        = agentId,
-                    Type           = s.Type,
-                    FieldName      = s.FieldName,
-                    CurrentValue   = s.CurrentValue,
+                    TenantId = tenantId,
+                    RunId = runId,
+                    AgentId = agentId,
+                    Type = s.Type,
+                    FieldName = s.FieldName,
+                    CurrentValue = s.CurrentValue,
                     SuggestedValue = s.SuggestedValue,
-                    Confidence     = s.Confidence,
-                    Reasoning      = s.Reasoning,
-                    Status         = "Pending"
+                    Confidence = s.Confidence,
+                    Reasoning = s.Reasoning,
+                    Status = "Pending"
                 });
             }
 
@@ -136,8 +136,8 @@ public sealed class AgentOptimizationService : IAgentOptimizationService
                 var run = await db.OptimizationRuns.FirstOrDefaultAsync(r => r.Id == runId, ct);
                 if (run is not null)
                 {
-                    run.Status       = "failed";
-                    run.CompletedAt  = DateTime.UtcNow;
+                    run.Status = "failed";
+                    run.CompletedAt = DateTime.UtcNow;
                     run.ErrorMessage = ex.Message;
                     await db.SaveChangesAsync(ct);
                 }
@@ -167,16 +167,16 @@ public sealed class AgentOptimizationService : IAgentOptimizationService
             .OrderByDescending(r => r.StartedAt)
             .Select(r => new OptimizationRunSummary
             {
-                Id               = r.Id,
-                AgentId          = r.AgentId,
-                SessionId        = r.SessionId,
-                StartedAt        = r.StartedAt,
-                CompletedAt      = r.CompletedAt,
-                Status           = r.Status,
-                TriggerSource    = r.TriggerSource,
+                Id = r.Id,
+                AgentId = r.AgentId,
+                SessionId = r.SessionId,
+                StartedAt = r.StartedAt,
+                CompletedAt = r.CompletedAt,
+                Status = r.Status,
+                TriggerSource = r.TriggerSource,
                 SessionsAnalyzed = r.SessionsAnalyzed,
-                TurnsAnalyzed    = r.TurnsAnalyzed,
-                SuggestionCount  = r.Suggestions.Count
+                TurnsAnalyzed = r.TurnsAnalyzed,
+                SuggestionCount = r.Suggestions.Count
             })
             .ToListAsync(ct);
     }
@@ -190,16 +190,16 @@ public sealed class AgentOptimizationService : IAgentOptimizationService
             .OrderByDescending(r => r.StartedAt)
             .Select(r => new OptimizationRunSummary
             {
-                Id               = r.Id,
-                AgentId          = r.AgentId,
-                SessionId        = r.SessionId,
-                StartedAt        = r.StartedAt,
-                CompletedAt      = r.CompletedAt,
-                Status           = r.Status,
-                TriggerSource    = r.TriggerSource,
+                Id = r.Id,
+                AgentId = r.AgentId,
+                SessionId = r.SessionId,
+                StartedAt = r.StartedAt,
+                CompletedAt = r.CompletedAt,
+                Status = r.Status,
+                TriggerSource = r.TriggerSource,
                 SessionsAnalyzed = r.SessionsAnalyzed,
-                TurnsAnalyzed    = r.TurnsAnalyzed,
-                SuggestionCount  = r.Suggestions.Count
+                TurnsAnalyzed = r.TurnsAnalyzed,
+                SuggestionCount = r.Suggestions.Count
             })
             .ToPagedResultAsync(page, pageSize, ct);
     }
@@ -213,16 +213,16 @@ public sealed class AgentOptimizationService : IAgentOptimizationService
             .OrderByDescending(r => r.StartedAt)
             .Select(r => new OptimizationRunSummary
             {
-                Id               = r.Id,
-                AgentId          = r.AgentId,
-                SessionId        = r.SessionId,
-                StartedAt        = r.StartedAt,
-                CompletedAt      = r.CompletedAt,
-                Status           = r.Status,
-                TriggerSource    = r.TriggerSource,
+                Id = r.Id,
+                AgentId = r.AgentId,
+                SessionId = r.SessionId,
+                StartedAt = r.StartedAt,
+                CompletedAt = r.CompletedAt,
+                Status = r.Status,
+                TriggerSource = r.TriggerSource,
                 SessionsAnalyzed = r.SessionsAnalyzed,
-                TurnsAnalyzed    = r.TurnsAnalyzed,
-                SuggestionCount  = r.Suggestions.Count
+                TurnsAnalyzed = r.TurnsAnalyzed,
+                SuggestionCount = r.Suggestions.Count
             })
             .ToListAsync(ct);
     }
@@ -245,19 +245,19 @@ public sealed class AgentOptimizationService : IAgentOptimizationService
 
         return new OptimizationRunDetail
         {
-            Id               = run.Id,
-            AgentId          = run.AgentId,
-            SessionId        = run.SessionId,
-            StartedAt        = run.StartedAt,
-            CompletedAt      = run.CompletedAt,
-            Status           = run.Status,
-            TriggerSource    = run.TriggerSource,
+            Id = run.Id,
+            AgentId = run.AgentId,
+            SessionId = run.SessionId,
+            StartedAt = run.StartedAt,
+            CompletedAt = run.CompletedAt,
+            Status = run.Status,
+            TriggerSource = run.TriggerSource,
             SessionsAnalyzed = run.SessionsAnalyzed,
-            TurnsAnalyzed    = run.TurnsAnalyzed,
-            SuggestionCount  = run.Suggestions.Count,
-            Report           = report,
-            ErrorMessage     = run.ErrorMessage,
-            Suggestions      = run.Suggestions.Select(MapSuggestion).ToList()
+            TurnsAnalyzed = run.TurnsAnalyzed,
+            SuggestionCount = run.Suggestions.Count,
+            Report = report,
+            ErrorMessage = run.ErrorMessage,
+            Suggestions = run.Suggestions.Select(MapSuggestion).ToList()
         };
     }
 
@@ -271,10 +271,10 @@ public sealed class AgentOptimizationService : IAgentOptimizationService
         await using var scope = _scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<DivaDbContext>();
         var q = db.OptimizationSuggestions.Where(s => s.AgentId == agentId && s.TenantId == tenantId);
-        if (!string.IsNullOrEmpty(status))    q = q.Where(s => s.Status == status);
-        if (!string.IsNullOrEmpty(type))      q = q.Where(s => s.Type == type);
-        if (runId.HasValue)                   q = q.Where(s => s.RunId == runId.Value);
-        if (minConfidence > 0f)               q = q.Where(s => s.Confidence >= minConfidence);
+        if (!string.IsNullOrEmpty(status)) q = q.Where(s => s.Status == status);
+        if (!string.IsNullOrEmpty(type)) q = q.Where(s => s.Type == type);
+        if (runId.HasValue) q = q.Where(s => s.RunId == runId.Value);
+        if (minConfidence > 0f) q = q.Where(s => s.Confidence >= minConfidence);
         var paged = await q.OrderByDescending(s => s.CreatedAt).ToPagedResultAsync(page, pageSize, ct);
         return paged.MapItems(MapSuggestion);
     }
@@ -307,7 +307,7 @@ public sealed class AgentOptimizationService : IAgentOptimizationService
         string agentId, int tenantId, string mergedPrompt, int[] suggestionIds, CancellationToken ct)
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
-        var db        = scope.ServiceProvider.GetRequiredService<DivaDbContext>();
+        var db = scope.ServiceProvider.GetRequiredService<DivaDbContext>();
         var assistant = scope.ServiceProvider.GetRequiredService<IAgentSetupAssistant>();
 
         var agentDef = await db.AgentDefinitions
@@ -343,17 +343,17 @@ public sealed class AgentOptimizationService : IAgentOptimizationService
         var s = await db.OptimizationSuggestions
             .FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tenantId, ct)
             ?? throw new KeyNotFoundException($"Suggestion {id} not found");
-        s.Status     = status;
+        s.Status = status;
         s.ReviewedBy = reviewedBy;
         s.ReviewNotes = notes;
-        s.ReviewedAt  = DateTime.UtcNow;
+        s.ReviewedAt = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
     }
 
     public async Task ApplySuggestionAsync(int suggestionId, int tenantId, string applyMode, CancellationToken ct)
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
-        var db         = scope.ServiceProvider.GetRequiredService<DivaDbContext>();
+        var db = scope.ServiceProvider.GetRequiredService<DivaDbContext>();
         var applicator = scope.ServiceProvider.GetRequiredService<OptimizationApplicator>();
 
         var suggestion = await db.OptimizationSuggestions
@@ -393,12 +393,12 @@ public sealed class AgentOptimizationService : IAgentOptimizationService
             config = new AgentOptimizationConfigEntity { TenantId = tenantId, AgentId = agentId };
             db.OptimizationConfigs.Add(config);
         }
-        config.ScheduleType     = dto.ScheduleType;
-        config.RunAtTime        = dto.RunAtTime;
-        config.RunOnDayOfWeek   = dto.RunOnDayOfWeek;
-        config.Timezone         = dto.Timezone;
-        config.IsEnabled        = dto.IsEnabled;
-        config.NextRunAt        = ComputeNextRunAt(dto);
+        config.ScheduleType = dto.ScheduleType;
+        config.RunAtTime = dto.RunAtTime;
+        config.RunOnDayOfWeek = dto.RunOnDayOfWeek;
+        config.Timezone = dto.Timezone;
+        config.IsEnabled = dto.IsEnabled;
+        config.NextRunAt = ComputeNextRunAt(dto);
         await db.SaveChangesAsync(ct);
     }
 
@@ -421,16 +421,16 @@ public sealed class AgentOptimizationService : IAgentOptimizationService
         var db = scope.ServiceProvider.GetRequiredService<DivaDbContext>();
         var entity = new FewShotExampleEntity
         {
-            TenantId          = tenantId,
-            AgentId           = agentId,
-            SourceSessionId   = dto.SourceSessionId,
-            SourceTurnNumber  = dto.SourceTurnNumber,
-            UserMessage       = dto.UserMessage,
-            AssistantMessage  = dto.AssistantMessage,
-            Description       = dto.Description,
-            SortOrder         = dto.SortOrder,
-            IsEnabled         = dto.IsEnabled,
-            CreatedBy         = dto.CreatedBy
+            TenantId = tenantId,
+            AgentId = agentId,
+            SourceSessionId = dto.SourceSessionId,
+            SourceTurnNumber = dto.SourceTurnNumber,
+            UserMessage = dto.UserMessage,
+            AssistantMessage = dto.AssistantMessage,
+            Description = dto.Description,
+            SortOrder = dto.SortOrder,
+            IsEnabled = dto.IsEnabled,
+            CreatedBy = dto.CreatedBy
         };
         db.FewShotExamples.Add(entity);
         await db.SaveChangesAsync(ct);
@@ -467,45 +467,45 @@ public sealed class AgentOptimizationService : IAgentOptimizationService
 
     private static OptimizationSuggestionDto MapSuggestion(AgentOptimizationSuggestionEntity s) => new()
     {
-        Id             = s.Id,
-        RunId          = s.RunId,
-        AgentId        = s.AgentId,
-        Type           = s.Type,
-        FieldName      = s.FieldName,
-        CurrentValue   = s.CurrentValue,
+        Id = s.Id,
+        RunId = s.RunId,
+        AgentId = s.AgentId,
+        Type = s.Type,
+        FieldName = s.FieldName,
+        CurrentValue = s.CurrentValue,
         SuggestedValue = s.SuggestedValue,
-        Confidence     = s.Confidence,
-        Reasoning      = s.Reasoning,
-        Status         = s.Status,
-        ReviewedBy     = s.ReviewedBy,
-        ReviewNotes    = s.ReviewNotes,
-        ReviewedAt     = s.ReviewedAt,
-        CreatedAt      = s.CreatedAt
+        Confidence = s.Confidence,
+        Reasoning = s.Reasoning,
+        Status = s.Status,
+        ReviewedBy = s.ReviewedBy,
+        ReviewNotes = s.ReviewNotes,
+        ReviewedAt = s.ReviewedAt,
+        CreatedAt = s.CreatedAt
     };
 
     private static FewShotExampleDto MapExample(FewShotExampleEntity e) => new()
     {
-        Id               = e.Id,
-        AgentId          = e.AgentId,
-        SourceSessionId  = e.SourceSessionId,
+        Id = e.Id,
+        AgentId = e.AgentId,
+        SourceSessionId = e.SourceSessionId,
         SourceTurnNumber = e.SourceTurnNumber,
-        UserMessage      = e.UserMessage,
+        UserMessage = e.UserMessage,
         AssistantMessage = e.AssistantMessage,
-        Description      = e.Description,
-        SortOrder        = e.SortOrder,
-        IsEnabled        = e.IsEnabled,
-        CreatedAt        = e.CreatedAt,
-        CreatedBy        = e.CreatedBy
+        Description = e.Description,
+        SortOrder = e.SortOrder,
+        IsEnabled = e.IsEnabled,
+        CreatedAt = e.CreatedAt,
+        CreatedBy = e.CreatedBy
     };
 
     private static OptimizationScheduleConfig MapSchedule(AgentOptimizationConfigEntity c) => new()
     {
-        ScheduleType       = c.ScheduleType,
-        RunAtTime          = c.RunAtTime,
-        RunOnDayOfWeek     = c.RunOnDayOfWeek,
-        Timezone           = c.Timezone,
-        IsEnabled          = c.IsEnabled,
-        NextRunAt          = c.NextRunAt,
+        ScheduleType = c.ScheduleType,
+        RunAtTime = c.RunAtTime,
+        RunOnDayOfWeek = c.RunOnDayOfWeek,
+        Timezone = c.Timezone,
+        IsEnabled = c.IsEnabled,
+        NextRunAt = c.NextRunAt,
         LastScheduledRunAt = c.LastScheduledRunAt
     };
 
@@ -516,7 +516,7 @@ public sealed class AgentOptimizationService : IAgentOptimizationService
 
         if (!TimeOnly.TryParse(config.RunAtTime, out var runTime)) return null;
 
-        var tz  = TryGetTimeZone(config.Timezone);
+        var tz = TryGetTimeZone(config.Timezone);
         var now = tz is not null ? TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz) : DateTime.UtcNow;
         var candidate = now.Date.Add(runTime.ToTimeSpan());
         if (candidate <= now) candidate = candidate.AddDays(1);

@@ -36,6 +36,9 @@ public class AgentsController : ControllerBase
     private readonly IAgentExportService _agentExport;
     private readonly IMcpCredentialSelector _mcpCredentials;
     private readonly ICredentialResolver? _credentialResolver;
+    private readonly IEntityDraftService _drafts;
+    private readonly IPromotionLedgerService _ledger;
+    private readonly IPromotableSnapshotSerializer _snapshotSerializer;
     private readonly ILogger<AgentsController> _logger;
 
     public AgentsController(
@@ -50,6 +53,9 @@ public class AgentsController : ControllerBase
         IOptimizationLlmAnalyzer promptImprover,
         IAgentExportService agentExport,
         IMcpCredentialSelector mcpCredentials,
+        IEntityDraftService drafts,
+        IPromotionLedgerService ledger,
+        IEnumerable<IPromotableSnapshotSerializer> snapshotSerializers,
         ILogger<AgentsController> logger,
         ICredentialResolver? credentialResolver = null)
     {
@@ -64,6 +70,9 @@ public class AgentsController : ControllerBase
         _promptImprover = promptImprover;
         _agentExport = agentExport;
         _mcpCredentials = mcpCredentials;
+        _drafts = drafts;
+        _ledger = ledger;
+        _snapshotSerializer = snapshotSerializers.First(s => s.ObjectType == "Agent");
         _credentialResolver = credentialResolver;
         _logger = logger;
     }
@@ -208,6 +217,14 @@ public class AgentsController : ControllerBase
         var existing = await db.AgentDefinitions.FindAsync([id], ct);
         if (existing is null) return NotFound();
 
+        ApplyAgentUpdate(existing, dto);
+
+        await db.SaveChangesAsync(ct);
+        return Ok(existing);
+    }
+
+    private static void ApplyAgentUpdate(AgentDefinitionEntity existing, AgentDefinitionEntity dto)
+    {
         existing.Name = dto.Name;
         existing.DisplayName = dto.DisplayName;
         existing.Description = dto.Description;
@@ -245,8 +262,91 @@ public class AgentsController : ControllerBase
         existing.IsEnabled = dto.IsEnabled;
         existing.Status = dto.Status;
         if (dto.Status == "Published") existing.PublishedAt = DateTime.UtcNow;
+    }
 
+    // ── PUT /api/agents/{id}/draft ─────────────────────────────────────────────
+    // Additive — does NOT touch the live row. Stores the pending edit for a later Publish.
+    [HttpPut("{id}/draft")]
+    [RequireTenantAdmin]
+    public async Task<IActionResult> SaveDraft(string id, [FromBody] AgentDefinitionEntity dto, CancellationToken ct)
+    {
+        var tenant = Tenant;
+        using var db = _db.CreateDbContext(tenant);
+        var existing = await db.AgentDefinitions.FindAsync([id], ct);
+        if (existing is null) return NotFound();
+        if (existing.LogicalId is not { } logicalId || existing.EnvironmentId is not { } environmentId)
+            return BadRequest(new { error = "Agent is missing environment/logical identity — cannot draft." });
+
+        var json = JsonSerializer.Serialize(dto);
+        await _drafts.SaveDraftAsync(tenant.TenantId, "Agent", logicalId, environmentId, json, tenant.UserId, ct);
+        return Ok(new { message = "Draft saved." });
+    }
+
+    // ── GET /api/agents/{id}/draft ─────────────────────────────────────────────
+    [HttpGet("{id}/draft")]
+    [RequireTenantAdmin]
+    public async Task<IActionResult> GetDraft(string id, CancellationToken ct)
+    {
+        var tenant = Tenant;
+        using var db = _db.CreateDbContext(tenant);
+        var existing = await db.AgentDefinitions.FindAsync([id], ct);
+        if (existing is null) return NotFound();
+        if (existing.LogicalId is not { } logicalId || existing.EnvironmentId is not { } environmentId)
+            return Ok(new { hasDraft = false });
+
+        var draft = await _drafts.GetDraftAsync(tenant.TenantId, "Agent", logicalId, environmentId, ct);
+        if (draft is null) return Ok(new { hasDraft = false });
+
+        var dto = JsonSerializer.Deserialize<AgentDefinitionEntity>(draft.DraftJson);
+        return Ok(new { hasDraft = true, draft = dto, updatedAt = draft.UpdatedAt, updatedBy = draft.UpdatedBy });
+    }
+
+    // ── DELETE /api/agents/{id}/draft ──────────────────────────────────────────
+    [HttpDelete("{id}/draft")]
+    [RequireTenantAdmin]
+    public async Task<IActionResult> DiscardDraft(string id, CancellationToken ct)
+    {
+        var tenant = Tenant;
+        using var db = _db.CreateDbContext(tenant);
+        var existing = await db.AgentDefinitions.FindAsync([id], ct);
+        if (existing is null) return NotFound();
+        if (existing.LogicalId is { } logicalId && existing.EnvironmentId is { } environmentId)
+            await _drafts.ClearDraftAsync(tenant.TenantId, "Agent", logicalId, environmentId, ct);
+        return NoContent();
+    }
+
+    // ── POST /api/agents/{id}/publish ──────────────────────────────────────────
+    // Applies the pending draft onto the live row in one transaction, records a ledger
+    // version (Source="publish"), and clears the draft. No-op error if there's no draft.
+    [HttpPost("{id}/publish")]
+    [RequireTenantAdmin]
+    public async Task<IActionResult> Publish(string id, CancellationToken ct)
+    {
+        var tenant = Tenant;
+        using var db = _db.CreateDbContext(tenant);
+        var existing = await db.AgentDefinitions.FindAsync([id], ct);
+        if (existing is null) return NotFound();
+        if (existing.LogicalId is not { } logicalId || existing.EnvironmentId is not { } environmentId)
+            return BadRequest(new { error = "Agent is missing environment/logical identity — cannot publish." });
+
+        var draft = await _drafts.GetDraftAsync(tenant.TenantId, "Agent", logicalId, environmentId, ct);
+        if (draft is null) return BadRequest(new { error = "No draft to publish." });
+
+        var dto = JsonSerializer.Deserialize<AgentDefinitionEntity>(draft.DraftJson)
+            ?? throw new InvalidOperationException("Invalid draft JSON.");
+
+        ApplyAgentUpdate(existing, dto);
         await db.SaveChangesAsync(ct);
+
+        var snapshot = await _snapshotSerializer.SerializeAsync(tenant.TenantId, logicalId, ct);
+        if (snapshot is not null)
+        {
+            await _ledger.RecordVersionAsync(
+                tenant.TenantId, logicalId, "Agent", snapshot.Name, environmentId,
+                snapshot.SnapshotJson, "publish", null, tenant.UserId, null, ct);
+        }
+
+        await _drafts.ClearDraftAsync(tenant.TenantId, "Agent", logicalId, environmentId, ct);
         return Ok(existing);
     }
 

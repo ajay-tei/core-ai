@@ -77,6 +77,9 @@ public class DivaDbContext : DbContext
     public DbSet<PromotableVersionEntity> PromotableVersions => Set<PromotableVersionEntity>();
     public DbSet<EnvironmentDeploymentEntity> EnvironmentDeployments => Set<EnvironmentDeploymentEntity>();
 
+    // ── Draft Isolation (Track 2 Phase C) ──────────────────────────────────────
+    public DbSet<EntityDraftEntity> EntityDrafts => Set<EntityDraftEntity>();
+
     // ── User Groups (group users; grant agent access + shared-MCP credentials) ─
     public DbSet<UserGroupEntity> UserGroups => Set<UserGroupEntity>();
     public DbSet<UserGroupMemberEntity> UserGroupMembers => Set<UserGroupMemberEntity>();
@@ -515,6 +518,12 @@ public class DivaDbContext : DbContext
             .OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<EnvironmentDeploymentEntity>()
             .HasIndex(e => new { e.LogicalId, e.EnvironmentId }).IsUnique();
+
+        // ── Draft Isolation (Track 2 Phase C) ──────────────────
+        modelBuilder.Entity<EntityDraftEntity>()
+            .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
+        modelBuilder.Entity<EntityDraftEntity>()
+            .HasIndex(e => new { e.TenantId, e.ObjectType, e.LogicalId, e.EnvironmentId }).IsUnique();
 
         // ── User Groups ───────────────────────────────────────
         modelBuilder.Entity<UserGroupEntity>()

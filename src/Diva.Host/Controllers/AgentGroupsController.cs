@@ -1,4 +1,5 @@
 using Diva.Core.Extensions;
+using Diva.Core.Models;
 using Diva.Host.Auth;
 using Diva.Infrastructure.Auth;
 using Diva.TenantAdmin.Services;
@@ -18,11 +19,22 @@ public class AgentGroupsController : ControllerBase
 {
     private readonly IAgentGroupService _service;
     private readonly ILogger<AgentGroupsController> _logger;
+    private readonly IEntityDraftService _drafts;
+    private readonly IPromotionLedgerService _ledger;
+    private readonly IPromotableSnapshotSerializer _snapshotSerializer;
 
-    public AgentGroupsController(IAgentGroupService service, ILogger<AgentGroupsController> logger)
+    public AgentGroupsController(
+        IAgentGroupService service,
+        ILogger<AgentGroupsController> logger,
+        IEntityDraftService drafts,
+        IPromotionLedgerService ledger,
+        IEnumerable<IPromotableSnapshotSerializer> snapshotSerializers)
     {
         _service = service;
         _logger = logger;
+        _drafts = drafts;
+        _ledger = ledger;
+        _snapshotSerializer = snapshotSerializers.First(s => s.ObjectType == "AgentGroup");
     }
 
     private int EffectiveTenantId(int requestedTenantId)
@@ -91,6 +103,84 @@ public class AgentGroupsController : ControllerBase
         var dto = new AgentGroupDto(req.Name, req.Description, req.AgentIds ?? [], req.AllowedUserIds ?? [], req.AllowedRoles ?? [], req.AllowedUserGroupIds ?? []);
         var updated = await _service.UpdateAsync(tid, id, dto, ct);
         return updated is null ? NotFound() : Ok(ToDto(updated));
+    }
+
+    // PUT /api/agent-groups/{id}/draft — additive, does NOT touch the live row.
+    [HttpPut("{id}/draft")]
+    public async Task<IActionResult> SaveDraft(string id, [FromBody] AgentGroupRequest req, CancellationToken ct = default)
+    {
+        var tid = EffectiveTenantId(req.TenantId);
+        var existing = await _service.GetAsync(tid, id, ct);
+        if (existing is null) return NotFound();
+        if (existing.LogicalId is not { } logicalId || existing.EnvironmentId is not { } environmentId)
+            return BadRequest(new { error = "Agent group is missing environment/logical identity — cannot draft." });
+
+        var ctx = HttpContext.TryGetTenantContext();
+        var json = System.Text.Json.JsonSerializer.Serialize(req);
+        await _drafts.SaveDraftAsync(tid, "AgentGroup", logicalId, environmentId, json, ctx?.UserId, ct);
+        return Ok(new { message = "Draft saved." });
+    }
+
+    // GET /api/agent-groups/{id}/draft
+    [HttpGet("{id}/draft")]
+    public async Task<IActionResult> GetDraft(string id, [FromQuery] int tenantId = 1, CancellationToken ct = default)
+    {
+        var tid = EffectiveTenantId(tenantId);
+        var existing = await _service.GetAsync(tid, id, ct);
+        if (existing is null) return NotFound();
+        if (existing.LogicalId is not { } logicalId || existing.EnvironmentId is not { } environmentId)
+            return Ok(new { hasDraft = false });
+
+        var draft = await _drafts.GetDraftAsync(tid, "AgentGroup", logicalId, environmentId, ct);
+        if (draft is null) return Ok(new { hasDraft = false });
+
+        var req = System.Text.Json.JsonSerializer.Deserialize<AgentGroupRequest>(draft.DraftJson);
+        return Ok(new { hasDraft = true, draft = req, updatedAt = draft.UpdatedAt, updatedBy = draft.UpdatedBy });
+    }
+
+    // DELETE /api/agent-groups/{id}/draft
+    [HttpDelete("{id}/draft")]
+    public async Task<IActionResult> DiscardDraft(string id, [FromQuery] int tenantId = 1, CancellationToken ct = default)
+    {
+        var tid = EffectiveTenantId(tenantId);
+        var existing = await _service.GetAsync(tid, id, ct);
+        if (existing is null) return NotFound();
+        if (existing.LogicalId is { } logicalId && existing.EnvironmentId is { } environmentId)
+            await _drafts.ClearDraftAsync(tid, "AgentGroup", logicalId, environmentId, ct);
+        return NoContent();
+    }
+
+    // POST /api/agent-groups/{id}/publish — applies the draft + records a ledger version.
+    [HttpPost("{id}/publish")]
+    public async Task<IActionResult> Publish(string id, [FromQuery] int tenantId = 1, CancellationToken ct = default)
+    {
+        var tid = EffectiveTenantId(tenantId);
+        var existing = await _service.GetAsync(tid, id, ct);
+        if (existing is null) return NotFound();
+        if (existing.LogicalId is not { } logicalId || existing.EnvironmentId is not { } environmentId)
+            return BadRequest(new { error = "Agent group is missing environment/logical identity — cannot publish." });
+
+        var draft = await _drafts.GetDraftAsync(tid, "AgentGroup", logicalId, environmentId, ct);
+        if (draft is null) return BadRequest(new { error = "No draft to publish." });
+
+        var req = System.Text.Json.JsonSerializer.Deserialize<AgentGroupRequest>(draft.DraftJson)
+            ?? throw new InvalidOperationException("Invalid draft JSON.");
+
+        var dto = new AgentGroupDto(req.Name, req.Description, req.AgentIds ?? [], req.AllowedUserIds ?? [], req.AllowedRoles ?? [], req.AllowedUserGroupIds ?? []);
+        var updated = await _service.UpdateAsync(tid, id, dto, ct);
+        if (updated is null) return NotFound();
+
+        var ctx = HttpContext.TryGetTenantContext();
+        var snapshot = await _snapshotSerializer.SerializeAsync(tid, logicalId, ct);
+        if (snapshot is not null)
+        {
+            await _ledger.RecordVersionAsync(
+                tid, logicalId, "AgentGroup", snapshot.Name, environmentId,
+                snapshot.SnapshotJson, "publish", null, ctx?.UserId, null, ct);
+        }
+
+        await _drafts.ClearDraftAsync(tid, "AgentGroup", logicalId, environmentId, ct);
+        return Ok(ToDto(updated));
     }
 
     // DELETE /api/agent-groups/{id}?tenantId=1

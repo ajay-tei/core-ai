@@ -4,6 +4,27 @@
 
 ---
 
+## [2026-07-30] Environment-based agent management — Phase C (draft isolation, additive)
+
+Third phase of the environment-based agent management effort: edits to any of the 4 promotable
+object types can now be staged as a draft and applied via an explicit Publish action, without
+touching the live row until publish — closing the "editing must not affect live traffic" gap.
+Implemented **additively**: the existing `PUT /{id}` endpoints on all 4 controllers are completely
+unchanged and keep applying immediately as before; the new draft/publish endpoints are a separate,
+opt-in path. No frontend changes in this pass — wiring the admin UI to actually use Save-Draft/Publish
+instead of the existing single Save button is a deliberate follow-up, not done here.
+
+| Area | Change |
+|------|--------|
+| New entity | `EntityDraftEntity` (`Id`, `TenantId`, `ObjectType`, `LogicalId`, `EnvironmentId`, `DraftJson`, `UpdatedAt`, `UpdatedBy`) — one row per (TenantId, ObjectType, LogicalId, EnvironmentId), content-agnostic (DraftJson is whatever DTO shape that object type's own PUT already accepts) |
+| Service | `IEntityDraftService`/`EntityDraftService` (`Diva.Core.Models` / `Diva.Infrastructure.Promotion`) — `GetDraftAsync`/`SaveDraftAsync`/`ClearDraftAsync`, singleton-safe, no knowledge of any specific object type |
+| New endpoints (all 4 controllers) | `PUT {route}/{id}/draft` (save, never touches live row), `GET {route}/{id}/draft` (fetch pending draft for the edit UI), `DELETE {route}/{id}/draft` (discard), `POST {route}/{id}/publish` (applies the draft via the SAME update logic the existing PUT already uses, then records a ledger version via the matching Phase B `IPromotableSnapshotSerializer` with `Source="publish"`, then clears the draft) |
+| Reused, not duplicated | `AgentsController`'s field-copy logic extracted into `ApplyAgentUpdate` (shared by `Update` and `Publish`); `McpServersController`'s into `ApplyMcpServerUpdateAsync`; `SchedulerController`/`AgentGroupsController` call their existing `IScheduledTaskService.UpdateAsync`/`IAgentGroupService.UpdateAsync` directly from `Publish` — no new update logic invented anywhere |
+
+**Migrations**: `AddEntityDrafts` in both `src/Diva.Infrastructure` (SQLite) and `src/Diva.Infrastructure.SqlServer` (SQL Server), verified `has-pending-model-changes` clean on both providers. Full solution build 0 errors, full test suite passes except the same pre-existing (confirmed unrelated) `ContextWindowTests` failure. Deployed; new endpoints verified reachable (401, auth-gated, not 404/500).
+
+---
+
 ## [2026-07-30] Environment-based agent management — Phase B (generic versioning ledger)
 
 Second phase of the environment-based agent management effort: an append-only, content-hash-deduped

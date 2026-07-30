@@ -579,6 +579,45 @@ namespace Diva.Infrastructure.SqlServer.Migrations
                     b.ToTable("AgentTasks");
                 });
 
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.EntityDraftEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("DraftJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("EnvironmentId")
+                        .HasColumnType("int");
+
+                    b.Property<Guid>("LogicalId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("ObjectType")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<int>("TenantId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UpdatedBy")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "ObjectType", "LogicalId", "EnvironmentId")
+                        .IsUnique();
+
+                    b.ToTable("EntityDrafts");
+                });
+
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.EnvironmentDeploymentEntity", b =>
                 {
                     b.Property<int>("Id")
