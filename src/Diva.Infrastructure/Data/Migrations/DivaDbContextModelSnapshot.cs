@@ -1426,6 +1426,9 @@ namespace Diva.Infrastructure.Data.Migrations
                     b.Property<string>("CreatedByUserId")
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("EnvironmentId")
+                        .HasColumnType("INTEGER");
+
                     b.Property<DateTime?>("ExpiresAt")
                         .HasColumnType("TEXT");
 
@@ -1455,6 +1458,8 @@ namespace Diva.Infrastructure.Data.Migrations
                         .HasColumnType("INTEGER");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("EnvironmentId");
 
                     b.HasIndex("KeyHash");
 
@@ -2676,6 +2681,9 @@ namespace Diva.Infrastructure.Data.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("EnvironmentId")
+                        .HasColumnType("INTEGER");
+
                     b.Property<DateTime?>("ExpiresAt")
                         .HasColumnType("TEXT");
 
@@ -2708,6 +2716,8 @@ namespace Diva.Infrastructure.Data.Migrations
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("EnvironmentId");
 
                     b.HasIndex("TenantId", "IsActive");
 
@@ -2918,6 +2928,14 @@ namespace Diva.Infrastructure.Data.Migrations
                     b.Navigation("UserGroup");
                 });
 
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.PlatformApiKeyEntity", b =>
+                {
+                    b.HasOne("Diva.Infrastructure.Data.Entities.TenantEnvironmentEntity", null)
+                        .WithMany()
+                        .HasForeignKey("EnvironmentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.PromotableObjectEntity", b =>
                 {
                     b.HasOne("Diva.Infrastructure.Data.Entities.TenantEnvironmentEntity", null)
@@ -3039,6 +3057,14 @@ namespace Diva.Infrastructure.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Group");
+                });
+
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.WidgetConfigEntity", b =>
+                {
+                    b.HasOne("Diva.Infrastructure.Data.Entities.TenantEnvironmentEntity", null)
+                        .WithMany()
+                        .HasForeignKey("EnvironmentId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.AgentGroupEntity", b =>

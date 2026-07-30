@@ -125,7 +125,7 @@ public sealed class PlatformApiKeyService : IPlatformApiKeyService
             catch { /* ignore malformed JSON */ }
         }
 
-        return new ValidatedApiKey(entity.Id, entity.TenantId, entity.Name, entity.KeyPrefix, entity.Scope, allowedAgents, allowedGroups);
+        return new ValidatedApiKey(entity.Id, entity.TenantId, entity.Name, entity.KeyPrefix, entity.Scope, allowedAgents, allowedGroups, entity.EnvironmentId);
     }
 
     public async Task<List<PlatformApiKeyInfo>> ListAsync(int tenantId, CancellationToken ct)

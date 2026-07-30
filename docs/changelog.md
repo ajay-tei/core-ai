@@ -4,6 +4,27 @@
 
 ---
 
+## [2026-07-30] Environment-based agent management — Phase E (runtime environment routing, partial)
+
+Fifth phase: makes `TenantContext.EnvironmentId` a real, correctly-resolved per-request value, and
+threads it through the highest-value read paths. **Scoped down from the full plan** given how many
+call sites this phase touches platform-wide — this pass covers resolution + the core agent
+invocation/MCP-credential paths; a few lower-priority call sites are explicitly deferred (see below).
+
+| Area | Change |
+|------|--------|
+| `TenantContext` | New `EnvironmentId` property (mirrors the existing `CurrentSiteId` pattern) + `WithEnvironment(int)` copy method; `WithSession`/`WithPreferredUserGroup` updated to preserve it |
+| Schema | Nullable `EnvironmentId` (FK, Restrict) added to `PlatformApiKeyEntity` and `WidgetConfigEntity` |
+| Resolution | `TenantContextMiddleware`: API-key path uses the key's own tagged environment, falling back to the tenant's `IsDefault` environment if untagged; JWT/SSO path honors an admin-only `X-Environment` header, otherwise falls back to `IsDefault`. Resolved via a direct EF query (not `IEnvironmentService`, to avoid a circular `Diva.Infrastructure` → `Diva.TenantAdmin` project reference) |
+| Agent registry | `IReadableAgentRegistry.GetAgentsForTenantAsync`/`GetByIdAsync`/`FindBestMatchAsync` gain an **optional** `environmentId = 0` parameter (0 = wildcard/no filter — fully backward compatible with every existing caller); `DynamicAgentRegistry` applies the filter when non-zero, matching rows with a null `EnvironmentId` too (not-yet-backfilled safety net) |
+| Wired call sites | `AgentContextStage`, `CapabilityMatchStage` (supervisor pipeline), `DelegationAgentResolver.ExecuteAgentAsync` (peer-agent delegation execution), `McpCredentialSelector.ResolveSharedBindingsAsync` (MCP server/credential resolution — now filters `TenantMcpServers` by the caller's environment) |
+
+**Deliberately deferred in this pass** (documented gap, not an oversight): `AgentsController`'s own direct `_registry.GetByIdAsync` call in the invoke/stream path (left unscoped since its `agent` is resolved via a separate, not-yet-environment-aware `ResolveAgentAsync` helper — threading environment filtering into only one of the two lookups would create an inconsistency); Scheduler task executor's agent lookup; Widget init's `EnvironmentId` propagation into the session; `SessionTrace` recording which environment served a request; `AgentGroupService`'s restriction-map (`AgentIdsJson`) environment scoping. These are lower-risk, self-contained follow-ups — same additive pattern, smaller blast radius each.
+
+**Migrations**: `AddApiKeyWidgetEnvironment` in both providers, `has-pending-model-changes` clean on both. Full build 0 errors, full test suite passes except the same pre-existing `ContextWindowTests` failure. Deployed; migration confirmed applied, health check 200.
+
+---
+
 ## [2026-07-30] Environment-based agent management — Phase D (dependency-aware promotion engine)
 
 Fourth phase: promotes a promotable object (and everything it needs to function) from one

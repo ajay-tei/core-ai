@@ -26,4 +26,8 @@ public class WidgetConfigEntity : ITenantEntity
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? ExpiresAt { get; set; }
+
+    /// <summary>FK to TenantEnvironmentEntity — which environment this widget serves (Phase E).
+    /// Null = untagged (resolves as if using the tenant's IsDefault environment).</summary>
+    public int? EnvironmentId { get; set; }
 }

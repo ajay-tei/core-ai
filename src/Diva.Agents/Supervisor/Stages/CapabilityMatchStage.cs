@@ -30,7 +30,7 @@ public sealed class CapabilityMatchStage : ISupervisorPipelineStage
         // Reuse agents pre-fetched by AgentContextStage; fall back to direct fetch when absent.
         var agents = state.AvailableAgents.Count > 0
             ? state.AvailableAgents
-            : await _registry.GetAgentsForTenantAsync(state.TenantContext.TenantId, ct);
+            : await _registry.GetAgentsForTenantAsync(state.TenantContext.TenantId, ct, state.TenantContext.EnvironmentId);
 
         var plan = new List<(SubTask, Diva.Agents.Workers.IWorkerAgent)>();
 

@@ -393,8 +393,11 @@ public class DivaDbContext : DbContext
         modelBuilder.Entity<PlatformApiKeyEntity>()
             .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
         modelBuilder.Entity<PlatformApiKeyEntity>()
-            .HasIndex(e => e.KeyHash);
-
+            .HasIndex(e => e.KeyHash);        modelBuilder.Entity<PlatformApiKeyEntity>()
+            .HasOne<TenantEnvironmentEntity>()
+            .WithMany()
+            .HasForeignKey(e => e.EnvironmentId)
+            .OnDelete(DeleteBehavior.Restrict);
         // ── Shared MCP Tool Servers ───────────────────────────
         modelBuilder.Entity<TenantMcpServerEntity>()
             .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
@@ -407,8 +410,11 @@ public class DivaDbContext : DbContext
         modelBuilder.Entity<WidgetConfigEntity>()
             .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
         modelBuilder.Entity<WidgetConfigEntity>()
-            .HasIndex(e => new { e.TenantId, e.IsActive });
-
+            .HasIndex(e => new { e.TenantId, e.IsActive });        modelBuilder.Entity<WidgetConfigEntity>()
+            .HasOne<TenantEnvironmentEntity>()
+            .WithMany()
+            .HasForeignKey(e => e.EnvironmentId)
+            .OnDelete(DeleteBehavior.Restrict);
         // ── Agent Access Groups (Phase 28) ────────────────────
         modelBuilder.Entity<AgentGroupEntity>()
             .HasKey(e => e.Id);

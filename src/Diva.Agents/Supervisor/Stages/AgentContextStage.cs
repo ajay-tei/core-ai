@@ -26,7 +26,7 @@ public sealed class AgentContextStage : ISupervisorPipelineStage
     public async Task<SupervisorState> ExecuteAsync(SupervisorState state, CancellationToken ct)
     {
         var registry = state.ScopedRegistry ?? _globalRegistry;
-        state.AvailableAgents = await registry.GetAgentsForTenantAsync(state.TenantContext.TenantId, ct);
+        state.AvailableAgents = await registry.GetAgentsForTenantAsync(state.TenantContext.TenantId, ct, state.TenantContext.EnvironmentId);
 
         _logger.LogInformation("AgentContextStage: loaded {Count} agent(s) for tenant {TenantId} (scoped={Scoped})",
             state.AvailableAgents.Count, state.TenantContext.TenantId, state.ScopedRegistry is not null);

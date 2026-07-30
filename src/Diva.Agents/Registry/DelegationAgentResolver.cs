@@ -36,7 +36,7 @@ public sealed class DelegationAgentResolver(IServiceProvider sp) : IAgentDelegat
     public async Task<AgentResponse> ExecuteAgentAsync(
         string agentId, AgentRequest request, TenantContext tenant, CancellationToken ct)
     {
-        var agent = await Registry.GetByIdAsync(agentId, tenant.TenantId, ct);
+        var agent = await Registry.GetByIdAsync(agentId, tenant.TenantId, ct, tenant.EnvironmentId);
         if (agent is null)
             return new AgentResponse
             {

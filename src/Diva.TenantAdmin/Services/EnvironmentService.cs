@@ -12,6 +12,12 @@ public interface IEnvironmentService
 {
     Task<List<TenantEnvironmentEntity>> ListAsync(int tenantId, CancellationToken ct);
     Task<TenantEnvironmentEntity?> GetAsync(int tenantId, int id, CancellationToken ct);
+
+    /// <summary>Returns the tenant's IsDefault environment, or null if the tenant has none configured
+    /// (e.g. a brand-new tenant before Program.cs's backfill has run). Used by TenantContextMiddleware
+    /// (Phase E) to resolve EnvironmentId for JWT/SSO callers with no explicit X-Environment header.</summary>
+    Task<TenantEnvironmentEntity?> GetDefaultAsync(int tenantId, CancellationToken ct);
+
     Task<(TenantEnvironmentEntity? Entity, string? Error)> CreateAsync(int tenantId, EnvironmentDto dto, CancellationToken ct);
     Task<(TenantEnvironmentEntity? Entity, string? Error)> UpdateAsync(int tenantId, int id, EnvironmentDto dto, CancellationToken ct);
     Task<(bool Success, string? Error)> DeleteAsync(int tenantId, int id, CancellationToken ct);
@@ -49,6 +55,14 @@ public sealed class EnvironmentService : IEnvironmentService
         return await db.TenantEnvironments
             .AsNoTracking()
             .FirstOrDefaultAsync(e => e.Id == id && e.TenantId == tenantId, ct);
+    }
+
+    public async Task<TenantEnvironmentEntity?> GetDefaultAsync(int tenantId, CancellationToken ct)
+    {
+        using var db = _db.CreateDbContext();
+        return await db.TenantEnvironments
+            .AsNoTracking()
+            .FirstOrDefaultAsync(e => e.TenantId == tenantId && e.IsDefault, ct);
     }
 
     public async Task<(TenantEnvironmentEntity? Entity, string? Error)> CreateAsync(int tenantId, EnvironmentDto dto, CancellationToken ct)

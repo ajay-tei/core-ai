@@ -23,7 +23,15 @@ public sealed class TenantContext
     // ── Site scoping ──────────────────────────────────────────
     public int[] SiteIds { get; init; } = [];              // all sites this user can access
     public int CurrentSiteId { get; init; }                // site for this request (from header or default)
-
+    // ── Environment scoping (Track 2 Phase E) ─────────────────────
+    /// <summary>
+    /// Which TenantEnvironmentEntity this request is scoped to. 0 = wildcard/no filter — used by
+    /// system/master-admin/background contexts (mirrors the existing _currentTenantId == 0 bypass
+    /// convention). Resolved by TenantContextMiddleware: API-key path uses the key's own tagged
+    /// environment; JWT/SSO path uses an admin-only X-Environment header, falling back to the
+    /// tenant's IsDefault environment.
+    /// </summary>
+    public int EnvironmentId { get; init; }
     // ── Token propagation ─────────────────────────────────────
     public string? AccessToken { get; init; }
     public DateTimeOffset TokenExpiry { get; init; }
@@ -125,6 +133,7 @@ public sealed class TenantContext
         GroupAccess = GroupAccess,
         SiteIds = SiteIds,
         CurrentSiteId = CurrentSiteId,
+        EnvironmentId = EnvironmentId,
         AccessToken = AccessToken,
         TokenExpiry = TokenExpiry,
         TeamApiKey = TeamApiKey,
@@ -152,12 +161,43 @@ public sealed class TenantContext
         GroupAccess = GroupAccess,
         SiteIds = SiteIds,
         CurrentSiteId = CurrentSiteId,
+        EnvironmentId = EnvironmentId,
         AccessToken = AccessToken,
         TokenExpiry = TokenExpiry,
         TeamApiKey = TeamApiKey,
         InboundApiKey = InboundApiKey,
         PlatformApiKeyId = PlatformApiKeyId,
         PreferredUserGroupId = preferredUserGroupId,
+        CorrelationId = CorrelationId,
+        SessionId = SessionId,
+        CustomHeaders = CustomHeaders,
+        SsoForwardHeaders = SsoForwardHeaders,
+    };
+
+    /// <summary>Returns a copy of this context with <paramref name="environmentId"/> set. Used by
+    /// TenantContextMiddleware (Phase E) to apply the resolved environment after the JWT claims
+    /// extractor has already built the rest of the context.</summary>
+    public TenantContext WithEnvironment(int environmentId) => new()
+    {
+        TenantId = TenantId,
+        TenantName = TenantName,
+        UserId = UserId,
+        UserEmail = UserEmail,
+        UserName = UserName,
+        Role = Role,
+        UserRoles = UserRoles,
+        UserGroups = UserGroups,
+        AgentAccess = AgentAccess,
+        GroupAccess = GroupAccess,
+        SiteIds = SiteIds,
+        CurrentSiteId = CurrentSiteId,
+        EnvironmentId = environmentId,
+        AccessToken = AccessToken,
+        TokenExpiry = TokenExpiry,
+        TeamApiKey = TeamApiKey,
+        InboundApiKey = InboundApiKey,
+        PlatformApiKeyId = PlatformApiKeyId,
+        PreferredUserGroupId = PreferredUserGroupId,
         CorrelationId = CorrelationId,
         SessionId = SessionId,
         CustomHeaders = CustomHeaders,

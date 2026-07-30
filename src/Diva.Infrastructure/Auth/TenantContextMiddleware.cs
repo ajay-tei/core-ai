@@ -1,6 +1,8 @@
 using Diva.Core.Configuration;
 using Diva.Core.Models;
+using Diva.Infrastructure.Data;
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -49,7 +51,8 @@ public sealed class TenantContextMiddleware
         IOAuthTokenValidator validator,
         ITenantClaimsExtractor extractor,
         IUserLoginTracker loginTracker,
-        IPlatformApiKeyService apiKeyService)
+        IPlatformApiKeyService apiKeyService,
+        IDatabaseProviderFactory dbFactory)
     {
         // Always bypass for health checks, swagger, and auth callbacks
         if (BypassPaths.Contains(context.Request.Path.Value ?? string.Empty) ||
@@ -101,6 +104,12 @@ public sealed class TenantContextMiddleware
                          && !h.Key.Equals("X-Tenant-ID", StringComparison.OrdinalIgnoreCase))
                 .ToDictionary(h => h.Key["X-Tenant-".Length..], h => h.Value.ToString());
 
+            // Environment resolution (Phase E): the key's own tagged environment wins; an untagged
+            // key falls back to the tenant's IsDefault environment so legacy/untagged keys keep
+            // resolving correctly.
+            var apiKeyEnvironmentId = validatedKey.EnvironmentId
+                ?? await ResolveDefaultEnvironmentIdAsync(dbFactory, validatedKey.TenantId, context.RequestAborted);
+
             var apiKeyTenant = new TenantContext
             {
                 TenantId = validatedKey.TenantId,
@@ -112,6 +121,7 @@ public sealed class TenantContextMiddleware
                 GroupAccess = validatedKey.AllowedGroupIds ?? [],
                 SiteIds = [],
                 CurrentSiteId = int.TryParse(context.Request.Headers["X-Site-ID"].FirstOrDefault(), out var sid) ? sid : 0,
+                EnvironmentId = apiKeyEnvironmentId,
                 InboundApiKey = apiKeyHeader,
                 PlatformApiKeyId = validatedKey.Id,
                 CustomHeaders = apiKeyCustomHeaders,
@@ -170,6 +180,24 @@ public sealed class TenantContextMiddleware
         var requestSiteId = context.Request.Headers["X-Site-ID"].FirstOrDefault();
         var tenantContext = extractor.Extract(principal, token, requestSiteId);
 
+        // Environment resolution (Phase E): an explicit X-Environment header is honored ONLY for
+        // admins (staging/preview access in the admin portal) — rejected for non-admin roles to
+        // avoid a regular user spoofing their way into a different environment's data. Falls back
+        // to the tenant's IsDefault environment for everyone else (the sole fallback for all
+        // untagged/legacy traffic).
+        var requestedEnvironmentHeader = context.Request.Headers["X-Environment"].FirstOrDefault();
+        int resolvedEnvironmentId;
+        if (tenantContext.IsAdmin && int.TryParse(requestedEnvironmentHeader, out var explicitEnvId) && explicitEnvId > 0)
+        {
+            resolvedEnvironmentId = explicitEnvId;
+        }
+        else
+        {
+            resolvedEnvironmentId = await ResolveDefaultEnvironmentIdAsync(dbFactory, tenantContext.TenantId, context.RequestAborted);
+        }
+
+        tenantContext = tenantContext.WithEnvironment(resolvedEnvironmentId);
+
         // Check if the user's account is active (admin may have disabled it)
         if (!await loginTracker.IsActiveAsync(tenantContext.TenantId, tenantContext.UserId, context.RequestAborted))
         {
@@ -198,6 +226,22 @@ public sealed class TenantContextMiddleware
         catch (Exception ex) { _logger.LogError(ex, "User profile upsert failed for tenant={TenantId} user={UserId}", tenantContext.TenantId, tenantContext.UserId); }
 
         await _next(context);
+    }
+
+    /// <summary>
+    /// Resolves the tenant's IsDefault TenantEnvironmentEntity.Id, or 0 (wildcard/no-filter) if the
+    /// tenant has none configured yet — e.g. TenantId=0 master-admin/system contexts, or a brand-new
+    /// tenant before Program.cs's environment backfill has run. Deliberately a direct EF query (not
+    /// IEnvironmentService) since Diva.Infrastructure cannot reference Diva.TenantAdmin without
+    /// creating a circular project reference.
+    /// </summary>
+    private static async Task<int> ResolveDefaultEnvironmentIdAsync(IDatabaseProviderFactory dbFactory, int tenantId, CancellationToken ct)
+    {
+        using var db = dbFactory.CreateDbContext();
+        var defaultEnv = await db.TenantEnvironments
+            .AsNoTracking()
+            .FirstOrDefaultAsync(e => e.TenantId == tenantId && e.IsDefault, ct);
+        return defaultEnv?.Id ?? 0;
     }
 }
 

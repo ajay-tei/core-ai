@@ -54,13 +54,14 @@ public sealed class DynamicAgentRegistry : IAgentRegistry
     public void Register(IWorkerAgent agent)
         => _static[agent.GetCapability().AgentId] = agent;
 
-    public async Task<List<IWorkerAgent>> GetAgentsForTenantAsync(int tenantId, CancellationToken ct)
+    public async Task<List<IWorkerAgent>> GetAgentsForTenantAsync(int tenantId, CancellationToken ct, int environmentId = 0)
     {
         var agents = new List<IWorkerAgent>(_static.Values);
 
         using var db = _db.CreateDbContext();
         var definitions = await db.AgentDefinitions
-            .Where(d => d.TenantId == tenantId && d.IsEnabled && d.Status == "Published")
+            .Where(d => d.TenantId == tenantId && d.IsEnabled && d.Status == "Published"
+                && (environmentId == 0 || d.EnvironmentId == null || d.EnvironmentId == environmentId))
             .ToListAsync(ct);
 
         foreach (var def in definitions)
@@ -99,7 +100,7 @@ public sealed class DynamicAgentRegistry : IAgentRegistry
         return agents;
     }
 
-    public async Task<IWorkerAgent?> GetByIdAsync(string agentId, int tenantId, CancellationToken ct)
+    public async Task<IWorkerAgent?> GetByIdAsync(string agentId, int tenantId, CancellationToken ct, int environmentId = 0)
     {
         // Check static agents first
         if (_static.TryGetValue(agentId, out var staticAgent))
@@ -107,7 +108,8 @@ public sealed class DynamicAgentRegistry : IAgentRegistry
 
         using var db = _db.CreateDbContext();
         var def = await db.AgentDefinitions.FirstOrDefaultAsync(
-            d => d.Id == agentId && d.TenantId == tenantId, ct);
+            d => d.Id == agentId && d.TenantId == tenantId
+                && (environmentId == 0 || d.EnvironmentId == null || d.EnvironmentId == environmentId), ct);
 
         if (def is not null)
         {
@@ -133,9 +135,10 @@ public sealed class DynamicAgentRegistry : IAgentRegistry
     public async Task<IWorkerAgent?> FindBestMatchAsync(
         string[] requiredCapabilities,
         int tenantId,
-        CancellationToken ct)
+        CancellationToken ct,
+        int environmentId = 0)
     {
-        var agents = await GetAgentsForTenantAsync(tenantId, ct);
+        var agents = await GetAgentsForTenantAsync(tenantId, ct, environmentId);
 
         if (agents.Count == 0)
         {

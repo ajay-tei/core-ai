@@ -21,7 +21,8 @@ public sealed record ValidatedApiKey(
     string KeyPrefix,
     string Scope,
     string[]? AllowedAgentIds,
-    string[]? AllowedGroupIds = null);
+    string[]? AllowedGroupIds = null,
+    int? EnvironmentId = null);
 
 /// <summary>
 /// Request to create a new platform API key.

@@ -100,8 +100,10 @@ public sealed class McpCredentialSelector : IMcpCredentialSelector
         if (names.Count == 0) return new SharedBindingResult(result, null);
 
         using var db = _db.CreateDbContext(TenantContext.System(tenantId));
+        var environmentId = tenant.EnvironmentId;
         var servers = await db.TenantMcpServers
-            .Where(s => s.TenantId == tenantId && names.Contains(s.Name))
+            .Where(s => s.TenantId == tenantId && names.Contains(s.Name)
+                && (environmentId == 0 || s.EnvironmentId == null || s.EnvironmentId == environmentId))
             .AsNoTracking()
             .ToListAsync(ct);
 
