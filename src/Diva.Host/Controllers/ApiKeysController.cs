@@ -26,17 +26,20 @@ public class ApiKeysController : ControllerBase
         return ctx is { TenantId: > 0 } ? ctx.TenantId : requestedTenantId;
     }
 
-    // GET /api/admin/api-keys?tenantId=1
+    // GET /api/admin/api-keys?tenantId=1&environmentId=
     // Returns the full unbounded array — used by McpServerManager.tsx's credential-mapping dropdown.
     [HttpGet]
-    public async Task<IActionResult> List([FromQuery] int tenantId = 1, CancellationToken ct = default)
+    public async Task<IActionResult> List([FromQuery] int tenantId = 1, [FromQuery] int? environmentId = null, CancellationToken ct = default)
     {
         var tid = EffectiveTenantId(tenantId);
         var keys = await _keys.ListAsync(tid, ct);
-        return Ok(keys);
+        IEnumerable<PlatformApiKeyInfo> filtered = keys;
+        if (environmentId is > 0)
+            filtered = filtered.Where(k => k.EnvironmentId == environmentId || k.EnvironmentId == null);
+        return Ok(filtered);
     }
 
-    // GET /api/admin/api-keys/paged?tenantId=1&search=&page=1&pageSize=25
+    // GET /api/admin/api-keys/paged?tenantId=1&search=&page=1&pageSize=25&environmentId=
     // Dedicated paginated endpoint for the admin Platform API Keys list page.
     [HttpGet("paged")]
     public async Task<IActionResult> ListPaged(
@@ -44,6 +47,7 @@ public class ApiKeysController : ControllerBase
         [FromQuery] string? search = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 25,
+        [FromQuery] int? environmentId = null,
         CancellationToken ct = default)
     {
         var tid = EffectiveTenantId(tenantId);
@@ -54,6 +58,8 @@ public class ApiKeysController : ControllerBase
             var q = search.Trim();
             filtered = filtered.Where(k => k.Name.Contains(q, StringComparison.OrdinalIgnoreCase));
         }
+        if (environmentId is > 0)
+            filtered = filtered.Where(k => k.EnvironmentId == environmentId || k.EnvironmentId == null);
         return Ok(filtered.ToPagedResult(page, pageSize));
     }
 

@@ -44,19 +44,19 @@ public sealed class WidgetConfigService : IWidgetConfigService
     {
         var entity = new WidgetConfigEntity
         {
-            TenantId          = tenantId,
-            AgentId           = request.AgentId,
-            Name              = request.Name,
+            TenantId = tenantId,
+            AgentId = request.AgentId,
+            Name = request.Name,
             AllowedOriginsJson = SerializeOrigins(request.AllowedOrigins),
-            SsoConfigId       = request.SsoConfigId,
-            AllowAnonymous    = request.AllowAnonymous,
-            WelcomeMessage    = request.WelcomeMessage,
-            PlaceholderText   = request.PlaceholderText,
-            ThemeJson         = request.Theme is null ? null : JsonSerializer.Serialize(request.Theme, _jsonOpts),
+            SsoConfigId = request.SsoConfigId,
+            AllowAnonymous = request.AllowAnonymous,
+            WelcomeMessage = request.WelcomeMessage,
+            PlaceholderText = request.PlaceholderText,
+            ThemeJson = request.Theme is null ? null : JsonSerializer.Serialize(request.Theme, _jsonOpts),
             RespectSystemTheme = request.RespectSystemTheme,
-            ShowBranding      = request.ShowBranding,
-            ExpiresAt         = request.ExpiresAt,
-            EnvironmentId     = request.EnvironmentId,
+            ShowBranding = request.ShowBranding,
+            ExpiresAt = request.ExpiresAt,
+            EnvironmentId = request.EnvironmentId,
         };
 
         using var db = _db.CreateDbContext(TenantContext.System(tenantId));
@@ -71,18 +71,18 @@ public sealed class WidgetConfigService : IWidgetConfigService
         var entity = await db.WidgetConfigs.FirstOrDefaultAsync(w => w.Id == id, ct)
             ?? throw new KeyNotFoundException($"Widget {id} not found.");
 
-        entity.AgentId            = request.AgentId;
-        entity.Name               = request.Name;
+        entity.AgentId = request.AgentId;
+        entity.Name = request.Name;
         entity.AllowedOriginsJson = SerializeOrigins(request.AllowedOrigins);
-        entity.SsoConfigId        = request.SsoConfigId;
-        entity.AllowAnonymous     = request.AllowAnonymous;
-        entity.WelcomeMessage     = request.WelcomeMessage;
-        entity.PlaceholderText    = request.PlaceholderText;
-        entity.ThemeJson          = request.Theme is null ? null : JsonSerializer.Serialize(request.Theme, _jsonOpts);
+        entity.SsoConfigId = request.SsoConfigId;
+        entity.AllowAnonymous = request.AllowAnonymous;
+        entity.WelcomeMessage = request.WelcomeMessage;
+        entity.PlaceholderText = request.PlaceholderText;
+        entity.ThemeJson = request.Theme is null ? null : JsonSerializer.Serialize(request.Theme, _jsonOpts);
         entity.RespectSystemTheme = request.RespectSystemTheme;
-        entity.ShowBranding       = request.ShowBranding;
-        entity.ExpiresAt          = request.ExpiresAt;
-        entity.EnvironmentId      = request.EnvironmentId;
+        entity.ShowBranding = request.ShowBranding;
+        entity.ExpiresAt = request.ExpiresAt;
+        entity.EnvironmentId = request.EnvironmentId;
 
         await db.SaveChangesAsync(ct);
         return ToDto(entity);

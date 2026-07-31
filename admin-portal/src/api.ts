@@ -1159,6 +1159,7 @@ export interface PlatformApiKeyListParams
   search?: string;
   page?: number;
   pageSize?: number;
+  environmentId?: number;
 }
 
 export interface ApiKeyCreatedResult
@@ -2176,6 +2177,7 @@ export const api = {
     if (params.search) qs.set("search", params.search);
     if (params.page) qs.set("page", String(params.page));
     if (params.pageSize) qs.set("pageSize", String(params.pageSize));
+    if (params.environmentId) qs.set("environmentId", String(params.environmentId));
     return request<PagedResult<PlatformApiKey>>(`/api/admin/api-keys/paged?${ qs }`);
   },
   createApiKey: (dto: CreateApiKeyDto) =>

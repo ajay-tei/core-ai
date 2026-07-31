@@ -4,6 +4,34 @@
 
 ---
 
+## [2026-07-31] Bugfix: Platform API Keys list didn't filter by environment switcher
+
+`ApiKeyManager.tsx` never actually reacted to the environment switcher — unlike every other
+environment-filtered list page (Agents, MCP Servers, Scheduled Tasks, Agent Groups, MCP Credentials),
+which all got the filter wired in the same pass, API Keys was missed entirely: no `environmentId`
+field on `PlatformApiKeyListParams`, no query-string wiring in `api.ts`'s `listApiKeysPaged`, no
+`environmentId` query parameter on `ApiKeysController`'s `List`/`ListPaged`, and no `useEffect`
+reacting to `currentEnvironmentId` in the component. All 4 gaps closed:
+
+| Area | Change |
+|------|--------|
+| `admin-portal/src/api.ts` | `PlatformApiKeyListParams` gained `environmentId?: number`; `listApiKeysPaged` appends it to the query string |
+| `ApiKeysController.cs` | `List`/`ListPaged` gained `[FromQuery] int? environmentId` — filters the already-fetched `PlatformApiKeyInfo` list to `EnvironmentId == environmentId \|\| EnvironmentId == null` (same untagged-fallback pattern as every other environment-filtered list), matching the `AgentGroupsController`/`SchedulerController` in-controller-filter convention (the service layer has no filter param) |
+| `ApiKeyManager.tsx` | Added the same `useEffect(() => { if (currentEnvironmentId) update({ environmentId: currentEnvironmentId }); }, [currentEnvironmentId])` pattern already present on every other list page |
+
+**MCP Credentials note**: audited `CredentialManager.tsx`/`CredentialsController.cs`/`api.ts` — all 4
+layers were already correctly wired from the original pass. If the Credentials list still appears
+not to change when switching environments, the likely cause is that none of the existing credentials
+have actually been tagged to a specific environment yet — untagged (`EnvironmentId == null`) rows are
+visible from every environment by design (the fallback for not-yet-migrated data), so switching
+environments legitimately returns the same rows until at least one credential is explicitly tagged.
+
+**Verification**: build 0 errors, full test suite same pre-existing-only `ContextWindowTests`
+failure, `tsc -b` clean. Deployed; `/api/admin/api-keys/paged?environmentId=1` reachable (401,
+auth-gated as expected).
+
+---
+
 ## [2026-07-31] Environment-based agent management — multi-client fan-out enhancements (post-Phase F)
 
 Closes the 4 gaps flagged when explaining how to model "Dev → QA → per-client Play/Live" on top of

@@ -17,7 +17,7 @@ import { toast } from "sonner";
 const SCOPES = ["invoke", "admin", "readonly"] as const;
 
 export function ApiKeyManager() {
-  const { environments } = useEnvironment();
+  const { environments, currentEnvironmentId } = useEnvironment();
   const { result, loading, params, update, updateDebounced, setPage, reload } =
     usePagedList<PlatformApiKey, PlatformApiKeyListParams>(api.listApiKeysPaged, { page: 1, pageSize: 25 });
   const [showCreate, setShowCreate] = useState(false);
@@ -26,6 +26,11 @@ export function ApiKeyManager() {
   const [groups, setGroups] = useState<AgentGroup[]>([]);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<UpdateApiKeyDto>({});
+
+  useEffect(() => {
+    if (currentEnvironmentId) update({ environmentId: currentEnvironmentId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentEnvironmentId]);
 
   useEffect(() => {
     api.listAgentGroups().then(setGroups).catch(() => setGroups([]));

@@ -29,11 +29,11 @@ public sealed class TenantGroupService : ITenantGroupService
         IMemoryCache cache,
         ILogger<TenantGroupService> logger)
     {
-        _db              = db;
+        _db = db;
         _membershipCache = membershipCache;
-        _llmResolver     = llmResolver;
-        _cache           = cache;
-        _logger          = logger;
+        _llmResolver = llmResolver;
+        _cache = cache;
+        _logger = logger;
     }
 
     /// <summary>
@@ -67,10 +67,10 @@ public sealed class TenantGroupService : ITenantGroupService
         using var db = _db.CreateDbContext();
         var group = new TenantGroupEntity
         {
-            Name        = dto.Name,
+            Name = dto.Name,
             Description = dto.Description,
-            IsActive    = true,
-            CreatedAt   = DateTime.UtcNow,
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow,
         };
         db.TenantGroups.Add(group);
         await db.SaveChangesAsync(ct);
@@ -84,9 +84,9 @@ public sealed class TenantGroupService : ITenantGroupService
         var group = await db.TenantGroups.FindAsync([groupId], ct)
             ?? throw new KeyNotFoundException($"Group {groupId} not found.");
 
-        group.Name        = dto.Name;
+        group.Name = dto.Name;
         group.Description = dto.Description;
-        group.IsActive    = dto.IsActive;
+        group.IsActive = dto.IsActive;
 
         await db.SaveChangesAsync(ct);
         await _membershipCache.InvalidateForGroupAsync(groupId, ct);
@@ -127,7 +127,7 @@ public sealed class TenantGroupService : ITenantGroupService
 
         var member = new TenantGroupMemberEntity
         {
-            GroupId  = groupId,
+            GroupId = groupId,
             TenantId = tenantId,
             JoinedAt = DateTime.UtcNow,
         };
@@ -182,38 +182,38 @@ public sealed class TenantGroupService : ITenantGroupService
         using var db = _db.CreateDbContext();
         var entity = new GroupAgentTemplateEntity
         {
-            Id                  = Guid.NewGuid().ToString(),
-            GroupId             = groupId,
-            Name                = dto.Name,
-            DisplayName         = dto.DisplayName,
-            Description         = dto.Description,
-            AgentType           = dto.AgentType,
-            SystemPrompt        = dto.SystemPrompt,
-            ModelId             = dto.ModelId,
-            Temperature         = dto.Temperature,
-            MaxIterations       = dto.MaxIterations,
-            Capabilities        = dto.Capabilities,
-            ToolBindings        = dto.ToolBindings,
-            VerificationMode    = dto.VerificationMode,
-            ContextWindowJson   = dto.ContextWindowJson,
+            Id = Guid.NewGuid().ToString(),
+            GroupId = groupId,
+            Name = dto.Name,
+            DisplayName = dto.DisplayName,
+            Description = dto.Description,
+            AgentType = dto.AgentType,
+            SystemPrompt = dto.SystemPrompt,
+            ModelId = dto.ModelId,
+            Temperature = dto.Temperature,
+            MaxIterations = dto.MaxIterations,
+            Capabilities = dto.Capabilities,
+            ToolBindings = dto.ToolBindings,
+            VerificationMode = dto.VerificationMode,
+            ContextWindowJson = dto.ContextWindowJson,
             CustomVariablesJson = dto.CustomVariablesJson,
-            MaxContinuations     = dto.MaxContinuations,
-            MaxToolResultChars   = dto.MaxToolResultChars,
-            MaxOutputTokens      = dto.MaxOutputTokens,
+            MaxContinuations = dto.MaxContinuations,
+            MaxToolResultChars = dto.MaxToolResultChars,
+            MaxOutputTokens = dto.MaxOutputTokens,
             EnableHistoryCaching = dto.EnableHistoryCaching,
-            PipelineStagesJson   = dto.PipelineStagesJson,
-            ToolFilterJson      = dto.ToolFilterJson,
+            PipelineStagesJson = dto.PipelineStagesJson,
+            ToolFilterJson = dto.ToolFilterJson,
             StageInstructionsJson = dto.StageInstructionsJson,
-            IsEnabled           = dto.IsEnabled,
-            Status              = dto.Status,
-            ArchetypeId         = dto.ArchetypeId,
-            HooksJson           = dto.HooksJson,
-            A2AEndpoint         = dto.A2AEndpoint,
-            A2AAuthScheme       = dto.A2AAuthScheme,
-            A2ASecretRef        = dto.A2ASecretRef,
-            ExecutionMode       = dto.ExecutionMode,
-            ModelSwitchingJson  = dto.ModelSwitchingJson,
-            LlmConfigId         = dto.LlmConfigId,
+            IsEnabled = dto.IsEnabled,
+            Status = dto.Status,
+            ArchetypeId = dto.ArchetypeId,
+            HooksJson = dto.HooksJson,
+            A2AEndpoint = dto.A2AEndpoint,
+            A2AAuthScheme = dto.A2AAuthScheme,
+            A2ASecretRef = dto.A2ASecretRef,
+            ExecutionMode = dto.ExecutionMode,
+            ModelSwitchingJson = dto.ModelSwitchingJson,
+            LlmConfigId = dto.LlmConfigId,
         };
         db.GroupAgentTemplates.Add(entity);
         await db.SaveChangesAsync(ct);
@@ -228,35 +228,35 @@ public sealed class TenantGroupService : ITenantGroupService
             .FirstOrDefaultAsync(a => a.GroupId == groupId && a.Id == templateId, ct)
             ?? throw new KeyNotFoundException($"Agent template '{templateId}' not found in group {groupId}.");
 
-        entity.Name                 = dto.Name;
-        entity.DisplayName          = dto.DisplayName;
-        entity.Description          = dto.Description;
-        entity.SystemPrompt         = dto.SystemPrompt;
-        entity.ModelId              = dto.ModelId;
-        entity.Temperature          = dto.Temperature;
-        entity.MaxIterations        = dto.MaxIterations;
-        entity.Capabilities         = dto.Capabilities;
-        entity.ToolBindings         = dto.ToolBindings;
-        entity.VerificationMode     = dto.VerificationMode;
-        entity.ContextWindowJson    = dto.ContextWindowJson;
-        entity.CustomVariablesJson  = dto.CustomVariablesJson;
-        entity.MaxContinuations     = dto.MaxContinuations;
-        entity.MaxToolResultChars   = dto.MaxToolResultChars;
-        entity.MaxOutputTokens      = dto.MaxOutputTokens;
+        entity.Name = dto.Name;
+        entity.DisplayName = dto.DisplayName;
+        entity.Description = dto.Description;
+        entity.SystemPrompt = dto.SystemPrompt;
+        entity.ModelId = dto.ModelId;
+        entity.Temperature = dto.Temperature;
+        entity.MaxIterations = dto.MaxIterations;
+        entity.Capabilities = dto.Capabilities;
+        entity.ToolBindings = dto.ToolBindings;
+        entity.VerificationMode = dto.VerificationMode;
+        entity.ContextWindowJson = dto.ContextWindowJson;
+        entity.CustomVariablesJson = dto.CustomVariablesJson;
+        entity.MaxContinuations = dto.MaxContinuations;
+        entity.MaxToolResultChars = dto.MaxToolResultChars;
+        entity.MaxOutputTokens = dto.MaxOutputTokens;
         entity.EnableHistoryCaching = dto.EnableHistoryCaching;
-        entity.PipelineStagesJson   = dto.PipelineStagesJson;
-        entity.ToolFilterJson       = dto.ToolFilterJson;
+        entity.PipelineStagesJson = dto.PipelineStagesJson;
+        entity.ToolFilterJson = dto.ToolFilterJson;
         entity.StageInstructionsJson = dto.StageInstructionsJson;
-        entity.IsEnabled            = dto.IsEnabled;
-        entity.Status               = dto.Status;
-        entity.ArchetypeId          = dto.ArchetypeId;
-        entity.HooksJson            = dto.HooksJson;
-        entity.A2AEndpoint          = dto.A2AEndpoint;
-        entity.A2AAuthScheme        = dto.A2AAuthScheme;
-        entity.A2ASecretRef         = dto.A2ASecretRef;
-        entity.ExecutionMode        = dto.ExecutionMode;
-        entity.ModelSwitchingJson   = dto.ModelSwitchingJson;
-        entity.LlmConfigId          = dto.LlmConfigId;
+        entity.IsEnabled = dto.IsEnabled;
+        entity.Status = dto.Status;
+        entity.ArchetypeId = dto.ArchetypeId;
+        entity.HooksJson = dto.HooksJson;
+        entity.A2AEndpoint = dto.A2AEndpoint;
+        entity.A2AAuthScheme = dto.A2AAuthScheme;
+        entity.A2ASecretRef = dto.A2ASecretRef;
+        entity.ExecutionMode = dto.ExecutionMode;
+        entity.ModelSwitchingJson = dto.ModelSwitchingJson;
+        entity.LlmConfigId = dto.LlmConfigId;
 
         await db.SaveChangesAsync(ct);
         _cache.Remove(AgentsCacheKey(groupId));
@@ -300,22 +300,22 @@ public sealed class TenantGroupService : ITenantGroupService
         using var db = _db.CreateDbContext();
         var entity = new GroupBusinessRuleEntity
         {
-            GroupId         = groupId,
-            AgentType       = dto.AgentType,
-            RuleCategory    = dto.RuleCategory,
-            RuleKey         = dto.RuleKey,
+            GroupId = groupId,
+            AgentType = dto.AgentType,
+            RuleCategory = dto.RuleCategory,
+            RuleKey = dto.RuleKey,
             PromptInjection = dto.PromptInjection,
-            RuleValueJson   = dto.RuleValueJson,
-            Priority        = dto.Priority,
-            IsActive        = true,
-            IsTemplate      = dto.IsTemplate,
-            HookPoint       = dto.HookPoint,
-            HookRuleType    = dto.HookRuleType,
-            Pattern         = dto.Pattern,
-            Replacement     = dto.Replacement,
-            ToolName        = dto.ToolName,
-            OrderInPack     = dto.OrderInPack,
-            StopOnMatch     = dto.StopOnMatch,
+            RuleValueJson = dto.RuleValueJson,
+            Priority = dto.Priority,
+            IsActive = true,
+            IsTemplate = dto.IsTemplate,
+            HookPoint = dto.HookPoint,
+            HookRuleType = dto.HookRuleType,
+            Pattern = dto.Pattern,
+            Replacement = dto.Replacement,
+            ToolName = dto.ToolName,
+            OrderInPack = dto.OrderInPack,
+            StopOnMatch = dto.StopOnMatch,
             MaxEvaluationMs = dto.MaxEvaluationMs,
         };
         db.GroupBusinessRules.Add(entity);
@@ -331,20 +331,20 @@ public sealed class TenantGroupService : ITenantGroupService
             .FirstOrDefaultAsync(r => r.GroupId == groupId && r.Id == ruleId, ct)
             ?? throw new KeyNotFoundException($"Rule {ruleId} not found in group {groupId}.");
 
-        entity.RuleCategory    = dto.RuleCategory;
-        entity.RuleKey         = dto.RuleKey;
+        entity.RuleCategory = dto.RuleCategory;
+        entity.RuleKey = dto.RuleKey;
         entity.PromptInjection = dto.PromptInjection;
-        entity.RuleValueJson   = dto.RuleValueJson;
-        entity.IsActive        = dto.IsActive;
-        entity.Priority        = dto.Priority;
-        entity.IsTemplate      = dto.IsTemplate;
-        entity.HookPoint       = dto.HookPoint;
-        entity.HookRuleType    = dto.HookRuleType;
-        entity.Pattern         = dto.Pattern;
-        entity.Replacement     = dto.Replacement;
-        entity.ToolName        = dto.ToolName;
-        entity.OrderInPack     = dto.OrderInPack;
-        entity.StopOnMatch     = dto.StopOnMatch;
+        entity.RuleValueJson = dto.RuleValueJson;
+        entity.IsActive = dto.IsActive;
+        entity.Priority = dto.Priority;
+        entity.IsTemplate = dto.IsTemplate;
+        entity.HookPoint = dto.HookPoint;
+        entity.HookRuleType = dto.HookRuleType;
+        entity.Pattern = dto.Pattern;
+        entity.Replacement = dto.Replacement;
+        entity.ToolName = dto.ToolName;
+        entity.OrderInPack = dto.OrderInPack;
+        entity.StopOnMatch = dto.StopOnMatch;
         entity.MaxEvaluationMs = dto.MaxEvaluationMs;
 
         await db.SaveChangesAsync(ct);
@@ -380,12 +380,12 @@ public sealed class TenantGroupService : ITenantGroupService
         using var db = _db.CreateDbContext();
         var entity = new GroupPromptOverrideEntity
         {
-            GroupId    = groupId,
-            AgentType  = dto.AgentType,
-            Section    = dto.Section,
+            GroupId = groupId,
+            AgentType = dto.AgentType,
+            Section = dto.Section,
             CustomText = dto.CustomText,
-            MergeMode  = dto.MergeMode,
-            IsActive   = true,
+            MergeMode = dto.MergeMode,
+            IsActive = true,
             IsTemplate = dto.IsTemplate,
         };
         db.GroupPromptOverrides.Add(entity);
@@ -402,7 +402,7 @@ public sealed class TenantGroupService : ITenantGroupService
             ?? throw new KeyNotFoundException($"Override {overrideId} not found in group {groupId}.");
 
         entity.CustomText = dto.CustomText;
-        entity.MergeMode  = dto.MergeMode;
+        entity.MergeMode = dto.MergeMode;
         entity.IsTemplate = dto.IsTemplate;
         if (dto.IsActive.HasValue)
             entity.IsActive = dto.IsActive.Value;
@@ -447,20 +447,20 @@ public sealed class TenantGroupService : ITenantGroupService
         using var db = _db.CreateDbContext();
         var entity = new GroupScheduledTaskEntity
         {
-            Id             = Guid.NewGuid().ToString(),
-            GroupId        = groupId,
-            AgentType      = dto.AgentType,
-            Name           = dto.Name,
-            Description    = dto.Description,
-            ScheduleType   = dto.ScheduleType,
+            Id = Guid.NewGuid().ToString(),
+            GroupId = groupId,
+            AgentType = dto.AgentType,
+            Name = dto.Name,
+            Description = dto.Description,
+            ScheduleType = dto.ScheduleType,
             ScheduledAtUtc = dto.ScheduledAtUtc,
-            RunAtTime      = dto.RunAtTime,
-            DayOfWeek      = dto.DayOfWeek,
-            TimeZoneId     = dto.TimeZoneId,
-            PayloadType    = dto.PayloadType,
-            PromptText     = dto.PromptText,
+            RunAtTime = dto.RunAtTime,
+            DayOfWeek = dto.DayOfWeek,
+            TimeZoneId = dto.TimeZoneId,
+            PayloadType = dto.PayloadType,
+            PromptText = dto.PromptText,
             ParametersJson = dto.ParametersJson,
-            IsEnabled      = dto.IsEnabled,
+            IsEnabled = dto.IsEnabled,
         };
         if (dto.IsEnabled)
             entity.NextRunUtc = ScheduledTaskService.ComputeNextRunUtc(
@@ -479,18 +479,18 @@ public sealed class TenantGroupService : ITenantGroupService
             .FirstOrDefaultAsync(t => t.GroupId == groupId && t.Id == taskId, ct)
             ?? throw new KeyNotFoundException($"Group task '{taskId}' not found in group {groupId}.");
 
-        if (dto.AgentType      is not null) entity.AgentType      = dto.AgentType;
-        if (dto.Name           is not null) entity.Name           = dto.Name;
-        if (dto.Description    is not null) entity.Description    = dto.Description;
-        if (dto.ScheduleType   is not null) entity.ScheduleType   = dto.ScheduleType;
+        if (dto.AgentType is not null) entity.AgentType = dto.AgentType;
+        if (dto.Name is not null) entity.Name = dto.Name;
+        if (dto.Description is not null) entity.Description = dto.Description;
+        if (dto.ScheduleType is not null) entity.ScheduleType = dto.ScheduleType;
         if (dto.ScheduledAtUtc is not null) entity.ScheduledAtUtc = dto.ScheduledAtUtc;
-        if (dto.RunAtTime      is not null) entity.RunAtTime      = dto.RunAtTime;
-        if (dto.DayOfWeek      is not null) entity.DayOfWeek      = dto.DayOfWeek;
-        if (dto.TimeZoneId     is not null) entity.TimeZoneId     = dto.TimeZoneId;
-        if (dto.PayloadType    is not null) entity.PayloadType    = dto.PayloadType;
-        if (dto.PromptText     is not null) entity.PromptText     = dto.PromptText;
+        if (dto.RunAtTime is not null) entity.RunAtTime = dto.RunAtTime;
+        if (dto.DayOfWeek is not null) entity.DayOfWeek = dto.DayOfWeek;
+        if (dto.TimeZoneId is not null) entity.TimeZoneId = dto.TimeZoneId;
+        if (dto.PayloadType is not null) entity.PayloadType = dto.PayloadType;
+        if (dto.PromptText is not null) entity.PromptText = dto.PromptText;
         if (dto.ParametersJson is not null) entity.ParametersJson = dto.ParametersJson;
-        if (dto.IsEnabled      is not null) entity.IsEnabled      = dto.IsEnabled.Value;
+        if (dto.IsEnabled is not null) entity.IsEnabled = dto.IsEnabled.Value;
 
         entity.NextRunUtc = entity.IsEnabled
             ? ScheduledTaskService.ComputeNextRunUtc(
@@ -520,7 +520,7 @@ public sealed class TenantGroupService : ITenantGroupService
             .FirstOrDefaultAsync(t => t.GroupId == groupId && t.Id == taskId, ct)
             ?? throw new KeyNotFoundException($"Group task '{taskId}' not found in group {groupId}.");
 
-        entity.IsEnabled  = isEnabled;
+        entity.IsEnabled = isEnabled;
         entity.NextRunUtc = isEnabled
             ? ScheduledTaskService.ComputeNextRunUtc(
                 entity.ScheduleType, entity.ScheduledAtUtc, entity.RunAtTime,
@@ -580,15 +580,15 @@ public sealed class TenantGroupService : ITenantGroupService
         using var db = _db.CreateDbContext();
         var config = new GroupLlmConfigEntity
         {
-            GroupId             = groupId,
-            Name                = dto.Name,
-            Provider            = dto.Provider,
-            ApiKey              = dto.ApiKey,
-            Model               = dto.Model,
-            Endpoint            = dto.Endpoint,
-            DeploymentName      = dto.DeploymentName,
+            GroupId = groupId,
+            Name = dto.Name,
+            Provider = dto.Provider,
+            ApiKey = dto.ApiKey,
+            Model = dto.Model,
+            Endpoint = dto.Endpoint,
+            DeploymentName = dto.DeploymentName,
             AvailableModelsJson = dto.AvailableModelsJson,
-            EnvironmentId       = dto.EnvironmentId,
+            EnvironmentId = dto.EnvironmentId,
         };
         db.GroupLlmConfigs.Add(config);
         await db.SaveChangesAsync(ct);
@@ -645,11 +645,11 @@ public sealed class TenantGroupService : ITenantGroupService
             db.PlatformLlmConfigs.Add(config);
         }
 
-        if (dto.Provider            is not null) config.Provider            = dto.Provider;
-        if (dto.ApiKey              is not null) config.ApiKey              = dto.ApiKey;
-        if (dto.Model               is not null) config.Model               = dto.Model;
-        if (dto.Endpoint            is not null) config.Endpoint            = dto.Endpoint;
-        if (dto.DeploymentName      is not null) config.DeploymentName      = dto.DeploymentName;
+        if (dto.Provider is not null) config.Provider = dto.Provider;
+        if (dto.ApiKey is not null) config.ApiKey = dto.ApiKey;
+        if (dto.Model is not null) config.Model = dto.Model;
+        if (dto.Endpoint is not null) config.Endpoint = dto.Endpoint;
+        if (dto.DeploymentName is not null) config.DeploymentName = dto.DeploymentName;
         if (dto.AvailableModelsJson is not null) config.AvailableModelsJson = dto.AvailableModelsJson;
 
         await db.SaveChangesAsync(ct);
@@ -669,12 +669,12 @@ public sealed class TenantGroupService : ITenantGroupService
         using var db = _db.CreateDbContext();
         var config = new PlatformLlmConfigEntity
         {
-            Name               = dto.Name,
-            Provider           = dto.Provider ?? "Anthropic",
-            ApiKey             = dto.ApiKey   ?? string.Empty,
-            Model              = dto.Model    ?? "claude-sonnet-4-20250514",
-            Endpoint           = dto.Endpoint,
-            DeploymentName     = dto.DeploymentName,
+            Name = dto.Name,
+            Provider = dto.Provider ?? "Anthropic",
+            ApiKey = dto.ApiKey ?? string.Empty,
+            Model = dto.Model ?? "claude-sonnet-4-20250514",
+            Endpoint = dto.Endpoint,
+            DeploymentName = dto.DeploymentName,
             AvailableModelsJson = dto.AvailableModelsJson,
         };
         db.PlatformLlmConfigs.Add(config);
@@ -691,11 +691,11 @@ public sealed class TenantGroupService : ITenantGroupService
         var config = await db.PlatformLlmConfigs.FindAsync([id], ct)
             ?? throw new KeyNotFoundException($"Platform LLM config {id} not found.");
 
-        if (dto.Provider            is not null) config.Provider            = dto.Provider;
-        if (dto.ApiKey              is not null) config.ApiKey              = dto.ApiKey;
-        if (dto.Model               is not null) config.Model               = dto.Model;
-        if (dto.Endpoint            is not null) config.Endpoint            = dto.Endpoint;
-        if (dto.DeploymentName      is not null) config.DeploymentName      = dto.DeploymentName;
+        if (dto.Provider is not null) config.Provider = dto.Provider;
+        if (dto.ApiKey is not null) config.ApiKey = dto.ApiKey;
+        if (dto.Model is not null) config.Model = dto.Model;
+        if (dto.Endpoint is not null) config.Endpoint = dto.Endpoint;
+        if (dto.DeploymentName is not null) config.DeploymentName = dto.DeploymentName;
         if (dto.AvailableModelsJson is not null) config.AvailableModelsJson = dto.AvailableModelsJson;
 
         await db.SaveChangesAsync(ct);
@@ -727,8 +727,8 @@ public sealed class TenantGroupService : ITenantGroupService
         var name = dto.NameOverride ?? platform.Name;
         var config = new GroupLlmConfigEntity
         {
-            GroupId           = groupId,
-            Name              = name,
+            GroupId = groupId,
+            Name = name,
             PlatformConfigRef = dto.PlatformConfigId,
         };
         db.GroupLlmConfigs.Add(config);
@@ -801,15 +801,15 @@ public sealed class TenantGroupService : ITenantGroupService
         using var db = _db.CreateDbContext();
         var config = new TenantLlmConfigEntity
         {
-            TenantId            = tenantId,
-            Name                = dto.Name,
-            Provider            = dto.Provider,
-            ApiKey              = dto.ApiKey,
-            Model               = dto.Model,
-            Endpoint            = dto.Endpoint,
-            DeploymentName      = dto.DeploymentName,
+            TenantId = tenantId,
+            Name = dto.Name,
+            Provider = dto.Provider,
+            ApiKey = dto.ApiKey,
+            Model = dto.Model,
+            Endpoint = dto.Endpoint,
+            DeploymentName = dto.DeploymentName,
             AvailableModelsJson = dto.AvailableModelsJson,
-            EnvironmentId       = dto.EnvironmentId,
+            EnvironmentId = dto.EnvironmentId,
         };
         db.TenantLlmConfigs.Add(config);
         await db.SaveChangesAsync(ct);
@@ -875,8 +875,8 @@ public sealed class TenantGroupService : ITenantGroupService
                 var isRef = c.PlatformConfig is not null;
                 // When it's a reference, show the platform config's provider/model; otherwise use own fields
                 var provider = isRef ? c.PlatformConfig!.Provider : c.Provider;
-                var model    = isRef ? c.PlatformConfig!.Model    : c.Model;
-                var models   = isRef
+                var model = isRef ? c.PlatformConfig!.Model : c.Model;
+                var models = isRef
                     ? ParseModels(c.PlatformConfig!.AvailableModelsJson)
                     : ParseModels(c.AvailableModelsJson);
 
@@ -1047,12 +1047,12 @@ public sealed class TenantGroupService : ITenantGroupService
 
         var entity = new TenantPromptOverrideEntity
         {
-            TenantId             = tenantId,
-            AgentType            = groupOverride.AgentType,
-            Section              = groupOverride.Section,
-            CustomText           = groupOverride.CustomText,
-            MergeMode            = groupOverride.MergeMode,
-            IsActive             = true,
+            TenantId = tenantId,
+            AgentType = groupOverride.AgentType,
+            Section = groupOverride.Section,
+            CustomText = groupOverride.CustomText,
+            MergeMode = groupOverride.MergeMode,
+            IsActive = true,
             SourceGroupOverrideId = groupOverrideId,
         };
         db.PromptOverrides.Add(entity);
@@ -1092,9 +1092,9 @@ public sealed class TenantGroupService : ITenantGroupService
 
     // ── Cache key helpers ─────────────────────────────────────────────────────
 
-    private static string AgentsCacheKey(int groupId)            => $"grp_agents_{groupId}";
-    private static string GroupLlmCacheKey(int groupId)          => $"grp_llm_{groupId}";
-    private static string TenantLlmCacheKey(int tenantId)        => $"tenant_llm_{tenantId}";
+    private static string AgentsCacheKey(int groupId) => $"grp_agents_{groupId}";
+    private static string GroupLlmCacheKey(int groupId) => $"grp_llm_{groupId}";
+    private static string TenantLlmCacheKey(int tenantId) => $"tenant_llm_{tenantId}";
     private static string RulesCacheKey(int tenantId, string at) => $"grp_rules_{tenantId}_{at}";
     private static string OverridesCacheKey(int tenantId, string at) => $"grp_overrides_{tenantId}_{at}";
 
@@ -1109,24 +1109,24 @@ public sealed class TenantGroupService : ITenantGroupService
 
     private static void ApplyLlmConfigDto(GroupLlmConfigEntity config, UpsertLlmConfigDto dto)
     {
-        if (dto.Provider            is not null) config.Provider            = dto.Provider;
-        if (dto.ApiKey              is not null) config.ApiKey              = dto.ApiKey;
-        if (dto.Model               is not null) config.Model               = dto.Model;
-        if (dto.Endpoint            is not null) config.Endpoint            = dto.Endpoint;
-        if (dto.DeploymentName      is not null) config.DeploymentName      = dto.DeploymentName;
+        if (dto.Provider is not null) config.Provider = dto.Provider;
+        if (dto.ApiKey is not null) config.ApiKey = dto.ApiKey;
+        if (dto.Model is not null) config.Model = dto.Model;
+        if (dto.Endpoint is not null) config.Endpoint = dto.Endpoint;
+        if (dto.DeploymentName is not null) config.DeploymentName = dto.DeploymentName;
         if (dto.AvailableModelsJson is not null) config.AvailableModelsJson = dto.AvailableModelsJson;
-        if (dto.EnvironmentId.HasValue)          config.EnvironmentId      = dto.EnvironmentId;
+        if (dto.EnvironmentId.HasValue) config.EnvironmentId = dto.EnvironmentId;
     }
 
     private static void ApplyLlmConfigDto(TenantLlmConfigEntity config, UpsertLlmConfigDto dto)
     {
-        if (dto.Provider            is not null) config.Provider            = dto.Provider;
-        if (dto.ApiKey              is not null) config.ApiKey              = dto.ApiKey;
-        if (dto.Model               is not null) config.Model               = dto.Model;
-        if (dto.Endpoint            is not null) config.Endpoint            = dto.Endpoint;
-        if (dto.DeploymentName      is not null) config.DeploymentName      = dto.DeploymentName;
+        if (dto.Provider is not null) config.Provider = dto.Provider;
+        if (dto.ApiKey is not null) config.ApiKey = dto.ApiKey;
+        if (dto.Model is not null) config.Model = dto.Model;
+        if (dto.Endpoint is not null) config.Endpoint = dto.Endpoint;
+        if (dto.DeploymentName is not null) config.DeploymentName = dto.DeploymentName;
         if (dto.AvailableModelsJson is not null) config.AvailableModelsJson = dto.AvailableModelsJson;
-        if (dto.EnvironmentId.HasValue)          config.EnvironmentId      = dto.EnvironmentId;
+        if (dto.EnvironmentId.HasValue) config.EnvironmentId = dto.EnvironmentId;
     }
 
     private async Task InvalidateGroupMemberResolversAsync(int groupId, DivaDbContext db, CancellationToken ct)

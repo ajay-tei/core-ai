@@ -38,7 +38,11 @@ public class GroupsController : ControllerBase
         var groups = await _groups.GetAllGroupsAsync(ct);
         return Ok(groups.Select(g => new
         {
-            g.Id, g.Name, g.Description, g.IsActive, g.CreatedAt,
+            g.Id,
+            g.Name,
+            g.Description,
+            g.IsActive,
+            g.CreatedAt,
             memberCount = g.Members.Count,
         }));
     }
@@ -52,7 +56,11 @@ public class GroupsController : ControllerBase
         if (group is null) return NotFound();
         return Ok(new
         {
-            group.Id, group.Name, group.Description, group.IsActive, group.CreatedAt,
+            group.Id,
+            group.Name,
+            group.Description,
+            group.IsActive,
+            group.CreatedAt,
             memberCount = group.Members.Count,
             llmConfigCount = group.LlmConfigs.Count,
         });
@@ -134,8 +142,18 @@ public class GroupsController : ControllerBase
         var templates = await _groups.GetAgentTemplatesAsync(id, ct);
         return Ok(templates.Select(t => new
         {
-            t.Id, t.GroupId, t.Name, t.DisplayName, t.AgentType, t.Description,
-            t.ModelId, t.Temperature, t.MaxIterations, t.IsEnabled, t.Status, t.CreatedAt,
+            t.Id,
+            t.GroupId,
+            t.Name,
+            t.DisplayName,
+            t.AgentType,
+            t.Description,
+            t.ModelId,
+            t.Temperature,
+            t.MaxIterations,
+            t.IsEnabled,
+            t.Status,
+            t.CreatedAt,
         }));
     }
 
@@ -148,18 +166,42 @@ public class GroupsController : ControllerBase
         if (t is null) return NotFound();
         return Ok(new
         {
-            t.Id, t.GroupId, t.Name, t.DisplayName, t.Description, t.AgentType,
-            t.SystemPrompt, t.ModelId, t.Temperature, t.MaxIterations,
-            t.Capabilities, t.ToolBindings, t.VerificationMode,
-            t.ContextWindowJson, t.CustomVariablesJson,
-            t.MaxContinuations, t.MaxToolResultChars, t.MaxOutputTokens, t.EnableHistoryCaching,
-            t.PipelineStagesJson, t.ToolFilterJson, t.StageInstructionsJson,
+            t.Id,
+            t.GroupId,
+            t.Name,
+            t.DisplayName,
+            t.Description,
+            t.AgentType,
+            t.SystemPrompt,
+            t.ModelId,
+            t.Temperature,
+            t.MaxIterations,
+            t.Capabilities,
+            t.ToolBindings,
+            t.VerificationMode,
+            t.ContextWindowJson,
+            t.CustomVariablesJson,
+            t.MaxContinuations,
+            t.MaxToolResultChars,
+            t.MaxOutputTokens,
+            t.EnableHistoryCaching,
+            t.PipelineStagesJson,
+            t.ToolFilterJson,
+            t.StageInstructionsJson,
             t.LlmConfigId,
             // Phase-15 fields
-            t.ArchetypeId, t.HooksJson,
-            t.A2AEndpoint, t.A2AAuthScheme, t.A2ASecretRef,
-            t.ExecutionMode, t.ModelSwitchingJson,
-            t.IsEnabled, t.Status, t.Version, t.CreatedAt, t.UpdatedAt,
+            t.ArchetypeId,
+            t.HooksJson,
+            t.A2AEndpoint,
+            t.A2AAuthScheme,
+            t.A2ASecretRef,
+            t.ExecutionMode,
+            t.ModelSwitchingJson,
+            t.IsEnabled,
+            t.Status,
+            t.Version,
+            t.CreatedAt,
+            t.UpdatedAt,
         });
     }
 
@@ -441,9 +483,16 @@ public class GroupsController : ControllerBase
 
     private static object MapLlmConfig(Diva.Infrastructure.Data.Entities.GroupLlmConfigEntity c) => new
     {
-        c.Id, c.GroupId, c.Name, c.Provider,
+        c.Id,
+        c.GroupId,
+        c.Name,
+        c.Provider,
         apiKey = c.ApiKey is not null ? "••••••••" : (string?)null,
-        c.Model, c.Endpoint, c.DeploymentName, c.AvailableModelsJson, c.UpdatedAt,
+        c.Model,
+        c.Endpoint,
+        c.DeploymentName,
+        c.AvailableModelsJson,
+        c.UpdatedAt,
         platformConfigRef = c.PlatformConfigRef,
         c.EnvironmentId,
     };
