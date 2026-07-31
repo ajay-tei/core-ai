@@ -29,9 +29,9 @@ public sealed class LlmRuleExtractor
         ILlmConfigResolver resolver,
         ILogger<LlmRuleExtractor> logger)
     {
-        _resolver           = resolver;
+        _resolver = resolver;
         _extractorMaxTokens = agentOptions.Value.RuleLearning.ExtractorMaxTokens;
-        _logger             = logger;
+        _logger = logger;
     }
 
     public async Task<List<SuggestedRule>> ExtractAsync(
@@ -47,8 +47,8 @@ public sealed class LlmRuleExtractor
             var prompt = BuildPrompt(conversationTranscript);
             // Platform-baseline fallback — deliberately wildcard (0), not a specific environment:
             // this call has no session/agent context to resolve an EnvironmentId from (Phase G step 33).
-            var conf   = agentConfig ?? await _resolver.ResolveAsync(0, null, null, 0, ct);
-            var raw    = conf.Provider.Equals("Anthropic", StringComparison.OrdinalIgnoreCase)
+            var conf = agentConfig ?? await _resolver.ResolveAsync(0, null, null, 0, ct);
+            var raw = conf.Provider.Equals("Anthropic", StringComparison.OrdinalIgnoreCase)
                 ? await CallAnthropicAsync(prompt, conf, ct)
                 : await CallOpenAiCompatibleAsync(prompt, conf, ct);
 
@@ -65,13 +65,13 @@ public sealed class LlmRuleExtractor
 
     private async Task<string> CallAnthropicAsync(string prompt, ResolvedLlmConfig conf, CancellationToken ct)
     {
-        var client     = new AnthropicClient(new APIAuthentication(conf.ApiKey));
+        var client = new AnthropicClient(new APIAuthentication(conf.ApiKey));
         var parameters = new MessageParameters
         {
-            Model     = conf.Model,
+            Model = conf.Model,
             MaxTokens = _extractorMaxTokens,
-            System    = [new SystemMessage("You are a JSON-only business rule detector. Respond ONLY with a valid JSON array.")],
-            Messages  = [new Message
+            System = [new SystemMessage("You are a JSON-only business rule detector. Respond ONLY with a valid JSON array.")],
+            Messages = [new Message
             {
                 Role    = RoleType.User,
                 Content = [new Anthropic.SDK.Messaging.TextContent { Text = prompt }]
@@ -90,7 +90,7 @@ public sealed class LlmRuleExtractor
             clientOpts.Endpoint = new Uri(conf.Endpoint);
 
         var chatClient = new OpenAIClient(credential, clientOpts).GetChatClient(conf.Model);
-        var messages   = new ChatMessage[]
+        var messages = new ChatMessage[]
         {
             new SystemChatMessage("You are a JSON-only business rule detector. Respond ONLY with a valid JSON array."),
             new UserChatMessage(prompt)
@@ -126,14 +126,14 @@ public sealed class LlmRuleExtractor
         if (string.IsNullOrEmpty(json) || json == "[]") return [];
 
         var firstBracket = json.IndexOf('[');
-        var lastBracket  = json.LastIndexOf(']');
+        var lastBracket = json.LastIndexOf(']');
         if (firstBracket >= 0 && lastBracket > firstBracket)
             json = json[firstBracket..(lastBracket + 1)];
 
         try
         {
-            using var doc     = JsonDocument.Parse(json);
-            var       results = new List<SuggestedRule>();
+            using var doc = JsonDocument.Parse(json);
+            var results = new List<SuggestedRule>();
 
             foreach (var el in doc.RootElement.EnumerateArray())
             {
@@ -144,11 +144,11 @@ public sealed class LlmRuleExtractor
 
                 results.Add(new SuggestedRule
                 {
-                    AgentType       = el.TryGetProperty("agent_type",    out var at) ? at.GetString() : "*",
-                    RuleCategory    = el.TryGetProperty("rule_category", out var rc) ? rc.GetString() ?? "" : "",
-                    RuleKey         = el.TryGetProperty("rule_key",      out var rk) ? rk.GetString() ?? "" : "",
+                    AgentType = el.TryGetProperty("agent_type", out var at) ? at.GetString() : "*",
+                    RuleCategory = el.TryGetProperty("rule_category", out var rc) ? rc.GetString() ?? "" : "",
+                    RuleKey = el.TryGetProperty("rule_key", out var rk) ? rk.GetString() ?? "" : "",
                     PromptInjection = injection,
-                    Confidence      = confidence,
+                    Confidence = confidence,
                     SourceSessionId = sessionId
                 });
             }

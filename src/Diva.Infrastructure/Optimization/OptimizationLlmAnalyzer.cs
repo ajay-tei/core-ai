@@ -31,15 +31,15 @@ public sealed class OptimizationLlmAnalyzer : IOptimizationLlmAnalyzer
         IOptions<AgentOptions> opts,
         ILogger<OptimizationLlmAnalyzer> logger)
     {
-        _resolver          = resolver;
-        _rulePackAccessor  = rulePackAccessor;
-        _llm               = llm.Value;
-        _opts              = opts.Value;
-        _logger            = logger;
+        _resolver = resolver;
+        _rulePackAccessor = rulePackAccessor;
+        _llm = llm.Value;
+        _opts = opts.Value;
+        _logger = logger;
     }
 
-    private const string AnalyzeSystemMessage      = "You are an AI performance optimizer. Return ONLY valid JSON arrays.";
-    private const string MergeSystemMessage        = "You are a system prompt editor. Output only the final merged system prompt text — no JSON, no markdown, no preamble, no explanation.";
+    private const string AnalyzeSystemMessage = "You are an AI performance optimizer. Return ONLY valid JSON arrays.";
+    private const string MergeSystemMessage = "You are a system prompt editor. Output only the final merged system prompt text — no JSON, no markdown, no preamble, no explanation.";
     private const string QuickImproveSystemMessage = "You are a system prompt editor. Apply the admin's instruction to the system prompt. Output ONLY the final improved prompt — no preamble, no commentary, no JSON.";
 
     public async Task<List<OptimizationSuggestionDto>> AnalyzeAsync(
@@ -107,7 +107,7 @@ public sealed class OptimizationLlmAnalyzer : IOptimizationLlmAnalyzer
         {
             var (provider, apiKey, model, endpoint) = await ResolveProviderAsync(agentDef, ct);
             var maxTokens = ResolveMergeMaxTokens(agentDef);
-            var prompt    = BuildQuickImprovePrompt(currentPrompt, instruction);
+            var prompt = BuildQuickImprovePrompt(currentPrompt, instruction);
             _logger.LogDebug("Quick prompt improve: agent={AgentId} maxTokens={Max}", agentDef.Id, maxTokens);
             return provider.Equals("Anthropic", StringComparison.OrdinalIgnoreCase)
                 ? await CallAnthropicAsync(prompt, apiKey, model, maxTokens, QuickImproveSystemMessage, ct)
@@ -297,8 +297,8 @@ public sealed class OptimizationLlmAnalyzer : IOptimizationLlmAnalyzer
         }
 
         var provider = resolved?.Provider ?? _llm.DirectProvider.Provider;
-        var apiKey   = resolved?.ApiKey   ?? _llm.DirectProvider.ApiKey;
-        var model    = resolved?.Model    ?? _llm.DirectProvider.Model;
+        var apiKey = resolved?.ApiKey ?? _llm.DirectProvider.ApiKey;
+        var model = resolved?.Model ?? _llm.DirectProvider.Model;
         var endpoint = resolved is not null ? resolved.Endpoint : _llm.DirectProvider.Endpoint;
 
         // Non-Anthropic providers (Ollama, OpenAI-compatible) require an explicit endpoint.
@@ -333,14 +333,14 @@ public sealed class OptimizationLlmAnalyzer : IOptimizationLlmAnalyzer
         string prompt, string apiKey, string model, int maxTokens, string systemMessage, CancellationToken ct)
     {
         using var httpClient = new System.Net.Http.HttpClient
-            { Timeout = TimeSpan.FromSeconds(_llm.HttpTimeoutSeconds) };
+        { Timeout = TimeSpan.FromSeconds(_llm.HttpTimeoutSeconds) };
         var client = new AnthropicClient(new APIAuthentication(apiKey), httpClient);
         var parameters = new MessageParameters
         {
-            Model     = model,
+            Model = model,
             MaxTokens = maxTokens,
-            System    = [new SystemMessage(systemMessage)],
-            Messages  = [new Message { Role = RoleType.User, Content = [new TextContent { Text = prompt }] }]
+            System = [new SystemMessage(systemMessage)],
+            Messages = [new Message { Role = RoleType.User, Content = [new TextContent { Text = prompt }] }]
         };
         var msg = await client.Messages.GetClaudeMessageAsync(parameters, ct);
         return msg.Content.OfType<TextContent>().FirstOrDefault()?.Text ?? "";
@@ -373,21 +373,21 @@ public sealed class OptimizationLlmAnalyzer : IOptimizationLlmAnalyzer
     {
         var json = Regex.Replace(raw.Trim(), @"^```json?\s*|\s*```$", "", RegexOptions.Multiline).Trim();
         var first = json.IndexOf('[');
-        var last  = json.LastIndexOf(']');
+        var last = json.LastIndexOf(']');
         if (first < 0 || last < first) return [];
         json = json[first..(last + 1)];
 
         try
         {
             using var doc = JsonDocument.Parse(json);
-            var results   = new List<OptimizationSuggestionDto>();
+            var results = new List<OptimizationSuggestionDto>();
 
             foreach (var el in doc.RootElement.EnumerateArray())
             {
-                var type       = GetString(el, "type");
-                var field      = GetString(el, "field_name");
-                var suggested  = GetString(el, "suggested_value");
-                var reasoning  = GetString(el, "reasoning");
+                var type = GetString(el, "type");
+                var field = GetString(el, "field_name");
+                var suggested = GetString(el, "suggested_value");
+                var reasoning = GetString(el, "reasoning");
                 var confidence = el.TryGetProperty("confidence", out var c) ? (float)c.GetDouble() : 0f;
 
                 if (string.IsNullOrEmpty(type) || string.IsNullOrEmpty(suggested)) continue;
@@ -395,15 +395,15 @@ public sealed class OptimizationLlmAnalyzer : IOptimizationLlmAnalyzer
 
                 results.Add(new OptimizationSuggestionDto
                 {
-                    AgentId        = agentId,
-                    Type           = type,
-                    FieldName      = field ?? type,
-                    CurrentValue   = GetString(el, "current_value"),
+                    AgentId = agentId,
+                    Type = type,
+                    FieldName = field ?? type,
+                    CurrentValue = GetString(el, "current_value"),
                     SuggestedValue = suggested,
-                    Confidence     = confidence,
-                    Reasoning      = reasoning ?? "",
-                    Status         = "Pending",
-                    CreatedAt      = DateTime.UtcNow
+                    Confidence = confidence,
+                    Reasoning = reasoning ?? "",
+                    Status = "Pending",
+                    CreatedAt = DateTime.UtcNow
                 });
 
                 if (results.Count >= _opts.Optimization.MaxSuggestionsPerRun) break;

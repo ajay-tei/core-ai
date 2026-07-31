@@ -14,8 +14,8 @@ namespace Diva.Infrastructure.LiteLLM;
 /// </summary>
 internal sealed record ModelSwitchParameters(
     Func<Func<Task<MessageResponse>>, CancellationToken, Task<MessageResponse>> AnthropicRetry,
-    Func<Func<Task<ChatResponse>>,    CancellationToken, Task<ChatResponse>>    OpenAiRetry,
-    int  MaxOutputTokens,
+    Func<Func<Task<ChatResponse>>, CancellationToken, Task<ChatResponse>> OpenAiRetry,
+    int MaxOutputTokens,
     bool EnableHistoryCaching = true);
 
 /// <summary>
@@ -25,17 +25,17 @@ internal sealed record ModelSwitchParameters(
 /// When <see cref="Switched"/> is false, everything else is unchanged.
 /// </summary>
 internal sealed record ModelSwitchResult(
-    bool                 Switched,
+    bool Switched,
     ILlmProviderStrategy NewStrategy,
-    string               CurrentModel,
-    string               CurrentProvider,
-    string               CurrentEndpoint,
-    string               FallbackModel,
-    string               FallbackProvider,
-    string               FallbackEndpoint,
-    string?              SwitchedToModel,
-    string?              SwitchedToProvider,
-    string?              SwitchReason);
+    string CurrentModel,
+    string CurrentProvider,
+    string CurrentEndpoint,
+    string FallbackModel,
+    string FallbackProvider,
+    string FallbackEndpoint,
+    string? SwitchedToModel,
+    string? SwitchedToProvider,
+    string? SwitchReason);
 
 /// <summary>
 /// Isolates LlmConfig resolution, cross-provider export/import, and same-provider model swap
@@ -45,11 +45,11 @@ internal sealed record ModelSwitchResult(
 /// Stateless — all context is passed per call.
 /// </summary>
 internal sealed class ModelSwitchCoordinator(
-    IAnthropicProvider       anthropic,
-    IOpenAiProvider          openAi,
-    IContextWindowManager    ctx,
-    ILlmConfigResolver?      resolver,
-    ILogger                  logger)
+    IAnthropicProvider anthropic,
+    IOpenAiProvider openAi,
+    IContextWindowManager ctx,
+    ILlmConfigResolver? resolver,
+    ILogger logger)
 {
     /// <summary>
     /// Tries to apply the model overrides set by OnBeforeIteration hooks.
@@ -57,35 +57,35 @@ internal sealed class ModelSwitchCoordinator(
     /// Always clears the hookCtx override properties before returning.
     /// </summary>
     public async Task<ModelSwitchResult?> TryApplyAsync(
-        AgentHookContext        hookCtx,
-        ILlmProviderStrategy    strategy,
-        string                  currentModel,
-        string                  currentProvider,
-        string                  currentEndpoint,
-        string                  fallbackModel,
-        string                  fallbackProvider,
-        string                  fallbackEndpoint,
-        string                  systemPrompt,
-        List<McpClientTool>     allMcpTools,
-        ModelSwitchParameters   p,
-        CancellationToken       ct)
+        AgentHookContext hookCtx,
+        ILlmProviderStrategy strategy,
+        string currentModel,
+        string currentProvider,
+        string currentEndpoint,
+        string fallbackModel,
+        string fallbackProvider,
+        string fallbackEndpoint,
+        string systemPrompt,
+        List<McpClientTool> allMcpTools,
+        ModelSwitchParameters p,
+        CancellationToken ct)
     {
         if (!hookCtx.LlmConfigIdOverride.HasValue && string.IsNullOrEmpty(hookCtx.ModelOverride))
             return null;
 
-        var fromModel    = currentModel;
+        var fromModel = currentModel;
         var fromProvider = currentProvider;
         var fromEndpoint = currentEndpoint;
-        string? switchedToModel    = null;
+        string? switchedToModel = null;
         string? switchedToProvider = null;
-        string? switchReason       = hookCtx.ModelSwitchReason;
+        string? switchReason = hookCtx.ModelSwitchReason;
 
         if (hookCtx.LlmConfigIdOverride.HasValue && resolver is not null)
         {
             ResolvedLlmConfig? newCfg = null;
             Exception? resolveEx = null;
             var modelHint = !string.IsNullOrEmpty(hookCtx.ModelOverride) ? hookCtx.ModelOverride : null;
-                try { newCfg = await resolver.ResolveAsync(hookCtx.Tenant.TenantId, hookCtx.LlmConfigIdOverride, modelHint, hookCtx.Tenant.EnvironmentId, ct); }
+            try { newCfg = await resolver.ResolveAsync(hookCtx.Tenant.TenantId, hookCtx.LlmConfigIdOverride, modelHint, hookCtx.Tenant.EnvironmentId, ct); }
             catch (Exception ex) { resolveEx = ex; }
 
             if (resolveEx is not null)
@@ -136,11 +136,11 @@ internal sealed class ModelSwitchCoordinator(
                             logger.LogWarning(swapEx, "Model switch: ImportHistory/create strategy failed — keeping {Model}", currentModel);
                         else
                         {
-                            strategy        = newStrategy;
+                            strategy = newStrategy;
                             currentProvider = newCfg.Provider;
                             currentEndpoint = newCfg.Endpoint ?? string.Empty;
-                            currentModel    = newCfg.Model;
-                            switchedToModel    = currentModel;
+                            currentModel = newCfg.Model;
+                            switchedToModel = currentModel;
                             switchedToProvider = currentProvider;
                         }
                     }
@@ -149,8 +149,8 @@ internal sealed class ModelSwitchCoordinator(
                 {
                     // Same provider, same endpoint — update model/key only
                     strategy.SetModel(newCfg.Model, null, newCfg.ApiKey, newCfg.Endpoint);
-                    currentModel       = newCfg.Model;
-                    switchedToModel    = currentModel;
+                    currentModel = newCfg.Model;
+                    switchedToModel = currentModel;
                     switchedToProvider = currentProvider;
                 }
             }
@@ -159,37 +159,37 @@ internal sealed class ModelSwitchCoordinator(
         {
             // Same-provider model-only switch
             strategy.SetModel(hookCtx.ModelOverride!, hookCtx.MaxTokensOverride, hookCtx.ApiKeyOverride);
-            currentModel       = hookCtx.ModelOverride!;
-            switchedToModel    = currentModel;
+            currentModel = hookCtx.ModelOverride!;
+            switchedToModel = currentModel;
             switchedToProvider = currentProvider;
         }
 
         // Update fallback reference when switch was to a different model
         if (switchedToModel is not null && !string.Equals(switchedToModel, fromModel, StringComparison.OrdinalIgnoreCase))
         {
-            fallbackModel    = fromModel;
+            fallbackModel = fromModel;
             fallbackProvider = fromProvider;
             fallbackEndpoint = fromEndpoint;
         }
 
         // Always clear hook overrides
         hookCtx.LlmConfigIdOverride = null;
-        hookCtx.ModelOverride       = null;
-        hookCtx.MaxTokensOverride   = null;
-        hookCtx.ApiKeyOverride      = null;
-        hookCtx.ModelSwitchReason   = null;
+        hookCtx.ModelOverride = null;
+        hookCtx.MaxTokensOverride = null;
+        hookCtx.ApiKeyOverride = null;
+        hookCtx.ModelSwitchReason = null;
 
         return new ModelSwitchResult(
-            Switched:          switchedToModel is not null,
-            NewStrategy:       strategy,
-            CurrentModel:      currentModel,
-            CurrentProvider:   currentProvider,
-            CurrentEndpoint:   currentEndpoint,
-            FallbackModel:     fallbackModel,
-            FallbackProvider:  fallbackProvider,
-            FallbackEndpoint:  fallbackEndpoint,
-            SwitchedToModel:   switchedToModel,
+            Switched: switchedToModel is not null,
+            NewStrategy: strategy,
+            CurrentModel: currentModel,
+            CurrentProvider: currentProvider,
+            CurrentEndpoint: currentEndpoint,
+            FallbackModel: fallbackModel,
+            FallbackProvider: fallbackProvider,
+            FallbackEndpoint: fallbackEndpoint,
+            SwitchedToModel: switchedToModel,
             SwitchedToProvider: switchedToProvider,
-            SwitchReason:      switchReason);
+            SwitchReason: switchReason);
     }
 }

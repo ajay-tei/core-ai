@@ -504,7 +504,7 @@ public class AnthropicAgentRunnerTests : IAsyncDisposable
         ILlmConfigResolver? resolver = null,
         IAgentHookPipeline? hookPipeline = null)
     {
-        var factory  = new TestDatabaseProviderFactory(_dbOptions);
+        var factory = new TestDatabaseProviderFactory(_dbOptions);
         var sessions = new AgentSessionService(factory, NullLogger<AgentSessionService>.Instance);
 
         var verifier = new ResponseVerifier(
@@ -539,16 +539,16 @@ public class AnthropicAgentRunnerTests : IAsyncDisposable
 
     private static MessageResponse MakeTextResponse(string text) => new()
     {
-        Content    = [new Anthropic.SDK.Messaging.TextContent { Text = text }],
+        Content = [new Anthropic.SDK.Messaging.TextContent { Text = text }],
         StopReason = "end_turn",
-        Model      = "claude-sonnet-4-20250514"
+        Model = "claude-sonnet-4-20250514"
     };
 
     private static MessageResponse MakeMaxTokensResponse(string text) => new()
     {
-        Content    = [new Anthropic.SDK.Messaging.TextContent { Text = text }],
+        Content = [new Anthropic.SDK.Messaging.TextContent { Text = text }],
         StopReason = "max_tokens",
-        Model      = "claude-sonnet-4-20250514"
+        Model = "claude-sonnet-4-20250514"
     };
 }
 

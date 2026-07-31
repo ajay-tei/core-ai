@@ -392,8 +392,8 @@ public sealed class AgentSetupAssistant : IAgentSetupAssistant
                 // Phase F's environment switcher exists to say which environment is being edited.
                 var resolved = await _resolver.ResolveAsync(tenantId, agentLlmConfigId, agentModelId, 0, ct);
                 var provider = resolved.Provider ?? _llm.DirectProvider.Provider;
-                var apiKey   = resolved.ApiKey   ?? _llm.DirectProvider.ApiKey;
-                var model    = resolved.Model    ?? _llm.DirectProvider.Model;
+                var apiKey = resolved.ApiKey ?? _llm.DirectProvider.ApiKey;
+                var model = resolved.Model ?? _llm.DirectProvider.Model;
                 var endpoint = resolved.Endpoint;
                 var isAnthropic = provider.Equals("Anthropic", StringComparison.OrdinalIgnoreCase);
                 if (!isAnthropic && endpoint is null)

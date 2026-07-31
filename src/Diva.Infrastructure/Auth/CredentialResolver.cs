@@ -29,8 +29,8 @@ public sealed class CredentialResolver : ICredentialResolver
     {
         _dbFactory = dbFactory;
         _encryptor = encryptor;
-        _cache     = cache;
-        _logger    = logger;
+        _cache = cache;
+        _logger = logger;
     }
 
     public async Task<ResolvedCredential?> ResolveAsync(int tenantId, string credentialName, int environmentId, CancellationToken ct)

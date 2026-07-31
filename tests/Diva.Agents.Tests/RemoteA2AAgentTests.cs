@@ -18,17 +18,17 @@ public class RemoteA2AAgentTests
 
     private AgentDefinitionEntity MakeAgent(string? a2aEndpoint = "https://remote.example.com",
         string? secretRef = null, string? authScheme = null) => new()
-    {
-        Id = "remote-1",
-        Name = "remote",
-        DisplayName = "Remote Agent",
-        Description = "A remote A2A agent",
-        AgentType = "remote",
-        Capabilities = """["chat"]""",
-        A2AEndpoint = a2aEndpoint,
-        A2ASecretRef = secretRef,
-        A2AAuthScheme = authScheme,
-    };
+        {
+            Id = "remote-1",
+            Name = "remote",
+            DisplayName = "Remote Agent",
+            Description = "A remote A2A agent",
+            AgentType = "remote",
+            Capabilities = """["chat"]""",
+            A2AEndpoint = a2aEndpoint,
+            A2ASecretRef = secretRef,
+            A2AAuthScheme = authScheme,
+        };
 
     private static async IAsyncEnumerable<AgentStreamChunk> FakeStream(params AgentStreamChunk[] chunks)
     {

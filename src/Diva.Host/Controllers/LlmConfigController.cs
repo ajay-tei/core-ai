@@ -51,10 +51,14 @@ public class LlmConfigController : ControllerBase
         if (config is null) return Ok(new { seededFromAppSettings = true });
         return Ok(new
         {
-            config.Id, config.Provider,
+            config.Id,
+            config.Provider,
             apiKey = config.ApiKey is not null ? "••••••••" : (string?)null,
-            config.Model, config.Endpoint, config.DeploymentName,
-            config.AvailableModelsJson, config.UpdatedAt,
+            config.Model,
+            config.Endpoint,
+            config.DeploymentName,
+            config.AvailableModelsJson,
+            config.UpdatedAt,
             seededFromAppSettings = false,
         });
     }
@@ -67,10 +71,14 @@ public class LlmConfigController : ControllerBase
         var config = await _groups.UpsertPlatformLlmConfigAsync(dto, ct);
         return Ok(new
         {
-            config.Id, config.Provider,
+            config.Id,
+            config.Provider,
             apiKey = config.ApiKey is not null ? "••••••••" : (string?)null,
-            config.Model, config.Endpoint, config.DeploymentName,
-            config.AvailableModelsJson, config.UpdatedAt,
+            config.Model,
+            config.Endpoint,
+            config.DeploymentName,
+            config.AvailableModelsJson,
+            config.UpdatedAt,
         });
     }
 
@@ -118,9 +126,15 @@ public class LlmConfigController : ControllerBase
 
     private static object MapPlatformConfig(Diva.Infrastructure.Data.Entities.PlatformLlmConfigEntity c) => new
     {
-        c.Id, c.Name, c.Provider,
+        c.Id,
+        c.Name,
+        c.Provider,
         apiKey = !string.IsNullOrEmpty(c.ApiKey) ? "••••••••" : (string?)null,
-        c.Model, c.Endpoint, c.DeploymentName, c.AvailableModelsJson, c.UpdatedAt,
+        c.Model,
+        c.Endpoint,
+        c.DeploymentName,
+        c.AvailableModelsJson,
+        c.UpdatedAt,
     };
 
     // ── Per-tenant LLM config ─────────────────────────────────────────────────
@@ -135,10 +149,15 @@ public class LlmConfigController : ControllerBase
         if (config is null) return Ok(null);
         return Ok(new
         {
-            config.Id, config.TenantId, config.Provider,
+            config.Id,
+            config.TenantId,
+            config.Provider,
             apiKey = config.ApiKey is not null ? "••••••••" : (string?)null,
-            config.Model, config.Endpoint, config.DeploymentName,
-            config.AvailableModelsJson, config.UpdatedAt,
+            config.Model,
+            config.Endpoint,
+            config.DeploymentName,
+            config.AvailableModelsJson,
+            config.UpdatedAt,
         });
     }
 
@@ -153,10 +172,15 @@ public class LlmConfigController : ControllerBase
         var config = await _groups.UpsertTenantLlmConfigAsync(tid, dto, ct);
         return Ok(new
         {
-            config.Id, config.TenantId, config.Provider,
+            config.Id,
+            config.TenantId,
+            config.Provider,
             apiKey = config.ApiKey is not null ? "••••••••" : (string?)null,
-            config.Model, config.Endpoint, config.DeploymentName,
-            config.AvailableModelsJson, config.UpdatedAt,
+            config.Model,
+            config.Endpoint,
+            config.DeploymentName,
+            config.AvailableModelsJson,
+            config.UpdatedAt,
         });
     }
 
@@ -181,9 +205,16 @@ public class LlmConfigController : ControllerBase
         var configs = await _groups.ListTenantLlmConfigsAsync(tid, ct);
         return Ok(configs.Select(c => new
         {
-            c.Id, c.TenantId, c.Name, c.Provider,
+            c.Id,
+            c.TenantId,
+            c.Name,
+            c.Provider,
             apiKey = c.ApiKey is not null ? "••••••••" : (string?)null,
-            c.Model, c.Endpoint, c.DeploymentName, c.AvailableModelsJson, c.UpdatedAt,
+            c.Model,
+            c.Endpoint,
+            c.DeploymentName,
+            c.AvailableModelsJson,
+            c.UpdatedAt,
         }));
     }
 
@@ -198,9 +229,16 @@ public class LlmConfigController : ControllerBase
         var config = await _groups.CreateTenantLlmConfigAsync(tid, dto, ct);
         return Ok(new
         {
-            config.Id, config.TenantId, config.Name, config.Provider,
+            config.Id,
+            config.TenantId,
+            config.Name,
+            config.Provider,
             apiKey = config.ApiKey is not null ? "••••••••" : (string?)null,
-            config.Model, config.Endpoint, config.DeploymentName, config.AvailableModelsJson, config.UpdatedAt,
+            config.Model,
+            config.Endpoint,
+            config.DeploymentName,
+            config.AvailableModelsJson,
+            config.UpdatedAt,
         });
     }
 
@@ -217,9 +255,16 @@ public class LlmConfigController : ControllerBase
             var config = await _groups.UpdateTenantLlmConfigByIdAsync(id, tid, dto, ct);
             return Ok(new
             {
-                config.Id, config.TenantId, config.Name, config.Provider,
+                config.Id,
+                config.TenantId,
+                config.Name,
+                config.Provider,
                 apiKey = config.ApiKey is not null ? "••••••••" : (string?)null,
-                config.Model, config.Endpoint, config.DeploymentName, config.AvailableModelsJson, config.UpdatedAt,
+                config.Model,
+                config.Endpoint,
+                config.DeploymentName,
+                config.AvailableModelsJson,
+                config.UpdatedAt,
             });
         }
         catch (KeyNotFoundException) { return NotFound(); }
