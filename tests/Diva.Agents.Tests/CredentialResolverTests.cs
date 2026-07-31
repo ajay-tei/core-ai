@@ -73,7 +73,7 @@ public class CredentialResolverTests : IDisposable
     {
         await SeedCredentialAsync("weather-api", "sk-weather-123");
 
-        var result = await _resolver.ResolveAsync(TenantId, "weather-api", CancellationToken.None);
+        var result = await _resolver.ResolveAsync(TenantId, "weather-api", 0, CancellationToken.None);
 
         Assert.NotNull(result);
         Assert.Equal("sk-weather-123", result.ApiKey);
@@ -85,7 +85,7 @@ public class CredentialResolverTests : IDisposable
     {
         await SeedCredentialAsync("disabled-key", "sk-disabled", isActive: false);
 
-        var result = await _resolver.ResolveAsync(TenantId, "disabled-key", CancellationToken.None);
+        var result = await _resolver.ResolveAsync(TenantId, "disabled-key", 0, CancellationToken.None);
 
         Assert.Null(result);
     }
@@ -95,7 +95,7 @@ public class CredentialResolverTests : IDisposable
     {
         await SeedCredentialAsync("expired-key", "sk-expired", expiresAt: DateTime.UtcNow.AddHours(-1));
 
-        var result = await _resolver.ResolveAsync(TenantId, "expired-key", CancellationToken.None);
+        var result = await _resolver.ResolveAsync(TenantId, "expired-key", 0, CancellationToken.None);
 
         Assert.Null(result);
     }
@@ -105,7 +105,7 @@ public class CredentialResolverTests : IDisposable
     {
         await SeedCredentialAsync("future-key", "sk-future", expiresAt: DateTime.UtcNow.AddDays(30));
 
-        var result = await _resolver.ResolveAsync(TenantId, "future-key", CancellationToken.None);
+        var result = await _resolver.ResolveAsync(TenantId, "future-key", 0, CancellationToken.None);
 
         Assert.NotNull(result);
         Assert.Equal("sk-future", result.ApiKey);
@@ -114,7 +114,7 @@ public class CredentialResolverTests : IDisposable
     [Fact]
     public async Task ResolveAsync_NonExistentCredential_ReturnsNull()
     {
-        var result = await _resolver.ResolveAsync(TenantId, "no-such-cred", CancellationToken.None);
+        var result = await _resolver.ResolveAsync(TenantId, "no-such-cred", 0, CancellationToken.None);
 
         Assert.Null(result);
     }
@@ -124,7 +124,7 @@ public class CredentialResolverTests : IDisposable
     {
         await SeedCredentialAsync("custom-key", "my-secret", "Custom", customHeaderName: "X-Custom-Auth");
 
-        var result = await _resolver.ResolveAsync(TenantId, "custom-key", CancellationToken.None);
+        var result = await _resolver.ResolveAsync(TenantId, "custom-key", 0, CancellationToken.None);
 
         Assert.NotNull(result);
         Assert.Equal("Custom", result.AuthScheme);
@@ -134,7 +134,7 @@ public class CredentialResolverTests : IDisposable
     [Fact]
     public async Task ResolveAsync_EmptyName_ReturnsNull()
     {
-        var result = await _resolver.ResolveAsync(TenantId, "", CancellationToken.None);
+        var result = await _resolver.ResolveAsync(TenantId, "", 0, CancellationToken.None);
         Assert.Null(result);
     }
 
@@ -144,7 +144,7 @@ public class CredentialResolverTests : IDisposable
         await SeedCredentialAsync("tenant-scoped", "sk-scoped");
 
         // Query with different tenant
-        var result = await _resolver.ResolveAsync(999, "tenant-scoped", CancellationToken.None);
+        var result = await _resolver.ResolveAsync(999, "tenant-scoped", 0, CancellationToken.None);
 
         Assert.Null(result);
     }
@@ -155,7 +155,7 @@ public class CredentialResolverTests : IDisposable
         await SeedCredentialAsync("cached-key", "sk-cached");
 
         // First call populates cache
-        var first = await _resolver.ResolveAsync(TenantId, "cached-key", CancellationToken.None);
+        var first = await _resolver.ResolveAsync(TenantId, "cached-key", 0, CancellationToken.None);
         Assert.NotNull(first);
 
         // Delete the credential from DB
@@ -167,7 +167,7 @@ public class CredentialResolverTests : IDisposable
         }
 
         // Second call should still return cached result
-        var second = await _resolver.ResolveAsync(TenantId, "cached-key", CancellationToken.None);
+        var second = await _resolver.ResolveAsync(TenantId, "cached-key", 0, CancellationToken.None);
         Assert.NotNull(second);
         Assert.Equal("sk-cached", second.ApiKey);
     }

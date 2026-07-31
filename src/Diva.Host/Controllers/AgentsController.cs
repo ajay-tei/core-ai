@@ -563,7 +563,7 @@ public class AgentsController : ControllerBase
                 var tenant = Tenant;
                 ResolvedCredential? credential = null;
                 if (!string.IsNullOrEmpty(req.CredentialRef) && _credentialResolver is not null)
-                    credential = await _credentialResolver.ResolveAsync(tenant.TenantId, req.CredentialRef, cts.Token);
+                    credential = await _credentialResolver.ResolveAsync(tenant.TenantId, req.CredentialRef, tenant.EnvironmentId, cts.Token);
 
                 var httpClient = new HttpClient();
 

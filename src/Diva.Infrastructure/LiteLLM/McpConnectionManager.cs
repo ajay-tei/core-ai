@@ -130,7 +130,7 @@ public sealed class McpConnectionManager : IMcpConnectionManager
                 "MCP binding '{Name}': resolving CredentialRef '{Ref}' for tenant {TenantId}",
                 binding.Name, binding.CredentialRef, tenantId);
 
-            credential = await _credentialResolver.ResolveAsync(tenantId, binding.CredentialRef, ct);
+            credential = await _credentialResolver.ResolveAsync(tenantId, binding.CredentialRef, fallbackTenant?.EnvironmentId ?? 0, ct);
             if (credential is null)
                 _logger.LogWarning(
                     "MCP binding '{Name}': CredentialRef '{Ref}' could not be resolved (not found, inactive, or expired) for tenant {TenantId}",

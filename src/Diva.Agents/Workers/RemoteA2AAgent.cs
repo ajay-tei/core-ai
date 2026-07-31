@@ -72,7 +72,7 @@ public sealed class RemoteA2AAgent : IStreamableWorkerAgent
         {
             if (_credentialResolver is not null)
             {
-                var resolved = await _credentialResolver.ResolveAsync(tenant.TenantId, _definition.A2ASecretRef, ct);
+                var resolved = await _credentialResolver.ResolveAsync(tenant.TenantId, _definition.A2ASecretRef, tenant.EnvironmentId, ct);
                 if (resolved is not null)
                 {
                     authToken = resolved.ApiKey;

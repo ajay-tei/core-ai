@@ -33,23 +33,33 @@ public sealed class CredentialResolver : ICredentialResolver
         _logger    = logger;
     }
 
-    public async Task<ResolvedCredential?> ResolveAsync(int tenantId, string credentialName, CancellationToken ct)
+    public async Task<ResolvedCredential?> ResolveAsync(int tenantId, string credentialName, int environmentId, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(credentialName)) return null;
 
-        var cacheKey = $"cred:{tenantId}:{credentialName}";
+        var cacheKey = $"cred:{tenantId}:{credentialName}:{environmentId}";
 
         if (_cache.TryGetValue(cacheKey, out ResolvedCredential? cached))
             return cached;
 
         using var db = _dbFactory.CreateDbContext(TenantContext.System(tenantId));
-        var entity = await db.McpCredentials
-            .AsNoTracking()
-            .FirstOrDefaultAsync(c => c.TenantId == tenantId && c.Name == credentialName, ct);
+
+        // Prefer a row tagged to the caller's own environment; fall back to an untagged row
+        // (pre-Phase-I data, or simply not tagged yet) — never a DIFFERENT tagged environment's
+        // row, so a Staging value can never leak into a Production resolution.
+        McpCredentialEntity? entity = null;
+        if (environmentId > 0)
+        {
+            entity = await db.McpCredentials.AsNoTracking()
+                .FirstOrDefaultAsync(c => c.TenantId == tenantId && c.Name == credentialName && c.EnvironmentId == environmentId, ct);
+        }
+
+        entity ??= await db.McpCredentials.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.TenantId == tenantId && c.Name == credentialName && c.EnvironmentId == null, ct);
 
         if (entity is null)
         {
-            _logger.LogWarning("Credential '{Name}' not found for tenant {TenantId}", credentialName, tenantId);
+            _logger.LogWarning("Credential '{Name}' not found for tenant {TenantId} (environment {EnvironmentId})", credentialName, tenantId, environmentId);
             return null;
         }
 

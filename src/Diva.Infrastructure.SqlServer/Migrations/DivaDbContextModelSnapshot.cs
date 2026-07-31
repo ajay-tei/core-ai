@@ -1398,6 +1398,9 @@ namespace Diva.Infrastructure.SqlServer.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int?>("EnvironmentId")
+                        .HasColumnType("int");
+
                     b.Property<DateTime?>("ExpiresAt")
                         .HasColumnType("datetime2");
 
@@ -1416,8 +1419,11 @@ namespace Diva.Infrastructure.SqlServer.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("TenantId", "Name")
-                        .IsUnique();
+                    b.HasIndex("EnvironmentId");
+
+                    b.HasIndex("TenantId", "Name", "EnvironmentId")
+                        .IsUnique()
+                        .HasFilter("[EnvironmentId] IS NOT NULL");
 
                     b.ToTable("McpCredentials");
                 });
@@ -3010,6 +3016,14 @@ namespace Diva.Infrastructure.SqlServer.Migrations
                     b.Navigation("Group");
 
                     b.Navigation("ParentPack");
+                });
+
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.McpCredentialEntity", b =>
+                {
+                    b.HasOne("Diva.Infrastructure.Data.Entities.TenantEnvironmentEntity", null)
+                        .WithMany()
+                        .HasForeignKey("EnvironmentId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.McpServerUserGroupCredentialEntity", b =>

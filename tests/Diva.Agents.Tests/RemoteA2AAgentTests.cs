@@ -97,7 +97,7 @@ public class RemoteA2AAgentTests
         var agent = MakeAgent(secretRef: "my-cred", authScheme: "Bearer");
         var sut = new RemoteA2AAgent(agent, _client, _creds);
 
-        _creds.ResolveAsync(1, "my-cred", Arg.Any<CancellationToken>())
+        _creds.ResolveAsync(1, "my-cred", Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new ResolvedCredential("resolved-token", "Bearer", null));
 
         _client.SendTaskAsync(
@@ -123,7 +123,7 @@ public class RemoteA2AAgentTests
         var agent = MakeAgent(secretRef: "api-cred", authScheme: "ApiKey");
         var sut = new RemoteA2AAgent(agent, _client, _creds);
 
-        _creds.ResolveAsync(1, "api-cred", Arg.Any<CancellationToken>())
+        _creds.ResolveAsync(1, "api-cred", Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new ResolvedCredential("my-api-key", "ApiKey", null));
 
         _client.SendTaskAsync(
@@ -145,7 +145,7 @@ public class RemoteA2AAgentTests
         var agent = MakeAgent(secretRef: "custom-cred", authScheme: "Custom");
         var sut = new RemoteA2AAgent(agent, _client, _creds);
 
-        _creds.ResolveAsync(1, "custom-cred", Arg.Any<CancellationToken>())
+        _creds.ResolveAsync(1, "custom-cred", Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new ResolvedCredential("custom-token", "Custom", "X-My-Auth"));
 
         _client.SendTaskAsync(

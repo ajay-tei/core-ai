@@ -110,13 +110,31 @@ public sealed class AgentPromotionDependencyResolver : IPromotionDependencyResol
 /// <summary>MCP servers are a leaf node in the dependency graph — no cascade or forward dependencies.</summary>
 public sealed class McpServerPromotionDependencyResolver : IPromotionDependencyResolver
 {
+    private readonly IDatabaseProviderFactory _db;
+
     public string ObjectType => "McpServer";
+
+    public McpServerPromotionDependencyResolver(IDatabaseProviderFactory db)
+    {
+        _db = db;
+    }
 
     public Task<IReadOnlyList<PromotableDependency>> GetCascadeDependenciesAsync(int tenantId, Guid logicalId, int environmentId, CancellationToken ct)
         => Task.FromResult<IReadOnlyList<PromotableDependency>>([]);
 
     public Task<IReadOnlyList<PromotableDependency>> GetForwardDependenciesAsync(int tenantId, Guid logicalId, int environmentId, CancellationToken ct)
         => Task.FromResult<IReadOnlyList<PromotableDependency>>([]);
+
+    public async Task<IReadOnlyList<BlockingSecretDependency>> GetBlockingSecretDependenciesAsync(int tenantId, Guid logicalId, int environmentId, CancellationToken ct)
+    {
+        using var db = _db.CreateDbContext();
+        var server = await db.TenantMcpServers.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.TenantId == tenantId && s.LogicalId == logicalId, ct);
+
+        return server?.DefaultCredentialRef is { Length: > 0 } credRef
+            ? [new BlockingSecretDependency("McpCredential", credRef)]
+            : [];
+    }
 }
 
 /// <summary>

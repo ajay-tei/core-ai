@@ -249,6 +249,8 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
                             && (c.EnvironmentId == toEnvironmentId || c.EnvironmentId == null), ct)
                         || await db.GroupLlmConfigs.AnyAsync(c => c.Name == secret.Name
                             && (c.EnvironmentId == toEnvironmentId || c.EnvironmentId == null), ct),
+                    "McpCredential" => await db.McpCredentials.AnyAsync(c => c.TenantId == tenantId && c.Name == secret.Name
+                            && (c.EnvironmentId == toEnvironmentId || c.EnvironmentId == null), ct),
                     _ => true, // unknown kind — don't block on something we don't know how to check
                 };
                 if (!existsInTarget)

@@ -4,6 +4,28 @@
 
 ---
 
+## [2026-07-31] Environment-based agent management — Phase I (environment-scoped MCP credentials)
+
+Seventh phase: MCP credential vault secrets are now resolved per-environment, mirroring Phase G's
+LLM API key approach. Promoting an MCP server Dev→Staging→Production never carries a Dev credential
+value into Prod — resolution prefers a row tagged to the caller's own environment, falls back to an
+untagged row (pre-Phase-I data), and never falls back to a *different* tagged environment's row.
+Promotion is hard-blocked if the target environment has no matching credential configured.
+
+| Area | Change |
+|------|--------|
+| Schema | Nullable `EnvironmentId` (FK, Restrict) added to `McpCredentialEntity`. Unique index changed from `(TenantId, Name)` to `(TenantId, Name, EnvironmentId)` |
+| Resolver | `ICredentialResolver.ResolveAsync` gains a **required** `environmentId` parameter (same self-auditing rationale as Phase G — a missed call site is a compile error). Cache key now includes the environment dimension (`cred:{tenantId}:{name}:{environmentId}`). Query logic: exact `(TenantId, Name, EnvironmentId)` match tried first when `environmentId > 0`, falling back to an untagged (`EnvironmentId == null`) row — never a different tagged environment's row |
+| Call sites fixed | All 3 real call sites — `RemoteA2AAgent.cs` (A2A secret ref resolution, uses the agent's own `TenantContext.EnvironmentId`), `AgentsController.cs` (MCP-probe endpoint, same), `McpConnectionManager.cs` (`CreateClientAsync`, uses `fallbackTenant?.EnvironmentId ?? 0`) — plus 13 test call sites (10 in `CredentialResolverTests.cs`, 3 NSubstitute mock setups in `RemoteA2AAgentTests.cs`), all passing `0`/wildcard or `Arg.Any<int>()` where no specific environment is under test |
+| Promotion integration | `McpServerPromotionDependencyResolver` now overrides `GetBlockingSecretDependenciesAsync`: looks up the `TenantMcpServerEntity` by `(TenantId, LogicalId)` and, if `DefaultCredentialRef` is set, returns it as a `BlockingSecretDependency("McpCredential", ...)`. `PromotionOrchestrationService.BuildClosureAsync`'s blocking-secret switch gained a `"McpCredential"` case (previously only `"LlmConfig"` was handled, `_ => true` unknown-kind default) — checks `McpCredentials` for a row tagged to the target environment or untagged |
+| Confirmed pre-existing scope decision (not a new gap) | `ApiKeyCredentialMappingsJson` and user-group credential mappings are excluded from `McpServerSnapshot` entirely (Phase B decision, documented in `PromotableSnapshotDtos.cs`) — they reference tenant-specific `PlatformApiKeyId`/`UserGroup` rows that aren't portable across environments. Promotion of MCP servers today doesn't touch these mappings at all, so no additional translation work was needed for Phase I |
+
+**Migrations**: `AddMcpCredentialEnvironment` in both providers, `has-pending-model-changes` clean on both. Full build 0 errors, full test suite passes except the same pre-existing `ContextWindowTests` failure. Deployed; migration confirmed applied via container logs, health check 200.
+
+**Deferred**: CRUD/controller support for admins to actually *set* an `EnvironmentId` when creating/updating an MCP credential — no admin UI to use it yet (Phase F), left for that phase alongside the environment dropdown it would need.
+
+---
+
 ## [2026-07-31] Environment-based agent management — Phase G (environment-scoped LLM API keys)
 
 Sixth phase: an agent's LLM API key is now resolved per-environment. Promoting an agent Dev→Staging→

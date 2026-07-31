@@ -29,4 +29,10 @@ public class McpCredentialEntity : ITenantEntity
     public bool IsActive { get; set; } = true;
     public DateTime? LastUsedAt { get; set; }
     public string? CreatedByUserId { get; set; }
+
+    /// <summary>FK to TenantEnvironmentEntity — which environment this credential's value applies
+    /// to (Phase I). Null = untagged (resolves for any environment until tagged). Values never
+    /// travel with promotion — an agent/MCP server promoted to a new environment must have its own
+    /// tagged credential configured there first.</summary>
+    public int? EnvironmentId { get; set; }
 }

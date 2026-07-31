@@ -398,7 +398,12 @@ public class DivaDbContext : DbContext
         modelBuilder.Entity<McpCredentialEntity>()
             .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
         modelBuilder.Entity<McpCredentialEntity>()
-            .HasIndex(e => new { e.TenantId, e.Name }).IsUnique();
+            .HasIndex(e => new { e.TenantId, e.Name, e.EnvironmentId }).IsUnique();
+        modelBuilder.Entity<McpCredentialEntity>()
+            .HasOne<TenantEnvironmentEntity>()
+            .WithMany()
+            .HasForeignKey(e => e.EnvironmentId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         // ── Platform API Keys ─────────────────────────────────
         modelBuilder.Entity<PlatformApiKeyEntity>()
