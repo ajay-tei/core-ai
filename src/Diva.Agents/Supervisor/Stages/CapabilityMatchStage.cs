@@ -21,8 +21,8 @@ public sealed class CapabilityMatchStage : ISupervisorPipelineStage
         ILogger<CapabilityMatchStage> logger)
     {
         _registry = registry;
-        _scorer   = scorer;
-        _logger   = logger;
+        _scorer = scorer;
+        _logger = logger;
     }
 
     public async Task<SupervisorState> ExecuteAsync(SupervisorState state, CancellationToken ct)
@@ -57,7 +57,7 @@ public sealed class CapabilityMatchStage : ISupervisorPipelineStage
 
         if (plan.Count == 0)
         {
-            state.Status       = SupervisorStatus.Failed;
+            state.Status = SupervisorStatus.Failed;
             state.ErrorMessage = "No capable agents found for this request. Create or publish an agent first.";
             return state;
         }

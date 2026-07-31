@@ -45,7 +45,9 @@ public sealed class LlmRuleExtractor
         try
         {
             var prompt = BuildPrompt(conversationTranscript);
-            var conf   = agentConfig ?? await _resolver.ResolveAsync(0, null, null, ct);
+            // Platform-baseline fallback — deliberately wildcard (0), not a specific environment:
+            // this call has no session/agent context to resolve an EnvironmentId from (Phase G step 33).
+            var conf   = agentConfig ?? await _resolver.ResolveAsync(0, null, null, 0, ct);
             var raw    = conf.Provider.Equals("Anthropic", StringComparison.OrdinalIgnoreCase)
                 ? await CallAnthropicAsync(prompt, conf, ct)
                 : await CallOpenAiCompatibleAsync(prompt, conf, ct);

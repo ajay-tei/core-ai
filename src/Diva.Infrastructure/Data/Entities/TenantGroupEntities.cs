@@ -247,6 +247,10 @@ public class GroupLlmConfigEntity
     public string? AvailableModelsJson { get; set; }
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
+    /// <summary>FK to TenantEnvironmentEntity — which environment this named config's key applies
+    /// to (Phase G). Null = untagged (resolves for any environment until tagged).</summary>
+    public int? EnvironmentId { get; set; }
+
     public TenantGroupEntity Group { get; set; } = null!;
     public PlatformLlmConfigEntity? PlatformConfig { get; set; }
 }

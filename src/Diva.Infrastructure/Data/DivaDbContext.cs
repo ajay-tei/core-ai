@@ -284,10 +284,16 @@ public class DivaDbContext : DbContext
             .HasOne(c => c.PlatformConfig).WithMany()
             .HasForeignKey(c => c.PlatformConfigRef)
             .OnDelete(DeleteBehavior.SetNull);
-        // All configs must be named; unique per (GroupId, Name)
+        // All configs must be named; unique per (GroupId, Name, EnvironmentId) — Phase G adds the
+        // environment dimension so the same named config can have an independent key per environment.
         modelBuilder.Entity<GroupLlmConfigEntity>()
-            .HasIndex(e => new { e.GroupId, e.Name })
+            .HasIndex(e => new { e.GroupId, e.Name, e.EnvironmentId })
             .IsUnique();
+        modelBuilder.Entity<GroupLlmConfigEntity>()
+            .HasOne<TenantEnvironmentEntity>()
+            .WithMany()
+            .HasForeignKey(e => e.EnvironmentId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         // ── Group Agent Overlays (Phase 18) ──────────────────
         modelBuilder.Entity<TenantGroupAgentOverlayEntity>()
@@ -319,9 +325,14 @@ public class DivaDbContext : DbContext
         modelBuilder.Entity<TenantLlmConfigEntity>()
             .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
         modelBuilder.Entity<TenantLlmConfigEntity>()
-            .HasIndex(e => new { e.TenantId, e.Name })
+            .HasIndex(e => new { e.TenantId, e.Name, e.EnvironmentId })
             .IsUnique()
             .HasFilter("[Name] IS NOT NULL");
+        modelBuilder.Entity<TenantLlmConfigEntity>()
+            .HasOne<TenantEnvironmentEntity>()
+            .WithMany()
+            .HasForeignKey(e => e.EnvironmentId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         // ── Local Users ───────────────────────────────────────
         modelBuilder.Entity<LocalUserEntity>()
@@ -393,7 +404,7 @@ public class DivaDbContext : DbContext
         modelBuilder.Entity<PlatformApiKeyEntity>()
             .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
         modelBuilder.Entity<PlatformApiKeyEntity>()
-            .HasIndex(e => e.KeyHash);        modelBuilder.Entity<PlatformApiKeyEntity>()
+            .HasIndex(e => e.KeyHash); modelBuilder.Entity<PlatformApiKeyEntity>()
             .HasOne<TenantEnvironmentEntity>()
             .WithMany()
             .HasForeignKey(e => e.EnvironmentId)
@@ -410,7 +421,7 @@ public class DivaDbContext : DbContext
         modelBuilder.Entity<WidgetConfigEntity>()
             .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
         modelBuilder.Entity<WidgetConfigEntity>()
-            .HasIndex(e => new { e.TenantId, e.IsActive });        modelBuilder.Entity<WidgetConfigEntity>()
+            .HasIndex(e => new { e.TenantId, e.IsActive }); modelBuilder.Entity<WidgetConfigEntity>()
             .HasOne<TenantEnvironmentEntity>()
             .WithMany()
             .HasForeignKey(e => e.EnvironmentId)

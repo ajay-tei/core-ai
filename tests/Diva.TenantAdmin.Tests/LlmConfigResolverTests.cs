@@ -68,7 +68,7 @@ public class LlmConfigResolverTests : IDisposable
     [Fact]
     public async Task ResolveAsync_NoPlatformRow_FallsBackToOptions()
     {
-        var result = await _resolver.ResolveAsync(0, null, null, CancellationToken.None);
+        var result = await _resolver.ResolveAsync(0, null, null, 0, CancellationToken.None);
 
         Assert.Equal("Anthropic", result.Provider);
         Assert.Equal("fallback-key", result.ApiKey);
@@ -86,7 +86,7 @@ public class LlmConfigResolverTests : IDisposable
         });
         await _db.SaveChangesAsync();
 
-        var result = await _resolver.ResolveAsync(0, null, null, CancellationToken.None);
+        var result = await _resolver.ResolveAsync(0, null, null, 0, CancellationToken.None);
 
         Assert.Equal("OpenAI", result.Provider);
         Assert.Equal("platform-key", result.ApiKey);
@@ -101,7 +101,7 @@ public class LlmConfigResolverTests : IDisposable
         _db.PlatformLlmConfigs.Add(new PlatformLlmConfigEntity { Name = "Second", Provider = "OpenAI", ApiKey = "key-b", Model = "gpt-4o" });
         await _db.SaveChangesAsync();
 
-        var result = await _resolver.ResolveAsync(0, null, null, CancellationToken.None);
+        var result = await _resolver.ResolveAsync(0, null, null, 0, CancellationToken.None);
 
         // "First" was inserted first → lower Id → used as default
         Assert.Equal("Anthropic", result.Provider);
@@ -123,7 +123,7 @@ public class LlmConfigResolverTests : IDisposable
         });
         await _db.SaveChangesAsync();
 
-        var result = await _resolver.ResolveAsync(0, null, "claude-opus-4-6", CancellationToken.None);
+        var result = await _resolver.ResolveAsync(0, null, "claude-opus-4-6", 0, CancellationToken.None);
 
         // Provider and key come from platform; model overridden by per-agent value
         Assert.Equal("OpenAI", result.Provider);
@@ -145,14 +145,14 @@ public class LlmConfigResolverTests : IDisposable
         });
         await _db.SaveChangesAsync();
 
-        var first = await _resolver.ResolveAsync(0, null, null, CancellationToken.None);
+        var first = await _resolver.ResolveAsync(0, null, null, 0, CancellationToken.None);
 
         // Mutate DB directly — should not be seen on cache hit
         var config = await _db.PlatformLlmConfigs.FindAsync(1);
         config!.Model = "new-model";
         await _db.SaveChangesAsync();
 
-        var second = await _resolver.ResolveAsync(0, null, null, CancellationToken.None);
+        var second = await _resolver.ResolveAsync(0, null, null, 0, CancellationToken.None);
 
         Assert.Equal("cached-model", first.Model);
         Assert.Equal("cached-model", second.Model);   // cache hit — still old value
@@ -194,7 +194,7 @@ public class LlmConfigResolverTests : IDisposable
         });
         await _db.SaveChangesAsync();
 
-        var result = await _resolver.ResolveAsync(10, 99, null, CancellationToken.None);
+        var result = await _resolver.ResolveAsync(10, 99, null, 0, CancellationToken.None);
 
         Assert.Equal("OpenAI", result.Provider);
         Assert.Equal("openai-key", result.ApiKey);
@@ -226,7 +226,7 @@ public class LlmConfigResolverTests : IDisposable
         });
         await _db.SaveChangesAsync();
 
-        var result = await _resolver.ResolveAsync(11, 55, null, CancellationToken.None);
+        var result = await _resolver.ResolveAsync(11, 55, null, 0, CancellationToken.None);
 
         Assert.Equal("AzureOpenAI", result.Provider);
         Assert.Equal("azure-key", result.ApiKey);
@@ -255,7 +255,7 @@ public class LlmConfigResolverTests : IDisposable
         });
         await _db.SaveChangesAsync();
 
-        var result = await _resolver.ResolveAsync(12, 77, null, CancellationToken.None);
+        var result = await _resolver.ResolveAsync(12, 77, null, 0, CancellationToken.None);
 
         Assert.Equal("OpenAI", result.Provider);
         Assert.Equal("gpt-3.5-turbo", result.Model);
@@ -274,7 +274,7 @@ public class LlmConfigResolverTests : IDisposable
         await _db.SaveChangesAsync();
 
         // Config ID 9999 doesn't exist — should fall back to platform defaults without throwing
-        var result = await _resolver.ResolveAsync(13, 9999, null, CancellationToken.None);
+        var result = await _resolver.ResolveAsync(13, 9999, null, 0, CancellationToken.None);
 
         Assert.Equal("Anthropic", result.Provider);
         Assert.Equal("claude-base", result.Model);
@@ -302,7 +302,7 @@ public class LlmConfigResolverTests : IDisposable
         await _db.SaveChangesAsync();
 
         // agentModelId overrides even the named config's model
-        var result = await _resolver.ResolveAsync(14, 88, "claude-opus-4-6", CancellationToken.None);
+        var result = await _resolver.ResolveAsync(14, 88, "claude-opus-4-6", 0, CancellationToken.None);
 
         Assert.Equal("OpenAI", result.Provider);   // from named config
         Assert.Equal("openai-key", result.ApiKey); // from named config
@@ -337,7 +337,7 @@ public class LlmConfigResolverTests : IDisposable
         });
         await _db.SaveChangesAsync();
 
-        var result = await _resolver.ResolveAsync(15, 70, null, CancellationToken.None);
+        var result = await _resolver.ResolveAsync(15, 70, null, 0, CancellationToken.None);
 
         // Credentials must come from the referenced platform config
         Assert.Equal("OpenAI", result.Provider);
@@ -373,7 +373,7 @@ public class LlmConfigResolverTests : IDisposable
         });
         await _db.SaveChangesAsync();
 
-        var result = await _resolver.ResolveAsync(16, 81, null, CancellationToken.None);
+        var result = await _resolver.ResolveAsync(16, 81, null, 0, CancellationToken.None);
 
         Assert.Equal("Anthropic", result.Provider);
         Assert.Equal("plat-key", result.ApiKey);          // inherited, not clobbered by blank
@@ -402,7 +402,7 @@ public class LlmConfigResolverTests : IDisposable
         });
         await _db.SaveChangesAsync();
 
-        var result = await _resolver.ResolveAsync(17, 91, null, CancellationToken.None);
+        var result = await _resolver.ResolveAsync(17, 91, null, 0, CancellationToken.None);
 
         Assert.Equal("tenant-key", result.ApiKey);   // config key applied
         Assert.Equal("claude-base", result.Model);   // blank model inherited from platform

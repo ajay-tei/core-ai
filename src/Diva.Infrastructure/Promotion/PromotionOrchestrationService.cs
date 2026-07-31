@@ -238,6 +238,25 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
                 }
             }
 
+            // Blocking secrets (Phase G/I): named external configs/credentials that are NEVER
+            // copied/promoted — a missing target-environment row is a hard block, not an auto-create.
+            var secretDeps = await resolver.GetBlockingSecretDependenciesAsync(tenantId, lid, fromEnvironmentId, ct);
+            foreach (var secret in secretDeps)
+            {
+                var existsInTarget = secret.Kind switch
+                {
+                    "LlmConfig" => await db.TenantLlmConfigs.AnyAsync(c => c.TenantId == tenantId && c.Name == secret.Name
+                            && (c.EnvironmentId == toEnvironmentId || c.EnvironmentId == null), ct)
+                        || await db.GroupLlmConfigs.AnyAsync(c => c.Name == secret.Name
+                            && (c.EnvironmentId == toEnvironmentId || c.EnvironmentId == null), ct),
+                    _ => true, // unknown kind — don't block on something we don't know how to check
+                };
+                if (!existsInTarget)
+                {
+                    forwardErrors.Add($"{secret.Kind} '{secret.Name}' has no key configured for environment '{toEnv?.DisplayName ?? "the target environment"}' — configure it before promoting.");
+                }
+            }
+
             var cascadeDeps = await resolver.GetCascadeDependenciesAsync(tenantId, lid, fromEnvironmentId, ct);
             foreach (var dep in cascadeDeps)
             {

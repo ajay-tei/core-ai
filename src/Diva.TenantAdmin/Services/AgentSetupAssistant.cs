@@ -387,7 +387,10 @@ public sealed class AgentSetupAssistant : IAgentSetupAssistant
                         agentModelId = agent.ModelId;
                     }
                 }
-                var resolved = await _resolver.ResolveAsync(tenantId, agentLlmConfigId, agentModelId, ct);
+                // Wildcard (0): this method only receives a raw tenantId, not a TenantContext/
+                // environmentId — the Agent Setup Assistant runs during agent authoring, before
+                // Phase F's environment switcher exists to say which environment is being edited.
+                var resolved = await _resolver.ResolveAsync(tenantId, agentLlmConfigId, agentModelId, 0, ct);
                 var provider = resolved.Provider ?? _llm.DirectProvider.Provider;
                 var apiKey   = resolved.ApiKey   ?? _llm.DirectProvider.ApiKey;
                 var model    = resolved.Model    ?? _llm.DirectProvider.Model;

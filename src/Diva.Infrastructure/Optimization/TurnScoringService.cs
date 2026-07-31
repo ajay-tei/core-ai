@@ -113,7 +113,7 @@ public sealed class TurnScoringService : ITurnScoringService
                 .AsNoTracking()
                 .FirstOrDefaultAsync(a => a.Id == agentId, ct);
             if (agent is not null)
-                return await _resolver.ResolveAsync(agent.TenantId, agent.LlmConfigId, agent.ModelId, ct);
+                return await _resolver.ResolveAsync(agent.TenantId, agent.LlmConfigId, agent.ModelId, agent.EnvironmentId ?? 0, ct);
         }
         catch (Exception ex)
         {

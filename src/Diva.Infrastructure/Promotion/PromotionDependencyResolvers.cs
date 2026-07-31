@@ -61,6 +61,34 @@ public sealed class AgentPromotionDependencyResolver : IPromotionDependencyResol
     public Task<IReadOnlyList<PromotableDependency>> GetForwardDependenciesAsync(int tenantId, Guid logicalId, int environmentId, CancellationToken ct)
         => Task.FromResult<IReadOnlyList<PromotableDependency>>([]);
 
+    public async Task<IReadOnlyList<BlockingSecretDependency>> GetBlockingSecretDependenciesAsync(int tenantId, Guid logicalId, int environmentId, CancellationToken ct)
+    {
+        using var db = _db.CreateDbContext();
+        var agent = await db.AgentDefinitions.AsNoTracking()
+            .FirstOrDefaultAsync(a => a.TenantId == tenantId && a.LogicalId == logicalId, ct);
+        if (agent?.LlmConfigId is not { } configId)
+        {
+            return [];
+        }
+
+        // Resolve the Id to its Name (tenant-scoped first, then group-scoped) — mirrors
+        // LlmConfigResolver's own by-Id-then-by-Name resolution (Phase G).
+        var tenantCfg = await db.TenantLlmConfigs.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.Id == configId && c.TenantId == tenantId, ct);
+        if (tenantCfg is not null)
+        {
+            return tenantCfg.Name is null ? [] : [new BlockingSecretDependency("LlmConfig", tenantCfg.Name)];
+        }
+
+        var groupCfg = await db.GroupLlmConfigs.AsNoTracking().FirstOrDefaultAsync(c => c.Id == configId, ct);
+        if (groupCfg is not null && groupCfg.PlatformConfigRef is null && groupCfg.Name is not null)
+        {
+            return [new BlockingSecretDependency("LlmConfig", groupCfg.Name)];
+        }
+
+        return [];
+    }
+
     private static List<string> ParseStringArray(string? json)
     {
         if (string.IsNullOrWhiteSpace(json) || json.Trim() == "[]")

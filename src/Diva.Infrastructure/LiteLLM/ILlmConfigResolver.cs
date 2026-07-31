@@ -18,7 +18,14 @@ namespace Diva.Infrastructure.LiteLLM;
 public interface ILlmConfigResolver
 {
     /// <param name="agentLlmConfigId">When set, use a specific named config by ID (bypasses group→tenant default chain).</param>
-    Task<ResolvedLlmConfig> ResolveAsync(int tenantId, int? agentLlmConfigId, string? agentModelId, CancellationToken ct);
+    /// <param name="environmentId">The requesting TenantContext's environment (Phase E). Required —
+    /// deliberately not optional, so every call site must be updated explicitly rather than silently
+    /// defaulting and risking a wrong-environment secret. 0 = wildcard/no environment scoping (system/
+    /// background contexts, or call sites not yet environment-aware — see LlmRuleExtractor's platform-
+    /// baseline branch). When a named config resolves, its row is re-looked-up by (Name, environmentId)
+    /// so promotion "just works" — the agent's stored LlmConfigId is only used to discover the Name;
+    /// the actual key returned always matches the CALLER's own environment, never a different one.</param>
+    Task<ResolvedLlmConfig> ResolveAsync(int tenantId, int? agentLlmConfigId, string? agentModelId, int environmentId, CancellationToken ct);
 
     /// <summary>Evicts the cached config for the given tenant (call after updating any level).</summary>
     void InvalidateForTenant(int tenantId);

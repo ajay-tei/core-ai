@@ -20,7 +20,7 @@ public sealed class AgentContextStage : ISupervisorPipelineStage
     public AgentContextStage(IReadableAgentRegistry globalRegistry, ILogger<AgentContextStage> logger)
     {
         _globalRegistry = globalRegistry;
-        _logger         = logger;
+        _logger = logger;
     }
 
     public async Task<SupervisorState> ExecuteAsync(SupervisorState state, CancellationToken ct)

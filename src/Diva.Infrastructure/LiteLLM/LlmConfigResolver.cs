@@ -36,9 +36,9 @@ public sealed class LlmConfigResolver : ILlmConfigResolver
         _fallback = fallback.Value;
     }
 
-    public async Task<ResolvedLlmConfig> ResolveAsync(int tenantId, int? agentLlmConfigId, string? agentModelId, CancellationToken ct)
+    public async Task<ResolvedLlmConfig> ResolveAsync(int tenantId, int? agentLlmConfigId, string? agentModelId, int environmentId, CancellationToken ct)
     {
-        var cacheKey = $"llm_resolved_{tenantId}_{agentLlmConfigId?.ToString() ?? ""}_{agentModelId ?? ""}";
+        var cacheKey = $"llm_resolved_{tenantId}_{agentLlmConfigId?.ToString() ?? ""}_{environmentId}_{agentModelId ?? ""}";
         if (_cache.TryGetValue(cacheKey, out ResolvedLlmConfig? cached) && cached is not null)
             return cached;
 
@@ -57,7 +57,7 @@ public sealed class LlmConfigResolver : ILlmConfigResolver
         if (agentLlmConfigId.HasValue)
         {
             // Named config path: look up specific config by ID, overlay on platform defaults
-            await ResolveNamedConfigAsync(db, tenantId, agentLlmConfigId.Value, state, ct);
+            await ResolveNamedConfigAsync(db, tenantId, agentLlmConfigId.Value, environmentId, state, ct);
         }
 
         // 4. Per-agent model-only override (applied after named config or default chain)
@@ -67,20 +67,27 @@ public sealed class LlmConfigResolver : ILlmConfigResolver
         var result = new ResolvedLlmConfig(state.Provider, state.ApiKey, state.Model,
             state.Endpoint, state.Deployment, state.Available);
         _cache.Set(cacheKey, result, TimeSpan.FromMinutes(2));
-        _logger.LogDebug("LlmConfigResolver: tenant={TenantId} configId={ConfigId} → provider={Provider} model={Model}",
-            tenantId, agentLlmConfigId, state.Provider, state.Model);
+        _logger.LogDebug("LlmConfigResolver: tenant={TenantId} configId={ConfigId} environment={EnvironmentId} → provider={Provider} model={Model}",
+            tenantId, agentLlmConfigId, environmentId, state.Provider, state.Model);
         return result;
     }
 
     private async Task<LlmConfigState?> ResolveNamedConfigAsync(
-        Data.DivaDbContext db, int tenantId, int configId, LlmConfigState baseline, CancellationToken ct)
+        Data.DivaDbContext db, int tenantId, int configId, int environmentId, LlmConfigState baseline, CancellationToken ct)
     {
         // Try tenant-scoped named config first
         var tenantCfg = await db.TenantLlmConfigs
             .FirstOrDefaultAsync(c => c.Id == configId && c.TenantId == tenantId, ct);
         if (tenantCfg is not null)
-            return baseline.Overlay(tenantCfg.Provider, tenantCfg.ApiKey, tenantCfg.Model,
-                tenantCfg.Endpoint, tenantCfg.DeploymentName, tenantCfg.AvailableModelsJson);
+        {
+            // Re-look-up by (Name, environmentId) so the resolved key always matches the CALLER's
+            // own environment rather than whichever environment's row the stored Id happens to be —
+            // this is what makes promotion "just work": the Id only tells us WHICH named config,
+            // the Name+environment lookup decides WHICH KEY.
+            var effective = await ResolveTenantConfigByNameAsync(db, tenantId, tenantCfg.Name, environmentId, ct) ?? tenantCfg;
+            return baseline.Overlay(effective.Provider, effective.ApiKey, effective.Model,
+                effective.Endpoint, effective.DeploymentName, effective.AvailableModelsJson);
+        }
 
         // Fall back to group-level named config (tenant must be a member)
         var groupIds = await _groups.GetGroupIdsForTenantAsync(tenantId, ct);
@@ -91,20 +98,58 @@ public sealed class LlmConfigResolver : ILlmConfigResolver
                 .FirstOrDefaultAsync(c => c.Id == configId && groupIds.Contains(c.GroupId), ct);
             if (groupCfg is not null)
             {
-                // If this group config is a reference to a platform config, use the platform's credentials
+                // If this group config is a reference to a platform config, use the platform's
+                // credentials as-is — PlatformLlmConfigEntity is not environment-scoped (Phase G
+                // decision: only Tenant + Group tiers get per-environment keys).
                 if (groupCfg.PlatformConfig is not null)
                     return baseline.Overlay(
                         groupCfg.PlatformConfig.Provider, groupCfg.PlatformConfig.ApiKey,
                         groupCfg.PlatformConfig.Model, groupCfg.PlatformConfig.Endpoint,
                         groupCfg.PlatformConfig.DeploymentName, groupCfg.PlatformConfig.AvailableModelsJson);
 
-                return baseline.Overlay(groupCfg.Provider, groupCfg.ApiKey, groupCfg.Model,
-                    groupCfg.Endpoint, groupCfg.DeploymentName, groupCfg.AvailableModelsJson);
+                var effective = await ResolveGroupConfigByNameAsync(db, groupCfg.GroupId, groupCfg.Name, environmentId, ct) ?? groupCfg;
+                return baseline.Overlay(effective.Provider, effective.ApiKey, effective.Model,
+                    effective.Endpoint, effective.DeploymentName, effective.AvailableModelsJson);
             }
         }
 
         _logger.LogWarning("LlmConfigResolver: named config {ConfigId} not found for tenant {TenantId} — using platform defaults", configId, tenantId);
         return null;
+    }
+
+    /// <summary>
+    /// Resolves the effective row for (tenantId, name) scoped to environmentId. Falls back to an
+    /// untagged row (EnvironmentId == null — pre-Phase-G data, or a config that simply hasn't been
+    /// tagged yet) rather than a DIFFERENT tagged environment's row, so a Staging key can never leak
+    /// into a Production resolution. Returns null (caller falls back to the by-Id row) if neither exists.
+    /// </summary>
+    private static async Task<Data.Entities.TenantLlmConfigEntity?> ResolveTenantConfigByNameAsync(
+        Data.DivaDbContext db, int tenantId, string? name, int environmentId, CancellationToken ct)
+    {
+        if (environmentId > 0)
+        {
+            var scoped = await db.TenantLlmConfigs.AsNoTracking()
+                .FirstOrDefaultAsync(c => c.TenantId == tenantId && c.Name == name && c.EnvironmentId == environmentId, ct);
+            if (scoped is not null) return scoped;
+        }
+
+        return await db.TenantLlmConfigs.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.TenantId == tenantId && c.Name == name && c.EnvironmentId == null, ct);
+    }
+
+    /// <summary>Group-level equivalent of <see cref="ResolveTenantConfigByNameAsync"/>.</summary>
+    private static async Task<Data.Entities.GroupLlmConfigEntity?> ResolveGroupConfigByNameAsync(
+        Data.DivaDbContext db, int groupId, string? name, int environmentId, CancellationToken ct)
+    {
+        if (environmentId > 0)
+        {
+            var scoped = await db.GroupLlmConfigs.AsNoTracking()
+                .FirstOrDefaultAsync(c => c.GroupId == groupId && c.Name == name && c.EnvironmentId == environmentId, ct);
+            if (scoped is not null) return scoped;
+        }
+
+        return await db.GroupLlmConfigs.AsNoTracking()
+            .FirstOrDefaultAsync(c => c.GroupId == groupId && c.Name == name && c.EnvironmentId == null, ct);
     }
 
     private sealed class LlmConfigState

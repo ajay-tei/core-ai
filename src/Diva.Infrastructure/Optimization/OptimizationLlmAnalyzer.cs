@@ -292,7 +292,7 @@ public sealed class OptimizationLlmAnalyzer : IOptimizationLlmAnalyzer
         ResolvedLlmConfig? resolved = null;
         if (agentDef.TenantId > 0)
         {
-            try { resolved = await _resolver.ResolveAsync(agentDef.TenantId, agentDef.LlmConfigId, agentDef.ModelId, ct); }
+            try { resolved = await _resolver.ResolveAsync(agentDef.TenantId, agentDef.LlmConfigId, agentDef.ModelId, agentDef.EnvironmentId ?? 0, ct); }
             catch (Exception ex) { _logger.LogWarning(ex, "LlmConfigResolver failed for optimizer agent {AgentId} — using global fallback", agentDef.Id); }
         }
 

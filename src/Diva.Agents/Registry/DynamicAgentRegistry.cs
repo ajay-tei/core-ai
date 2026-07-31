@@ -41,14 +41,14 @@ public sealed class DynamicAgentRegistry : IAgentRegistry
         ICapabilityScoringService? scorer = null,
         ICredentialResolver? credentialResolver = null)
     {
-        _db                  = db;
-        _runner              = runner;
-        _a2aClient           = a2aClient;
-        _credentialResolver  = credentialResolver;
-        _overlayService      = overlayService;
-        _groupService        = groupService;
-        _scorer              = scorer ?? new CapabilityScoringService();
-        _logger              = logger;
+        _db = db;
+        _runner = runner;
+        _a2aClient = a2aClient;
+        _credentialResolver = credentialResolver;
+        _overlayService = overlayService;
+        _groupService = groupService;
+        _scorer = scorer ?? new CapabilityScoringService();
+        _logger = logger;
     }
 
     public void Register(IWorkerAgent agent)

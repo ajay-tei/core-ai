@@ -4,6 +4,26 @@
 
 ---
 
+## [2026-07-31] Environment-based agent management — Phase G (environment-scoped LLM API keys)
+
+Sixth phase: an agent's LLM API key is now resolved per-environment. Promoting an agent Dev→Staging→
+Production automatically picks up *that environment's own* key — never carries a Dev key into Prod —
+and promotion is hard-blocked if the target environment has no key configured for a referenced named
+config, rather than silently reusing the wrong one.
+
+| Area | Change |
+|------|--------|
+| Schema | Nullable `EnvironmentId` (FK, Restrict) added to `TenantLlmConfigEntity` and `GroupLlmConfigEntity` only — `PlatformLlmConfigEntity` stays environment-agnostic (the platform-tier fallback). Unique indexes changed to `(TenantId, Name, EnvironmentId)` (still filtered `WHERE Name IS NOT NULL`) and `(GroupId, Name, EnvironmentId)` |
+| Resolver | `ILlmConfigResolver.ResolveAsync` gains a **required** (not optional — deliberately, so a missed call site is a compile error, not a silent wrong-environment resolution) `environmentId` parameter. When a named config resolves by Id, the row's `Name` is used to re-look-up the effective row scoped to `(Name, environmentId)` — falling back to an *untagged* (`EnvironmentId == null`) row, never a different tagged environment's row, and finally to the original by-Id row as a last resort. Cache key now includes the environment dimension |
+| Call sites fixed | All 9 real call sites (one more than the plan's original list of 8 — `AnthropicAgentRunner.cs` has a second call in its re-plan flow) plus 18 test call sites (14 in `LlmConfigResolverTests.cs`, 4 NSubstitute mock setups in `AnthropicAgentRunnerTests.cs`) updated to pass the caller's own resolved `TenantContext.EnvironmentId` (or `0`/wildcard where no environment context exists yet — `AgentSetupAssistant`'s agent-authoring flow, `LlmRuleExtractor`'s platform-baseline branch) |
+| Promotion integration | `IPromotionDependencyResolver` gained a `GetBlockingSecretDependenciesAsync` method (default-empty via a C# default interface method, so only `AgentPromotionDependencyResolver` needed a real implementation) — an Agent's `LlmConfigId` resolves to its `Name`, and `PromotionOrchestrationService` hard-blocks promotion if no row (tagged-to-target or untagged) exists for that name in the destination environment |
+
+**Migrations**: `AddLlmConfigEnvironment` in both providers, `has-pending-model-changes` clean on both. Full build 0 errors, full test suite passes except the same pre-existing `ContextWindowTests` failure (all 269 TenantAdmin tests, including the 14 updated resolver tests, pass). Deployed; migration confirmed applied, health check 200.
+
+**Deferred**: CRUD/controller support for admins to actually *set* an `EnvironmentId` when creating/updating a named LLM config (`LlmConfigController`/`GroupsController`'s `UpsertLlmConfigDto`/`CreateNamedLlmConfigDto`) — there's no admin UI to use it yet (Phase F), so this is left for that phase alongside the environment dropdown it would need.
+
+---
+
 ## [2026-07-30] Environment-based agent management — Phase E (runtime environment routing, partial)
 
 Fifth phase: makes `TenantContext.EnvironmentId` a real, correctly-resolved per-request value, and

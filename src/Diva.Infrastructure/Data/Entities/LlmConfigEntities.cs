@@ -37,4 +37,9 @@ public class TenantLlmConfigEntity : ITenantEntity
     public string? DeploymentName { get; set; }
     public string? AvailableModelsJson { get; set; }
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>FK to TenantEnvironmentEntity — which environment this named config's key applies
+    /// to (Phase G). Null = untagged (resolves for any environment until tagged). Keys never travel
+    /// with promotion — an agent promoted to a new environment must have its own tagged config.</summary>
+    public int? EnvironmentId { get; set; }
 }

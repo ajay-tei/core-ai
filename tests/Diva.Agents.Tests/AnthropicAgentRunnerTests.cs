@@ -245,7 +245,7 @@ public class AnthropicAgentRunnerTests : IAsyncDisposable
     public async Task RunAsync_WithResolver_ResolvedModelUsedInMessageParameters()
     {
         var resolver = Substitute.For<ILlmConfigResolver>();
-        resolver.ResolveAsync(Arg.Any<int>(), Arg.Any<int?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        resolver.ResolveAsync(Arg.Any<int>(), Arg.Any<int?>(), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new ResolvedLlmConfig("Anthropic", "test-key", "claude-opus-4-6", null, null, []));
 
         _anthropic.GetClaudeMessageAsync(
@@ -275,7 +275,7 @@ public class AnthropicAgentRunnerTests : IAsyncDisposable
     {
         var resolver = Substitute.For<ILlmConfigResolver>();
         // "resolved-key" != opts "test-key" → override must be forwarded
-        resolver.ResolveAsync(Arg.Any<int>(), Arg.Any<int?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        resolver.ResolveAsync(Arg.Any<int>(), Arg.Any<int?>(), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new ResolvedLlmConfig("Anthropic", "resolved-key", "claude-sonnet-4-20250514", null, null, []));
 
         _anthropic.GetClaudeMessageAsync(
@@ -304,7 +304,7 @@ public class AnthropicAgentRunnerTests : IAsyncDisposable
     {
         var resolver = Substitute.For<ILlmConfigResolver>();
         // Same key as opts ("test-key") → override should be null
-        resolver.ResolveAsync(Arg.Any<int>(), Arg.Any<int?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        resolver.ResolveAsync(Arg.Any<int>(), Arg.Any<int?>(), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(new ResolvedLlmConfig("Anthropic", "test-key", "claude-sonnet-4-20250514", null, null, []));
 
         _anthropic.GetClaudeMessageAsync(Arg.Any<MessageParameters>(), Arg.Any<CancellationToken>())
@@ -332,7 +332,7 @@ public class AnthropicAgentRunnerTests : IAsyncDisposable
     public async Task RunAsync_ResolverThrows_FallsBackToOptsAndSucceeds()
     {
         var resolver = Substitute.For<ILlmConfigResolver>();
-        resolver.ResolveAsync(Arg.Any<int>(), Arg.Any<int?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        resolver.ResolveAsync(Arg.Any<int>(), Arg.Any<int?>(), Arg.Any<string?>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException<ResolvedLlmConfig>(new InvalidOperationException("resolver failure")));
 
         _anthropic.GetClaudeMessageAsync(Arg.Any<MessageParameters>(), Arg.Any<CancellationToken>())

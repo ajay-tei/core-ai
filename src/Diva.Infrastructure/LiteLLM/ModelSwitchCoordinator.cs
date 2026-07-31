@@ -85,7 +85,7 @@ internal sealed class ModelSwitchCoordinator(
             ResolvedLlmConfig? newCfg = null;
             Exception? resolveEx = null;
             var modelHint = !string.IsNullOrEmpty(hookCtx.ModelOverride) ? hookCtx.ModelOverride : null;
-            try { newCfg = await resolver.ResolveAsync(hookCtx.Tenant.TenantId, hookCtx.LlmConfigIdOverride, modelHint, ct); }
+                try { newCfg = await resolver.ResolveAsync(hookCtx.Tenant.TenantId, hookCtx.LlmConfigIdOverride, modelHint, hookCtx.Tenant.EnvironmentId, ct); }
             catch (Exception ex) { resolveEx = ex; }
 
             if (resolveEx is not null)

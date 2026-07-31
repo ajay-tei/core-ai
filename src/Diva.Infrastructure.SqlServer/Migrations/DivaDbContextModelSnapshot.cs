@@ -927,6 +927,9 @@ namespace Diva.Infrastructure.SqlServer.Migrations
                     b.Property<string>("Endpoint")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int?>("EnvironmentId")
+                        .HasColumnType("int");
+
                     b.Property<int>("GroupId")
                         .HasColumnType("int");
 
@@ -947,11 +950,13 @@ namespace Diva.Infrastructure.SqlServer.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("EnvironmentId");
+
                     b.HasIndex("PlatformConfigRef");
 
-                    b.HasIndex("GroupId", "Name")
+                    b.HasIndex("GroupId", "Name", "EnvironmentId")
                         .IsUnique()
-                        .HasFilter("[Name] IS NOT NULL");
+                        .HasFilter("[Name] IS NOT NULL AND [EnvironmentId] IS NOT NULL");
 
                     b.ToTable("GroupLlmConfigs");
                 });
@@ -2339,6 +2344,9 @@ namespace Diva.Infrastructure.SqlServer.Migrations
                     b.Property<string>("Endpoint")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int?>("EnvironmentId")
+                        .HasColumnType("int");
+
                     b.Property<string>("Model")
                         .HasColumnType("nvarchar(max)");
 
@@ -2356,7 +2364,9 @@ namespace Diva.Infrastructure.SqlServer.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("TenantId", "Name")
+                    b.HasIndex("EnvironmentId");
+
+                    b.HasIndex("TenantId", "Name", "EnvironmentId")
                         .IsUnique()
                         .HasFilter("[Name] IS NOT NULL");
 
@@ -2913,6 +2923,11 @@ namespace Diva.Infrastructure.SqlServer.Migrations
 
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.GroupLlmConfigEntity", b =>
                 {
+                    b.HasOne("Diva.Infrastructure.Data.Entities.TenantEnvironmentEntity", null)
+                        .WithMany()
+                        .HasForeignKey("EnvironmentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Diva.Infrastructure.Data.Entities.TenantGroupEntity", "Group")
                         .WithMany("LlmConfigs")
                         .HasForeignKey("GroupId")
@@ -3115,6 +3130,14 @@ namespace Diva.Infrastructure.SqlServer.Migrations
                         .IsRequired();
 
                     b.Navigation("Group");
+                });
+
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.TenantLlmConfigEntity", b =>
+                {
+                    b.HasOne("Diva.Infrastructure.Data.Entities.TenantEnvironmentEntity", null)
+                        .WithMany()
+                        .HasForeignKey("EnvironmentId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.TenantMcpServerEntity", b =>

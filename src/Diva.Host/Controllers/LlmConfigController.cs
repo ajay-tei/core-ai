@@ -250,11 +250,11 @@ public class LlmConfigController : ControllerBase
     // Respects tenant → group → platform credential hierarchy via ILlmConfigResolver.
     [HttpGet("api/admin/llm-configs/{id:int}/models")]
     public async Task<IActionResult> GetLlmConfigModels(
-        int id, [FromQuery] int tenantId = 1, CancellationToken ct = default)
+        int id, [FromQuery] int tenantId = 1, [FromQuery] int environmentId = 0, CancellationToken ct = default)
     {
         var tid = EffectiveTenantId(tenantId);
         ResolvedLlmConfig resolved;
-        try { resolved = await _resolver.ResolveAsync(tid, id, null, ct); }
+        try { resolved = await _resolver.ResolveAsync(tid, id, null, environmentId, ct); }
         catch { return Ok(Array.Empty<string>()); }
 
         var models = await FetchProviderModelsAsync(resolved, ct);

@@ -301,7 +301,7 @@ public sealed class AnthropicAgentRunner : IAgentRunner
             Exception? resolveEx = null;
             // Runtime override (test mode) takes precedence over the agent definition's pinned config
             var configId = request.LlmConfigId ?? definition.LlmConfigId;
-            try { resolved = await _resolver.ResolveAsync(tenant.TenantId, configId, request.ModelId ?? definition.ModelId, ct); }
+            try { resolved = await _resolver.ResolveAsync(tenant.TenantId, configId, request.ModelId ?? definition.ModelId, tenant.EnvironmentId, ct); }
             catch (Exception ex) { resolveEx = ex; }
             if (resolveEx is not null)
                 _logger.LogWarning(resolveEx, "LlmConfigResolver failed for tenant {TenantId} — using appsettings fallback.", tenant.TenantId);
@@ -1639,7 +1639,7 @@ public sealed class AnthropicAgentRunner : IAgentRunner
             {
                 var replanCfgId = hookCtx.ReplanConfigId.Value;
                 ResolvedLlmConfig? replanCfg = null;
-                try { replanCfg = await _resolver.ResolveAsync(hookCtx.Tenant.TenantId, replanCfgId, null, ct); }
+                try { replanCfg = await _resolver.ResolveAsync(hookCtx.Tenant.TenantId, replanCfgId, null, hookCtx.Tenant.EnvironmentId, ct); }
                 catch (Exception replanCfgEx)
                 {
                     _logger.LogWarning(replanCfgEx,

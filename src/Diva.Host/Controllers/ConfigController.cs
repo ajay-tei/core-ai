@@ -39,7 +39,7 @@ public class ConfigController : ControllerBase
         {
             var tenantCtx = HttpContext.TryGetTenantContext();
             var tenantId = tenantCtx?.TenantId ?? 0;
-            var resolved = await _resolver.ResolveAsync(tenantId, llmConfigId, null, ct);
+            var resolved = await _resolver.ResolveAsync(tenantId, llmConfigId, null, tenantCtx?.EnvironmentId ?? 0, ct);
             var resolvedModels = resolved.AvailableModels.Count > 0
                 ? resolved.AvailableModels
                 : (resolved.Model is not null ? [resolved.Model] : (IReadOnlyList<string>)[]);
@@ -54,7 +54,7 @@ public class ConfigController : ControllerBase
         // No specific config requested — resolve the platform default (first platform config or appsettings fallback)
         var tenantCtx2 = HttpContext.TryGetTenantContext();
         var tid2 = tenantCtx2?.TenantId ?? 0;
-        var defaultResolved = await _resolver.ResolveAsync(tid2, null, null, ct);
+        var defaultResolved = await _resolver.ResolveAsync(tid2, null, null, tenantCtx2?.EnvironmentId ?? 0, ct);
         var defaultModels = defaultResolved.AvailableModels.Count > 0
             ? defaultResolved.AvailableModels
             : (defaultResolved.Model is not null ? [defaultResolved.Model] : (IReadOnlyList<string>)[]);
