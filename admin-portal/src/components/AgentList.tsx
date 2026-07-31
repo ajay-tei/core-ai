@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
 import {
@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { api, type AgentSummary, type AgentListParams, type AgentImportResult } from "@/api";
 import { usePagedList } from "@/hooks/usePagedList";
+import { useEnvironment } from "@/hooks/useEnvironment";
 import { auth } from "@/lib/auth";
 import { triggerJsonDownload } from "@/lib/download";
 import { AgentImportDialog } from "@/components/AgentImportDialog";
@@ -90,8 +91,14 @@ function SharedBadge({ agent }: { agent: AgentSummary }) {
 export function AgentList() {
   const navigate = useNavigate();
   const isAdmin = auth.isAdmin();
+  const { currentEnvironmentId } = useEnvironment();
   const { result, loading, params, update, updateDebounced, setPage, reload } =
     usePagedList<AgentSummary, AgentListParams>(api.listAgentsPaged, { page: 1, pageSize: 25 });
+
+  useEffect(() => {
+    if (currentEnvironmentId) update({ environmentId: currentEnvironmentId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentEnvironmentId]);
   const [deleteTarget, setDeleteTarget] = useState<AgentSummary | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [publishTarget, setPublishTarget] = useState<AgentSummary | null>(null);

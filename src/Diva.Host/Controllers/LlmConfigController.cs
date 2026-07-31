@@ -158,6 +158,7 @@ public class LlmConfigController : ControllerBase
             config.DeploymentName,
             config.AvailableModelsJson,
             config.UpdatedAt,
+            config.EnvironmentId,
         });
     }
 
@@ -181,6 +182,7 @@ public class LlmConfigController : ControllerBase
             config.DeploymentName,
             config.AvailableModelsJson,
             config.UpdatedAt,
+            config.EnvironmentId,
         });
     }
 
@@ -199,11 +201,14 @@ public class LlmConfigController : ControllerBase
     // GET /api/admin/llm-configs?tenantId=N  — list all named configs for a tenant
     [HttpGet("api/admin/llm-configs")]
     public async Task<IActionResult> ListTenantLlmConfigs(
-        [FromQuery] int tenantId = 1, CancellationToken ct = default)
+        [FromQuery] int tenantId = 1, [FromQuery] int? environmentId = null, CancellationToken ct = default)
     {
         var tid = EffectiveTenantId(tenantId);
         var configs = await _groups.ListTenantLlmConfigsAsync(tid, ct);
-        return Ok(configs.Select(c => new
+        IEnumerable<Diva.Infrastructure.Data.Entities.TenantLlmConfigEntity> filtered = configs;
+        if (environmentId is > 0)
+            filtered = filtered.Where(c => c.EnvironmentId == environmentId || c.EnvironmentId == null);
+        return Ok(filtered.Select(c => new
         {
             c.Id,
             c.TenantId,
@@ -215,6 +220,7 @@ public class LlmConfigController : ControllerBase
             c.DeploymentName,
             c.AvailableModelsJson,
             c.UpdatedAt,
+            c.EnvironmentId,
         }));
     }
 
@@ -239,6 +245,7 @@ public class LlmConfigController : ControllerBase
             config.DeploymentName,
             config.AvailableModelsJson,
             config.UpdatedAt,
+            config.EnvironmentId,
         });
     }
 
@@ -265,6 +272,7 @@ public class LlmConfigController : ControllerBase
                 config.DeploymentName,
                 config.AvailableModelsJson,
                 config.UpdatedAt,
+                config.EnvironmentId,
             });
         }
         catch (KeyNotFoundException) { return NotFound(); }

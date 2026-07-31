@@ -588,6 +588,7 @@ public sealed class TenantGroupService : ITenantGroupService
             Endpoint            = dto.Endpoint,
             DeploymentName      = dto.DeploymentName,
             AvailableModelsJson = dto.AvailableModelsJson,
+            EnvironmentId       = dto.EnvironmentId,
         };
         db.GroupLlmConfigs.Add(config);
         await db.SaveChangesAsync(ct);
@@ -808,6 +809,7 @@ public sealed class TenantGroupService : ITenantGroupService
             Endpoint            = dto.Endpoint,
             DeploymentName      = dto.DeploymentName,
             AvailableModelsJson = dto.AvailableModelsJson,
+            EnvironmentId       = dto.EnvironmentId,
         };
         db.TenantLlmConfigs.Add(config);
         await db.SaveChangesAsync(ct);
@@ -1113,6 +1115,7 @@ public sealed class TenantGroupService : ITenantGroupService
         if (dto.Endpoint            is not null) config.Endpoint            = dto.Endpoint;
         if (dto.DeploymentName      is not null) config.DeploymentName      = dto.DeploymentName;
         if (dto.AvailableModelsJson is not null) config.AvailableModelsJson = dto.AvailableModelsJson;
+        if (dto.EnvironmentId.HasValue)          config.EnvironmentId      = dto.EnvironmentId;
     }
 
     private static void ApplyLlmConfigDto(TenantLlmConfigEntity config, UpsertLlmConfigDto dto)
@@ -1123,6 +1126,7 @@ public sealed class TenantGroupService : ITenantGroupService
         if (dto.Endpoint            is not null) config.Endpoint            = dto.Endpoint;
         if (dto.DeploymentName      is not null) config.DeploymentName      = dto.DeploymentName;
         if (dto.AvailableModelsJson is not null) config.AvailableModelsJson = dto.AvailableModelsJson;
+        if (dto.EnvironmentId.HasValue)          config.EnvironmentId      = dto.EnvironmentId;
     }
 
     private async Task InvalidateGroupMemberResolversAsync(int groupId, DivaDbContext db, CancellationToken ct)

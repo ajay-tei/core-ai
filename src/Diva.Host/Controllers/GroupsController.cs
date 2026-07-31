@@ -445,6 +445,7 @@ public class GroupsController : ControllerBase
         apiKey = c.ApiKey is not null ? "••••••••" : (string?)null,
         c.Model, c.Endpoint, c.DeploymentName, c.AvailableModelsJson, c.UpdatedAt,
         platformConfigRef = c.PlatformConfigRef,
+        c.EnvironmentId,
     };
 }
 

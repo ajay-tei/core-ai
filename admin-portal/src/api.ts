@@ -16,9 +16,27 @@ export function getStoredToken(): string | null
   return localStorage.getItem(storageKey("token"));
 }
 
+/** Returns the currently-selected environment ID (Phase F environment switcher), or null when
+ *  none has been selected yet (server falls back to the tenant's IsDefault environment). */
+export function getStoredEnvironmentId(): number | null
+{
+  const raw = localStorage.getItem(storageKey("environment_id"));
+  const n = raw ? Number(raw) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Persists the selected environment ID — read by authHeaders() on every subsequent request. */
+export function setStoredEnvironmentId(id: number | null): void
+{
+  if (id && id > 0) localStorage.setItem(storageKey("environment_id"), String(id));
+  else localStorage.removeItem(storageKey("environment_id"));
+}
+
 /** Returns auth headers to attach to every API request.
  *  Always includes X-Tenant-ID so opaque token validation works even when
- *  the provider doesn't include tenant context in its GetUserInfo response. */
+ *  the provider doesn't include tenant context in its GetUserInfo response.
+ *  Also sends X-Environment when a switcher selection exists — honored server-side only for
+ *  admin callers (TenantContextMiddleware), so this is safe to always attach. */
 function authHeaders(): Record<string, string>
 {
   const token = getStoredToken();
@@ -26,6 +44,8 @@ function authHeaders(): Record<string, string>
   const headers: Record<string, string> = {};
   if (token) headers["Authorization"] = `Bearer ${ token }`;
   headers["X-Tenant-ID"] = tenantId;   // always sent — required for opaque token routing
+  const environmentId = getStoredEnvironmentId();
+  if (environmentId) headers["X-Environment"] = String(environmentId);
   return headers;
 }
 
@@ -53,6 +73,7 @@ export interface AgentListParams
   search?: string;
   page?: number;
   pageSize?: number;
+  environmentId?: number;
 }
 
 export interface AgentDefinition
@@ -99,6 +120,8 @@ export interface AgentDefinition
   version?: number;
   createdAt?: string;
   publishedAt?: string;
+  environmentId?: number;
+  logicalId?: string;
 }
 
 export interface LlmConfig
@@ -870,6 +893,7 @@ export interface GroupLlmConfig
   updatedAt: string;
   /** Set when this group config is a reference to a platform config (no own credentials). */
   platformConfigRef?: number;
+  environmentId?: number;
 }
 
 // ── Platform & Tenant LLM Config (DB-backed) ──────────────────────────────────
@@ -917,6 +941,7 @@ export interface TenantLlmConfig
   deploymentName?: string;
   availableModelsJson?: string;
   updatedAt: string;
+  environmentId?: number;
 }
 
 export interface UpsertLlmConfigDto
@@ -927,6 +952,7 @@ export interface UpsertLlmConfigDto
   endpoint?: string;
   deploymentName?: string;
   availableModelsJson?: string;
+  environmentId?: number;
 }
 
 export interface CreateNamedLlmConfigDto
@@ -938,6 +964,7 @@ export interface CreateNamedLlmConfigDto
   endpoint?: string;
   deploymentName?: string;
   availableModelsJson?: string;
+  environmentId?: number;
 }
 
 /** Lightweight summary for the agent-builder LLM config picker. */
@@ -982,6 +1009,7 @@ export interface McpCredential
   lastUsedAt?: string;
   createdByUserId?: string;
   apiKeyHint?: string;         // masked tail of the stored key, e.g. "••••cd12" (null if undecryptable)
+  environmentId?: number;
 }
 
 export interface McpCredentialListParams
@@ -990,6 +1018,7 @@ export interface McpCredentialListParams
   search?: string;
   page?: number;
   pageSize?: number;
+  environmentId?: number;
 }
 
 export interface CreateCredentialDto
@@ -1001,6 +1030,7 @@ export interface CreateCredentialDto
   description?: string;
   expiresAt?: string;
   tenantId?: number;
+  environmentId?: number;
 }
 
 export interface UpdateCredentialDto
@@ -1013,6 +1043,7 @@ export interface UpdateCredentialDto
   isActive?: boolean;
   newApiKey?: string;
   tenantId?: number;
+  environmentId?: number;
 }
 
 // ── Shared MCP Servers (tenant-scoped, reusable across agents) ────────────────
@@ -1056,6 +1087,7 @@ export interface McpServer
   createdAt: string;
   updatedAt?: string;
   createdByUserId?: string;
+  environmentId?: number;
 }
 
 export interface McpServerListParams
@@ -1064,6 +1096,7 @@ export interface McpServerListParams
   search?: string;
   page?: number;
   pageSize?: number;
+  environmentId?: number;
 }
 
 export interface CreateMcpServerDto
@@ -1168,6 +1201,7 @@ export interface AgentGroup
   allowedUserGroupIds: number[];
   createdAt: string;
   updatedAt?: string;
+  environmentId?: number;
 }
 
 export interface AgentGroupListParams
@@ -1176,6 +1210,7 @@ export interface AgentGroupListParams
   search?: string;
   page?: number;
   pageSize?: number;
+  environmentId?: number;
 }
 
 export interface AgentGroupRequest
@@ -1247,6 +1282,88 @@ export interface EnvironmentRequest
   tenantId?: number;
 }
 
+// ── Draft / Publish (Phase C) + Promotion (Phase D) ───────────────────────────
+
+/** Shape returned by every `GET {route}/{id}/draft` endpoint (Agents/MCP Servers/Scheduled Tasks/Agent Groups). */
+export interface DraftInfo<T>
+{
+  hasDraft: boolean;
+  draft?: T;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export interface PromotableDependency
+{
+  objectType: string;
+  logicalId: string;
+  displayName: string;
+}
+
+export interface PromotionPreview
+{
+  canPromote: boolean;
+  blockingError?: string;
+  willPromote: PromotableDependency[];
+}
+
+export interface PromotedObjectResult
+{
+  objectType: string;
+  logicalId: string;
+  name: string;
+  versionId?: number;
+  version?: number;
+  wasSkipped: boolean;
+}
+
+export interface PromotionResult
+{
+  success: boolean;
+  error?: string;
+  runId?: number;
+  promotedObjects: PromotedObjectResult[];
+}
+
+export interface PromoteRequest
+{
+  objectType: string;
+  logicalId: string;
+  fromEnvironmentId: number;
+  toEnvironmentId: number;
+  tenantId?: number;
+}
+
+export interface RollbackRequest
+{
+  objectType: string;
+  logicalId: string;
+  environmentId: number;
+  toVersionId: number;
+  tenantId?: number;
+}
+
+export interface PromotableVersion
+{
+  id: number;
+  logicalId: string;
+  version: number;
+  contentHash: string;
+  snapshotJson: string;
+  source: string;
+  promotedFromVersionId?: number;
+  createdBy?: string;
+  changeNote?: string;
+  createdAt: string;
+}
+
+export interface SnapshotFieldDiff
+{
+  fieldPath: string;
+  oldValue?: string;
+  newValue?: string;
+}
+
 // ── Scheduler types ───────────────────────────────────────────────────────────
 
 export interface ScheduledTask
@@ -1276,6 +1393,7 @@ export interface ScheduledTask
   runAsUserId?: string;         // when set, run executes as this user profile (for user-group MCP credentials)
   runAsUserEmail?: string;
   runAsUserLabel?: string;      // display label of the run-as user
+  environmentId?: number;
 }
 
 export interface ScheduledTaskListParams
@@ -1284,6 +1402,7 @@ export interface ScheduledTaskListParams
   search?: string;
   page?: number;
   pageSize?: number;
+  environmentId?: number;
 }
 
 export interface ScheduledTaskRun
@@ -1492,6 +1611,7 @@ export const api = {
     if (params.search) qs.set("search", params.search);
     if (params.page) qs.set("page", String(params.page));
     if (params.pageSize) qs.set("pageSize", String(params.pageSize));
+    if (params.environmentId) qs.set("environmentId", String(params.environmentId));
     return request<PagedResult<AgentSummary>>(`/api/agents/paged?${ qs }`);
   },
   getAgent: (id: string) => request<AgentDefinition>(`/api/agents/${ id }`),
@@ -1737,6 +1857,7 @@ export const api = {
     if (params.search) qs.set("search", params.search);
     if (params.page) qs.set("page", String(params.page));
     if (params.pageSize) qs.set("pageSize", String(params.pageSize));
+    if (params.environmentId) qs.set("environmentId", String(params.environmentId));
     return request<PagedResult<ScheduledTask>>(`/api/schedules?${ qs }`);
   },
   getSchedule: (id: string, tenantId = 1) =>
@@ -1991,6 +2112,7 @@ export const api = {
     if (params.search) qs.set("search", params.search);
     if (params.page) qs.set("page", String(params.page));
     if (params.pageSize) qs.set("pageSize", String(params.pageSize));
+    if (params.environmentId) qs.set("environmentId", String(params.environmentId));
     return request<PagedResult<McpCredential>>(`/api/admin/credentials/paged?${ qs }`);
   },
   createCredential: (dto: CreateCredentialDto) =>
@@ -2011,6 +2133,7 @@ export const api = {
     if (params.search) qs.set("search", params.search);
     if (params.page) qs.set("page", String(params.page));
     if (params.pageSize) qs.set("pageSize", String(params.pageSize));
+    if (params.environmentId) qs.set("environmentId", String(params.environmentId));
     return request<PagedResult<McpServer>>(`/api/admin/mcp-servers/paged?${ qs }`);
   },
   getMcpServer: (id: number, tenantId?: number) =>
@@ -2051,6 +2174,7 @@ export const api = {
     if (params.search) qs.set("search", params.search);
     if (params.page) qs.set("page", String(params.page));
     if (params.pageSize) qs.set("pageSize", String(params.pageSize));
+    if (params.environmentId) qs.set("environmentId", String(params.environmentId));
     return request<PagedResult<AgentGroup>>(`/api/agent-groups/paged?${ qs }`);
   },
   getAgentGroup: (id: string, tenantId?: number) =>
@@ -2093,6 +2217,49 @@ export const api = {
     request<TenantEnvironment>(`/api/admin/environments/${ id }`, { method: "PUT", body: JSON.stringify(dto) }),
   deleteEnvironment: (id: number, tenantId = 1) =>
     request<void>(`/api/admin/environments/${ id }?tenantId=${ tenantId }`, { method: "DELETE" }),
+
+  // ── Draft / Publish (Phase C) ─────────────────────────────────────────────────
+  getAgentDraft: (id: string) => request<DraftInfo<AgentDefinition>>(`/api/agents/${ id }/draft`),
+  saveAgentDraft: (id: string, dto: AgentDefinition) =>
+    request<{ message: string; }>(`/api/agents/${ id }/draft`, { method: "PUT", body: JSON.stringify(dto) }),
+  deleteAgentDraft: (id: string) => request<void>(`/api/agents/${ id }/draft`, { method: "DELETE" }),
+  publishAgent: (id: string) => request<AgentDefinition>(`/api/agents/${ id }/publish`, { method: "POST" }),
+
+  getMcpServerDraft: (id: number) => request<DraftInfo<UpdateMcpServerDto>>(`/api/admin/mcp-servers/${ id }/draft`),
+  saveMcpServerDraft: (id: number, dto: UpdateMcpServerDto) =>
+    request<{ message: string; }>(`/api/admin/mcp-servers/${ id }/draft`, { method: "PUT", body: JSON.stringify(dto) }),
+  deleteMcpServerDraft: (id: number) => request<void>(`/api/admin/mcp-servers/${ id }/draft`, { method: "DELETE" }),
+  publishMcpServer: (id: number) => request<McpServer>(`/api/admin/mcp-servers/${ id }/publish`, { method: "POST" }),
+
+  getScheduledTaskDraft: (id: string) => request<DraftInfo<UpdateScheduleDto>>(`/api/schedules/${ id }/draft`),
+  saveScheduledTaskDraft: (id: string, dto: UpdateScheduleDto) =>
+    request<{ message: string; }>(`/api/schedules/${ id }/draft`, { method: "PUT", body: JSON.stringify(dto) }),
+  deleteScheduledTaskDraft: (id: string) => request<void>(`/api/schedules/${ id }/draft`, { method: "DELETE" }),
+  publishScheduledTask: (id: string) => request<ScheduledTask>(`/api/schedules/${ id }/publish`, { method: "POST" }),
+
+  getAgentGroupDraft: (id: string) => request<DraftInfo<AgentGroupRequest>>(`/api/agent-groups/${ id }/draft`),
+  saveAgentGroupDraft: (id: string, dto: AgentGroupRequest) =>
+    request<{ message: string; }>(`/api/agent-groups/${ id }/draft`, { method: "PUT", body: JSON.stringify(dto) }),
+  deleteAgentGroupDraft: (id: string) => request<void>(`/api/agent-groups/${ id }/draft`, { method: "DELETE" }),
+  publishAgentGroup: (id: string) => request<AgentGroup>(`/api/agent-groups/${ id }/publish`, { method: "POST" }),
+
+  // ── Promotion (Phase D) ───────────────────────────────────────────────────────
+  previewPromotion: (objectType: string, logicalId: string, fromEnvironmentId: number, toEnvironmentId: number, tenantId = 1) =>
+  {
+    const qs = new URLSearchParams({
+      objectType, logicalId, tenantId: String(tenantId),
+      fromEnvironmentId: String(fromEnvironmentId), toEnvironmentId: String(toEnvironmentId),
+    });
+    return request<PromotionPreview>(`/api/admin/promotions/preview?${ qs }`);
+  },
+  promote: (req: PromoteRequest) =>
+    request<PromotionResult>("/api/admin/promotions", { method: "POST", body: JSON.stringify(req) }),
+  getPromotionHistory: (logicalId: string, tenantId = 1) =>
+    request<PromotableVersion[]>(`/api/admin/promotions/history?logicalId=${ logicalId }&tenantId=${ tenantId }`),
+  getPromotionDiff: (fromVersionId: number, toVersionId: number, tenantId = 1) =>
+    request<SnapshotFieldDiff[]>(`/api/admin/promotions/diff?fromVersionId=${ fromVersionId }&toVersionId=${ toVersionId }&tenantId=${ tenantId }`),
+  rollbackPromotion: (req: RollbackRequest) =>
+    request<PromotionResult>("/api/admin/promotions/rollback", { method: "POST", body: JSON.stringify(req) }),
 
   // ── A2A Config ────────────────────────────────────────────────────────────
   getA2AConfig: () => request<A2AConfig>("/api/admin/a2a-config"),

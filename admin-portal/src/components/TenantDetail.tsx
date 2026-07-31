@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router";
-import { api, type TenantLlmConfig, type AvailableLlmConfig, type UpsertLlmConfigDto, type CreateNamedLlmConfigDto } from "@/api";
+import { api, type TenantLlmConfig, type AvailableLlmConfig, type UpsertLlmConfigDto, type CreateNamedLlmConfigDto, type TenantEnvironment } from "@/api";
 import { SsoConfig } from "@/components/SsoConfig";
 import { LocalUsersPanel } from "@/components/LocalUsersPanel";
 import { LlmForm } from "@/components/PlatformLlmConfig";
+import { EnvironmentBadge } from "@/components/ui/environment-badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -101,6 +103,7 @@ export function TenantDetail() {
 // ── Tenant LLM Config Panel ────────────────────────────────────────────────────
 
 function TenantLlmConfigPanel({ tenantId }: { tenantId: number }) {
+  const [environments, setEnvironments] = useState<TenantEnvironment[]>([]);
   const [groupConfigs, setGroupConfigs] = useState<AvailableLlmConfig[]>([]);
   const [ownConfigs,   setOwnConfigs]   = useState<TenantLlmConfig[]>([]);
   const [loading,      setLoading]      = useState(true);
@@ -113,12 +116,14 @@ function TenantLlmConfigPanel({ tenantId }: { tenantId: number }) {
 
   async function load() {
     try {
-      const [available, own] = await Promise.all([
+      const [available, own, envs] = await Promise.all([
         api.listAvailableLlmConfigs(tenantId),
         api.listTenantLlmConfigs(tenantId),
+        api.listEnvironments(tenantId),
       ]);
       setGroupConfigs(available.filter(c => c.source.startsWith("group:")));
       setOwnConfigs(own.filter(c => c.name));   // only named tenant configs
+      setEnvironments(envs);
     } catch (e) {
       toast.error(`Failed to load LLM config: ${e}`);
     } finally {
@@ -140,6 +145,7 @@ function TenantLlmConfigPanel({ tenantId }: { tenantId: number }) {
         endpoint:           newForm.endpoint           || undefined,
         deploymentName:     newForm.deploymentName     || undefined,
         availableModelsJson: newForm.availableModelsJson || undefined,
+        environmentId:      newForm.environmentId,
       };
       const created = await api.createTenantLlmConfig(dto, tenantId);
       setOwnConfigs(l => [...l, created]);
@@ -226,6 +232,21 @@ function TenantLlmConfigPanel({ tenantId }: { tenantId: number }) {
                 />
               </div>
               <LlmForm value={newForm} onChange={p => setNewForm(f => ({ ...f, ...p }))} />
+              {environments.length > 0 && (
+                <div className="space-y-1">
+                  <Label className="text-xs">Environment</Label>
+                  <Select
+                    value={newForm.environmentId ? String(newForm.environmentId) : "none"}
+                    onValueChange={v => setNewForm(f => ({ ...f, environmentId: v === "none" ? undefined : Number(v) }))}
+                  >
+                    <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">All environments (untagged)</SelectItem>
+                      {environments.map(e => <SelectItem key={e.id} value={String(e.id)}>{e.displayName}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div className="flex items-center gap-2">
                 <Button size="sm" onClick={addOwnConfig} disabled={addingSaving || !newName.trim()}>
                   {addingSaving ? "Creating…" : "Create"}
@@ -244,11 +265,14 @@ function TenantLlmConfigPanel({ tenantId }: { tenantId: number }) {
 
         {ownConfigs.map(c => (
           <div key={c.id} className="flex items-center justify-between rounded border px-3 py-2">
-            <div>
+            <div className="flex items-center gap-2">
               <span className="text-sm font-medium">{c.name}</span>
-              <span className="ml-2 text-xs text-muted-foreground">
+              <span className="text-xs text-muted-foreground">
                 {[c.provider, c.model].filter(Boolean).join(" · ") || "no credentials set"}
               </span>
+              {c.environmentId && (
+                <EnvironmentBadge environment={environments.find(e => e.id === c.environmentId)} allEnvironments={environments} />
+              )}
             </div>
             <div className="flex items-center gap-1">
               <span className="text-xs text-muted-foreground">ID {c.id}</span>

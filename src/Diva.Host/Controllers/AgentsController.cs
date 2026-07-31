@@ -80,13 +80,16 @@ public class AgentsController : ControllerBase
     private TenantContext Tenant =>
         HttpContext.TryGetTenantContext() ?? TenantContext.System(tenantId: 1);
 
-    // ── GET /api/agents ───────────────────────────────────────────────────────
+    // ── GET /api/agents?environmentId= ───────────────────────────────────────
     [HttpGet]
-    public async Task<IActionResult> List(CancellationToken ct)
+    public async Task<IActionResult> List([FromQuery] int? environmentId = null, CancellationToken ct = default)
     {
         var tenant = Tenant;
         using var db = _db.CreateDbContext(tenant);
-        var ownAgents = await db.AgentDefinitions
+        var ownAgentsQuery = db.AgentDefinitions.AsQueryable();
+        if (environmentId is > 0)
+            ownAgentsQuery = ownAgentsQuery.Where(a => a.EnvironmentId == environmentId || a.EnvironmentId == null);
+        var ownAgents = await ownAgentsQuery
             .OrderByDescending(a => a.CreatedAt)
             .Select(a => new AgentSummaryDto(a.Id, a.Name, a.DisplayName, a.AgentType, a.Status, a.IsEnabled, a.CreatedAt, false, null, null, a.LlmConfigId))
             .ToListAsync(ct);
@@ -126,11 +129,15 @@ public class AgentsController : ControllerBase
         [FromQuery] string? search,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 25,
+        [FromQuery] int? environmentId = null,
         CancellationToken ct = default)
     {
         var tenant = Tenant;
         using var db = _db.CreateDbContext(tenant);
-        var ownAgents = await db.AgentDefinitions
+        var ownAgentsQuery = db.AgentDefinitions.AsQueryable();
+        if (environmentId is > 0)
+            ownAgentsQuery = ownAgentsQuery.Where(a => a.EnvironmentId == environmentId || a.EnvironmentId == null);
+        var ownAgents = await ownAgentsQuery
             .OrderByDescending(a => a.CreatedAt)
             .Select(a => new AgentSummaryDto(a.Id, a.Name, a.DisplayName, a.AgentType, a.Status, a.IsEnabled, a.CreatedAt, false, null, null, a.LlmConfigId))
             .ToListAsync(ct);

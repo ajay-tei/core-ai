@@ -170,11 +170,13 @@ public record UpdateGroupTaskDto(
 
 public record UpsertLlmConfigDto(
     string? Provider, string? ApiKey, string? Model,
-    string? Endpoint, string? DeploymentName, string? AvailableModelsJson);
+    string? Endpoint, string? DeploymentName, string? AvailableModelsJson,
+    int? EnvironmentId = null);
 
 public record CreateNamedLlmConfigDto(
     string? Name, string? Provider, string? ApiKey, string? Model,
-    string? Endpoint, string? DeploymentName, string? AvailableModelsJson);
+    string? Endpoint, string? DeploymentName, string? AvailableModelsJson,
+    int? EnvironmentId = null);
 
 public record CreatePlatformLlmConfigDto(
     string Name, string? Provider, string? ApiKey, string? Model,

@@ -8,6 +8,7 @@ import {
   type PagedResult,
 } from "@/api";
 import { usePagedList } from "@/hooks/usePagedList";
+import { useEnvironment } from "@/hooks/useEnvironment";
 import { ListToolbar, ListPagination } from "@/components/ui/list-toolbar";
 import { toast } from "sonner";
 import {
@@ -76,8 +77,14 @@ function scheduleLabel(task: ScheduledTask) {
 
 export function ScheduledTasks() {
   const navigate = useNavigate();
+  const { currentEnvironmentId } = useEnvironment();
   const { result, loading, params, update, updateDebounced, setPage, reload } =
     usePagedList<ScheduledTask, ScheduledTaskListParams>(api.listSchedules, { page: 1, pageSize: 25 });
+
+  useEffect(() => {
+    if (currentEnvironmentId) update({ environmentId: currentEnvironmentId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentEnvironmentId]);
   const [agents, setAgents]     = useState<AgentSummary[]>([]);
   const [runsTask,     setRunsTask]     = useState<ScheduledTask | null>(null);
   const [deleteId,     setDeleteId]     = useState<string | null>(null);

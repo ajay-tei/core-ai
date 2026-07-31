@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { AUTH_ENABLED, auth } from "@/lib/auth";
 import { ChangePasswordDialog } from "@/components/ChangePasswordDialog";
+import { EnvironmentSwitcher } from "@/components/layout/environment-switcher";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -73,6 +74,7 @@ export function Topbar() {
       </Breadcrumb>
 
       <div className="ml-auto flex items-center gap-2">
+        <EnvironmentSwitcher />
         {AUTH_ENABLED && (() => {
           const user = auth.getUser();
           // isLocalUser: userId is a plain integer — local-auth users only (not SSO)

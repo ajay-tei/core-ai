@@ -39,12 +39,14 @@ public class CredentialsController : ControllerBase
     // Returns the full unbounded array — used by dropdown/selector callers (AgentBuilder.tsx,
     // McpServerManager.tsx's own credential-mapping dropdowns).
     [HttpGet]
-    public async Task<IActionResult> List([FromQuery] int tenantId = 1, CancellationToken ct = default)
+    public async Task<IActionResult> List([FromQuery] int tenantId = 1, [FromQuery] int? environmentId = null, CancellationToken ct = default)
     {
         var tid = EffectiveTenantId(tenantId);
         using var db = _db.CreateDbContext(Core.Models.TenantContext.System(tid));
-        var rows = await db.McpCredentials
-            .Where(c => c.TenantId == tid)
+        var query = db.McpCredentials.Where(c => c.TenantId == tid);
+        if (environmentId is > 0)
+            query = query.Where(c => c.EnvironmentId == environmentId || c.EnvironmentId == null);
+        var rows = await query
             .OrderByDescending(c => c.CreatedAt)
             .AsNoTracking()
             .Select(ProjectRow)
@@ -62,6 +64,7 @@ public class CredentialsController : ControllerBase
         [FromQuery] string? search = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 25,
+        [FromQuery] int? environmentId = null,
         CancellationToken ct = default)
     {
         var tid = EffectiveTenantId(tenantId);
@@ -72,6 +75,8 @@ public class CredentialsController : ControllerBase
             var q = search.Trim();
             query = query.Where(c => c.Name.Contains(q));
         }
+        if (environmentId is > 0)
+            query = query.Where(c => c.EnvironmentId == environmentId || c.EnvironmentId == null);
 
         var paged = await query
             .OrderByDescending(c => c.CreatedAt)
@@ -86,7 +91,7 @@ public class CredentialsController : ControllerBase
 
     private static readonly System.Linq.Expressions.Expression<Func<McpCredentialEntity, CredentialRow>> ProjectRow = c => new CredentialRow(
         c.Id, c.Name, c.AuthScheme, c.CustomHeaderName, c.Description,
-        c.CreatedAt, c.ExpiresAt, c.IsActive, c.LastUsedAt, c.CreatedByUserId, c.EncryptedApiKey);
+        c.CreatedAt, c.ExpiresAt, c.IsActive, c.LastUsedAt, c.CreatedByUserId, c.EncryptedApiKey, c.EnvironmentId);
 
     private object ToListItem(CredentialRow c) => new
     {
@@ -100,13 +105,14 @@ public class CredentialsController : ControllerBase
         c.IsActive,
         c.LastUsedAt,
         c.CreatedByUserId,
+        c.EnvironmentId,
         ApiKeyHint = MaskKey(c.EncryptedApiKey)
     };
 
     private sealed record CredentialRow(
         int Id, string Name, string AuthScheme, string? CustomHeaderName, string? Description,
         DateTime CreatedAt, DateTime? ExpiresAt, bool IsActive, DateTime? LastUsedAt,
-        string? CreatedByUserId, string? EncryptedApiKey);
+        string? CreatedByUserId, string? EncryptedApiKey, int? EnvironmentId);
 
 
     /// <summary>
@@ -148,6 +154,7 @@ public class CredentialsController : ControllerBase
             CustomHeaderName = dto.CustomHeaderName,
             Description = dto.Description,
             ExpiresAt = dto.ExpiresAt,
+            EnvironmentId = dto.EnvironmentId,
             CreatedByUserId = ctx?.UserId
         };
 
@@ -176,6 +183,7 @@ public class CredentialsController : ControllerBase
         if (dto.Description is not null) entity.Description = dto.Description;
         if (dto.ExpiresAt.HasValue) entity.ExpiresAt = dto.ExpiresAt;
         if (dto.IsActive.HasValue) entity.IsActive = dto.IsActive.Value;
+        if (dto.EnvironmentId.HasValue) entity.EnvironmentId = dto.EnvironmentId;
 
         // If a new API key is provided, re-encrypt
         if (!string.IsNullOrEmpty(dto.NewApiKey))
@@ -225,7 +233,8 @@ public record CreateCredentialDto(
     string? CustomHeaderName,
     string? Description,
     DateTime? ExpiresAt,
-    int TenantId = 1);
+    int TenantId = 1,
+    int? EnvironmentId = null);
 
 public record UpdateCredentialDto(
     string? Name,
@@ -235,7 +244,8 @@ public record UpdateCredentialDto(
     DateTime? ExpiresAt,
     bool? IsActive,
     string? NewApiKey,
-    int TenantId = 1);
+    int TenantId = 1,
+    int? EnvironmentId = null);
 
 public record RotateCredentialDto(
     string NewApiKey,

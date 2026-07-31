@@ -32,6 +32,7 @@ import { AgentGroups } from "@/components/AgentGroups";
 import { UserGroups } from "@/components/UserGroups";
 import { A2ASettings } from "@/components/A2ASettings";
 import { WidgetManager } from "@/components/WidgetManager";
+import { EnvironmentManager } from "@/components/EnvironmentManager";
 import SessionBrowser from "@/components/SessionBrowser";
 import SessionDetail from "@/components/SessionDetail";
 import AgentOptimizer from "@/components/AgentOptimizer";
@@ -125,6 +126,7 @@ export default function App() {
             <Route path="settings/api-keys" element={<ApiKeyManager />} />
             <Route path="settings/a2a" element={<A2ASettings />} />
             <Route path="settings/widgets" element={<WidgetManager />} />
+            <Route path="settings/environments" element={<EnvironmentManager />} />
 
             {/* Platform-level routes (master admin only) */}
             <Route path="platform/tenants" element={<TenantList />} />

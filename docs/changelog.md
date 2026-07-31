@@ -4,6 +4,41 @@
 
 ---
 
+## [2026-07-31] Environment-based agent management — Phase F (admin UI, v1 slice)
+
+Seventh phase: the first admin-portal UI for everything Phases A–I built server-side. This is the
+answer to "why don't I see any option related to environment?" — a global environment switcher,
+an Environments management page, environment-aware list filtering, draft/publish + promotion UI on
+Agents, and environment tagging on tenant LLM configs and MCP credentials. **Scoped as a v1 slice**
+(mirrors Phase E's approach): the highest-value, most-visible pieces are built and wired end-to-end;
+lower-priority polish and the remaining 3 object types' draft/publish+promote UI are deferred (see
+below), not silently skipped.
+
+| Area | Change |
+|------|--------|
+| Environment switcher | New `useEnvironment()` context (`admin-portal/src/hooks/useEnvironment.tsx`) — loads the tenant's environments, resolves the active one via `?env=` URL slug → localStorage → lowest-rank (never defaults to Production on first visit), persists both. New `EnvironmentSwitcher` (Topbar, global) and shared `EnvironmentBadge` (color-coded: highest-rank = destructive/red, lowest-rank = green, mid = amber) components |
+| Environment management | New `EnvironmentManager.tsx` page (`/settings/environments`, sidebar nav link) — full CRUD for `TenantEnvironmentEntity` (already had a backend `EnvironmentsController` from Phase A with no UI consumer until now) |
+| `X-Environment` header | `admin-portal/src/api.ts`'s `authHeaders()` now sends `X-Environment` from the switcher's selection on every request — `TenantContextMiddleware` (Phase E) already honored this header for admin callers, it just had no UI to set it |
+| List filtering | `AgentsController`/`McpServersController`/`SchedulerController`/`AgentGroupsController` list + paged endpoints gained an optional `?environmentId=` filter (matches the requested environment OR untagged rows, same pattern as Phase E's registry filter); wired into `AgentList.tsx`, `McpServerManager.tsx`, `ScheduledTasks.tsx`, `AgentGroups.tsx`, `CredentialManager.tsx` via a `useEffect` that re-queries whenever the switcher's environment changes |
+| Draft/Publish UI | `AgentBuilder.tsx` gained Save Draft / Publish buttons + an "unpublished draft changes" banner, wired to Phase C's existing `PUT/GET/DELETE .../draft` + `POST .../publish` endpoints |
+| Promotion UI | New shared `PromotionDialog.tsx` — dependency-preview (`GET /api/admin/promotions/preview`) + promote (`POST /api/admin/promotions`), with an extra confirmation toggle when the target is the top-of-pipeline (highest-rank) environment. Wired into `AgentBuilder.tsx` via a "Promote" button |
+| LLM config / credential environment tagging | `UpsertLlmConfigDto`/`CreateNamedLlmConfigDto` (`ITenantGroupService.cs`) and `CreateCredentialDto`/`UpdateCredentialDto` (`CredentialsController.cs`) gained `EnvironmentId` — closes the CRUD gaps Phases G and I deliberately deferred. `TenantDetail.tsx`'s tenant-owned LLM config form and `CredentialManager.tsx`'s create form both gained an Environment dropdown + badge on each row |
+
+**No schema changes** — every `EnvironmentId` column used here already existed from Phases A/E/G/I; this phase only added DTO fields, controller query params, and frontend UI. No migration needed.
+
+**Deferred (documented, not silently skipped)**:
+- Draft/Publish + Promote UI for MCP Servers, Scheduled Tasks, and Agent Groups (same pattern as Agents — `PromotionDialog` and the draft-status/banner logic are already generic/reusable, just not wired into those 3 components' pages yet).
+- Version history + rollback panel UI (`GET /api/admin/promotions/history` + `/diff`, `POST /api/admin/promotions/rollback` — all already exist server-side from Phase D, just no UI list/diff view yet).
+- `GroupDetail.tsx`'s LLM config environment dropdown — deliberately **not** built: a Group is cross-tenant, and `GroupLlmConfigEntity.EnvironmentId` is a raw numeric FK scoped to ONE tenant's `TenantEnvironmentEntity` row (confirmed against `LlmConfigResolver.ResolveGroupConfigByNameAsync`'s existing Phase G matching logic) — there's no single "which tenant's environment list" to source the dropdown from for a multi-tenant group without a larger design decision. The backend field/plumbing exists (`MapLlmConfig` returns `EnvironmentId`); only the ambiguous UI piece is deferred.
+- `ApiKeyManager.tsx` / `WidgetEditor.tsx` environment tagging (Phase E's own deferred item) — no DTO/UI changes yet.
+- Dashboard drift widget (draft/promotion-lag counts), extra step-by-step promotion progress feed (beyond the toast summary), empty-state CTAs on environment-filtered lists — UX polish items from the original plan (steps 27b–27d), not required for the core feature to function.
+
+**Verification**: full solution build 0 errors, full test suite passes except the same pre-existing `ContextWindowTests` failure. Frontend: `tsc -b` 0 errors, production `vite build` succeeds (2745 modules). Deployed via `docker-compose.tei.yml + docker-compose.sqlserver.yml`; health check 200, `/api/admin/environments` and `/api/admin/promotions/preview` both 401 (auth-gated as expected), admin portal itself 200.
+
+**Tooling note**: `admin-portal`'s `node_modules` has broken `bin/` folders for `typescript`/`eslint`/`vite` (present in `package.json` but missing on disk) — verified via direct entry-point invocation instead of `npx`/`npm run`; see `/memories/repo/sqlserver-migration.md` for the exact workaround commands.
+
+---
+
 ## [2026-07-31] Environment-based agent management — Phase I (environment-scoped MCP credentials)
 
 Seventh phase: MCP credential vault secrets are now resolved per-environment, mirroring Phase G's

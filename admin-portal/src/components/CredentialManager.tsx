@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, type McpCredential, type McpCredentialListParams, type CreateCredentialDto, type UpdateCredentialDto } from "@/api";
 import { usePagedList } from "@/hooks/usePagedList";
+import { useEnvironment } from "@/hooks/useEnvironment";
+import { EnvironmentBadge } from "@/components/ui/environment-badge";
 import { ListToolbar, ListPagination } from "@/components/ui/list-toolbar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,10 +17,16 @@ import { toast } from "sonner";
 const AUTH_SCHEMES = ["Bearer", "ApiKey", "Custom"] as const;
 
 export function CredentialManager() {
+  const { environments, currentEnvironmentId } = useEnvironment();
   const { result, loading, params, update, updateDebounced, setPage, reload } =
     usePagedList<McpCredential, McpCredentialListParams>(api.listCredentialsPaged, { page: 1, pageSize: 25 });
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState<CreateCredentialDto>({ name: "", apiKey: "" });
+
+  useEffect(() => {
+    if (currentEnvironmentId) update({ environmentId: currentEnvironmentId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentEnvironmentId]);
 
   const handleCreate = async () => {
     if (!form.name.trim() || !form.apiKey.trim()) {
@@ -96,6 +104,22 @@ export function CredentialManager() {
               <Label>Description</Label>
               <Input value={form.description ?? ""} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Optional description" />
             </div>
+            {environments.length > 0 && (
+              <div className="space-y-1.5">
+                <Label>Environment</Label>
+                <Select
+                  value={form.environmentId ? String(form.environmentId) : "none"}
+                  onValueChange={(v) => setForm({ ...form, environmentId: v === "none" ? undefined : Number(v) })}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">All environments (untagged)</SelectItem>
+                    {environments.map((e) => <SelectItem key={e.id} value={String(e.id)}>{e.displayName}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">Scope this credential to one environment, or leave untagged so every environment can use it as a fallback.</p>
+              </div>
+            )}
             <Button onClick={handleCreate}><Save className="h-4 w-4 mr-1" /> Create</Button>
           </CardContent>
         </Card>
@@ -129,6 +153,12 @@ export function CredentialManager() {
                       <Badge variant="outline" className="font-mono" title="Last 4 characters of the stored key">
                         {c.apiKeyHint}
                       </Badge>
+                    )}
+                    {c.environmentId && (
+                      <EnvironmentBadge
+                        environment={environments.find((e) => e.id === c.environmentId)}
+                        allEnvironments={environments}
+                      />
                     )}
                   </div>
                   <div className="text-xs text-muted-foreground">

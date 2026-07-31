@@ -80,6 +80,7 @@ const tenantNavGroups: NavGroup[] = [
       { title: "Sessions", url: "/sessions", icon: History },
       { title: "Schedules", url: "/schedules", icon: Calendar },
       { title: "Schedule Feedback", url: "/schedules/feedback", icon: Star },
+      { title: "Environments", url: "/settings/environments", icon: Layers },
     ],
   },
   {

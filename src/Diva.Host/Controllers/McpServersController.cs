@@ -51,12 +51,14 @@ public class McpServersController : ControllerBase
     // Returns the full unbounded array — used by dropdown/selector callers
     // (McpServerSelector.tsx, McpServerManager.tsx's own credential-mapping dropdowns).
     [HttpGet]
-    public async Task<IActionResult> List([FromQuery] int tenantId = 1, CancellationToken ct = default)
+    public async Task<IActionResult> List([FromQuery] int tenantId = 1, [FromQuery] int? environmentId = null, CancellationToken ct = default)
     {
         var tid = EffectiveTenantId(tenantId);
         using var db = _db.CreateDbContext(Core.Models.TenantContext.System(tid));
-        var items = await db.TenantMcpServers
-            .Where(s => s.TenantId == tid)
+        var query = db.TenantMcpServers.Where(s => s.TenantId == tid);
+        if (environmentId is > 0)
+            query = query.Where(s => s.EnvironmentId == environmentId || s.EnvironmentId == null);
+        var items = await query
             .Include(s => s.UserGroupCredentials)
             .OrderBy(s => s.Name)
             .AsNoTracking()
@@ -73,6 +75,7 @@ public class McpServersController : ControllerBase
         [FromQuery] string? search = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 25,
+        [FromQuery] int? environmentId = null,
         CancellationToken ct = default)
     {
         var tid = EffectiveTenantId(tenantId);
@@ -83,6 +86,8 @@ public class McpServersController : ControllerBase
             var q = search.Trim();
             query = query.Where(s => s.Name.Contains(q) || (s.Description ?? "").Contains(q));
         }
+        if (environmentId is > 0)
+            query = query.Where(s => s.EnvironmentId == environmentId || s.EnvironmentId == null);
 
         var paged = await query
             .Include(s => s.UserGroupCredentials)

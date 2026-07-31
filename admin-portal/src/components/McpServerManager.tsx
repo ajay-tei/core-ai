@@ -11,6 +11,7 @@ import {
   type UserGroupCredentialMapping,
 } from "@/api";
 import { usePagedList } from "@/hooks/usePagedList";
+import { useEnvironment } from "@/hooks/useEnvironment";
 import { ListToolbar, ListPagination } from "@/components/ui/list-toolbar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -86,8 +87,14 @@ function parseMappings(json?: string): ApiKeyCredentialMapping[] {
 }
 
 export function McpServerManager() {
+  const { currentEnvironmentId } = useEnvironment();
   const { result, loading, params, update, updateDebounced, setPage, reload } =
     usePagedList<McpServer, McpServerListParams>(api.listMcpServersPaged, { page: 1, pageSize: 25 });
+
+  useEffect(() => {
+    if (currentEnvironmentId) update({ environmentId: currentEnvironmentId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentEnvironmentId]);
   const [credentials, setCredentials] = useState<McpCredential[]>([]);
   const [apiKeys, setApiKeys] = useState<PlatformApiKey[]>([]);
   const [userGroups, setUserGroups] = useState<UserGroup[]>([]);

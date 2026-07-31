@@ -54,6 +54,7 @@ public class SchedulerController : ControllerBase
         [FromQuery] string? search = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 25,
+        [FromQuery] int? environmentId = null,
         CancellationToken ct = default)
     {
         var tasks = await _service.ListAsync(EffectiveTenantId(tenantId), ct);
@@ -65,6 +66,8 @@ public class SchedulerController : ControllerBase
                 t.Name.Contains(q, StringComparison.OrdinalIgnoreCase) ||
                 (t.Description ?? string.Empty).Contains(q, StringComparison.OrdinalIgnoreCase));
         }
+        if (environmentId is > 0)
+            filtered = filtered.Where(t => t.EnvironmentId == environmentId || t.EnvironmentId == null);
         return Ok(filtered.ToPagedResult(page, pageSize));
     }
 

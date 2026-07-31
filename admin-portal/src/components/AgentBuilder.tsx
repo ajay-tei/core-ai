@@ -8,6 +8,7 @@ import {
   Code2,
   Cpu,
   Download,
+  GitBranch,
   History,
   Info,
   Plus,
@@ -22,6 +23,8 @@ import {
 import { AgentAssistantDrawer } from "@/components/AgentAssistantDrawer";
 import { AgentImportDialog } from "@/components/AgentImportDialog";
 import { PromptQuickFixDialog } from "@/components/PromptQuickFixDialog";
+import { PromotionDialog } from "@/components/PromotionDialog";
+import { useEnvironment } from "@/hooks/useEnvironment";
 import {
   api,
   type AgentArchetype,
@@ -1047,10 +1050,16 @@ function AdvancedConfigPanel({
 export function AgentBuilder() {
   const { id: agentId } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { currentEnvironmentId } = useEnvironment();
 
   const [form, setForm] = useState<AgentDefinition>(DEFAULT_AGENT);
   const [bindings, setBindings] = useState<McpToolBinding[]>([{ ...EMPTY_BINDING }]);
   const [saving, setSaving] = useState(false);
+  const [hasDraft, setHasDraft] = useState(false);
+  const [draftUpdatedAt, setDraftUpdatedAt] = useState<string | undefined>();
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [promotionOpen, setPromotionOpen] = useState(false);
   const [llmConfig, setLlmConfig] = useState<LlmConfig>({ availableModels: [], currentProvider: "", defaultModel: "" });
   const [agentDefaults, setAgentDefaults] = useState<AgentDefaults | null>(null);
   const [availableLlmConfigs, setAvailableLlmConfigs] = useState<AvailableLlmConfig[]>([]);
@@ -1067,6 +1076,15 @@ export function AgentBuilder() {
     api.listAvailableLlmConfigs().then(setAvailableLlmConfigs).catch(() => {});
     api.listCredentials().then(setCredentials).catch(() => {});
   }, []);
+
+  // Draft status (Phase C/F) — only applies to existing agents; a brand-new (unsaved) agent has
+  // no live row yet, so there's nothing to draft-isolate from.
+  useEffect(() => {
+    if (!agentId) { setHasDraft(false); return; }
+    api.getAgentDraft(agentId)
+      .then((d) => { setHasDraft(d.hasDraft); setDraftUpdatedAt(d.updatedAt); })
+      .catch(() => {});
+  }, [agentId]);
 
   // When the agent's selected LLM config changes (user picks a config, or an agent with
   // a saved llmConfigId is loaded), refresh the model list from that config.
@@ -1115,20 +1133,24 @@ export function AgentBuilder() {
   const updateBinding = (i: number, b: McpToolBinding) =>
     setBindings((bs) => bs.map((x, j) => j === i ? b : x));
 
+  const buildAgentDto = (): AgentDefinition => {
+    const hasBindings = bindings.some((b) => b.name.trim() !== "" && (b.command.trim() !== "" || b.endpoint.trim() !== ""));
+    return {
+      ...form,
+      toolBindings: hasBindings ? JSON.stringify(bindings) : undefined,
+      // Ensure non-nullable string fields have defaults (C# entity requires these as non-null)
+      executionMode: form.executionMode || "Full",
+      status: form.status || "Draft",
+    };
+  };
+
   const handleSave = async () => {
     if (!form.name.trim()) {
       toast.error("Agent name is required");
       return;
     }
     try {
-      const hasBindings = bindings.some((b) => b.name.trim() !== "" && (b.command.trim() !== "" || b.endpoint.trim() !== ""));
-      const dto: AgentDefinition = {
-        ...form,
-        toolBindings: hasBindings ? JSON.stringify(bindings) : undefined,
-        // Ensure non-nullable string fields have defaults (C# entity requires these as non-null)
-        executionMode: form.executionMode || "Full",
-        status: form.status || "Draft",
-      };
+      const dto = buildAgentDto();
       if (agentId) {
         await api.updateAgent(agentId, dto);
         toast.success("Agent updated successfully");
@@ -1141,6 +1163,40 @@ export function AgentBuilder() {
       toast.error("Failed to save agent", { description: String(e) });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveDraft = async () => {
+    if (!agentId) return; // draft isolation only applies to an existing (already-live) agent
+    if (!form.name.trim()) {
+      toast.error("Agent name is required");
+      return;
+    }
+    setSavingDraft(true);
+    try {
+      await api.saveAgentDraft(agentId, buildAgentDto());
+      toast.success("Draft saved — the live agent is unchanged until you Publish");
+      setHasDraft(true);
+      setDraftUpdatedAt(new Date().toISOString());
+    } catch (e: unknown) {
+      toast.error("Failed to save draft", { description: String(e) });
+    } finally {
+      setSavingDraft(false);
+    }
+  };
+
+  const handlePublish = async () => {
+    if (!agentId) return;
+    setPublishing(true);
+    try {
+      const published = await api.publishAgent(agentId);
+      toast.success("Draft published to live");
+      setHasDraft(false);
+      setForm(published);
+    } catch (e: unknown) {
+      toast.error("Failed to publish", { description: String(e) });
+    } finally {
+      setPublishing(false);
     }
   };
 
@@ -1187,15 +1243,56 @@ export function AgentBuilder() {
               Import
             </Button>
           )}
+          {agentId && (
+            <Button variant="outline" size="sm" onClick={() => setPromotionOpen(true)} disabled={!currentEnvironmentId}>
+              <GitBranch className="mr-2 size-4" />
+              Promote
+            </Button>
+          )}
           <Button variant="outline" onClick={() => navigate("/agents")}>
             Cancel
           </Button>
+          {agentId && (
+            <Button variant="outline" onClick={handleSaveDraft} disabled={savingDraft || !form.name}>
+              <Save className="mr-2 size-4" />
+              {savingDraft ? "Saving Draft..." : "Save Draft"}
+            </Button>
+          )}
+          {agentId && hasDraft && (
+            <Button variant="secondary" onClick={handlePublish} disabled={publishing}>
+              <Upload className="mr-2 size-4" />
+              {publishing ? "Publishing..." : "Publish"}
+            </Button>
+          )}
           <Button onClick={handleSave} disabled={saving || !form.name}>
             <Save className="mr-2 size-4" />
             {saving ? "Saving..." : agentId ? "Save Changes" : "Create Agent"}
           </Button>
         </div>
       </div>
+
+      {hasDraft && (
+        <div className="flex items-center justify-between rounded-md border border-amber-600/40 bg-amber-500/10 px-4 py-2.5 text-sm">
+          <span>
+            You have unpublished draft changes{draftUpdatedAt && ` (saved ${new Date(draftUpdatedAt).toLocaleString()})`} —
+            the live agent is unaffected until you click Publish.
+          </span>
+          <Button size="sm" variant="secondary" onClick={handlePublish} disabled={publishing}>
+            {publishing ? "Publishing..." : "Publish now"}
+          </Button>
+        </div>
+      )}
+
+      {agentId && form.logicalId && currentEnvironmentId && (
+        <PromotionDialog
+          open={promotionOpen}
+          onOpenChange={setPromotionOpen}
+          objectType="Agent"
+          logicalId={form.logicalId}
+          displayName={form.displayName || form.name}
+          fromEnvironmentId={currentEnvironmentId}
+        />
+      )}
 
       <Tabs defaultValue="identity">
         <TabsList className="grid w-full grid-cols-4">

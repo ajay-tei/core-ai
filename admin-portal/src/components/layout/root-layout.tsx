@@ -4,6 +4,7 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { Topbar } from "@/components/layout/topbar";
+import { EnvironmentProvider } from "@/hooks/useEnvironment";
 import { api } from "@/api";
 
 export function RootLayout() {
@@ -17,15 +18,17 @@ export function RootLayout() {
 
   return (
     <TooltipProvider delayDuration={200}>
-      <SidebarProvider>
-        <AppSidebar pendingRuleCount={pendingRuleCount} />
-        <SidebarInset>
-          <Topbar />
-          <main className="flex flex-1 flex-col gap-4 p-4 md:p-6">
-            <Outlet />
-          </main>
-        </SidebarInset>
-      </SidebarProvider>
+      <EnvironmentProvider>
+        <SidebarProvider>
+          <AppSidebar pendingRuleCount={pendingRuleCount} />
+          <SidebarInset>
+            <Topbar />
+            <main className="flex flex-1 flex-col gap-4 p-4 md:p-6">
+              <Outlet />
+            </main>
+          </SidebarInset>
+        </SidebarProvider>
+      </EnvironmentProvider>
     </TooltipProvider>
   );
 }

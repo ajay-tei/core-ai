@@ -8,6 +8,7 @@ import {
   type UserGroup,
 } from "@/api";
 import { usePagedList } from "@/hooks/usePagedList";
+import { useEnvironment } from "@/hooks/useEnvironment";
 import { ListToolbar, ListPagination } from "@/components/ui/list-toolbar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -141,8 +142,14 @@ function CheckableList({
 }
 
 export function AgentGroups() {
+  const { currentEnvironmentId } = useEnvironment();
   const { result, loading, params, update, updateDebounced, setPage, reload } =
     usePagedList<AgentGroup, AgentGroupListParams>(api.listAgentGroupsPaged, { page: 1, pageSize: 25 });
+
+  useEffect(() => {
+    if (currentEnvironmentId) update({ environmentId: currentEnvironmentId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentEnvironmentId]);
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [userGroups, setUserGroups] = useState<UserGroup[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
