@@ -64,7 +64,7 @@ public class ApiKeysController : ControllerBase
         var tid = EffectiveTenantId(dto.TenantId);
         var ctx = HttpContext.TryGetTenantContext();
 
-        var request = new CreateApiKeyRequest(dto.Name, dto.Scope, dto.AllowedAgentIds, dto.ExpiresAt, dto.AllowedGroupIds);
+        var request = new CreateApiKeyRequest(dto.Name, dto.Scope, dto.AllowedAgentIds, dto.ExpiresAt, dto.AllowedGroupIds, dto.EnvironmentId);
         var result = await _keys.CreateAsync(tid, ctx?.UserId ?? "unknown", request, ct);
 
         _logger.LogInformation("API key created: {Name} (scope={Scope}) for tenant {TenantId}",
@@ -88,7 +88,7 @@ public class ApiKeysController : ControllerBase
     public async Task<IActionResult> Update(int id, [FromBody] UpdateApiKeyDto dto, CancellationToken ct = default)
     {
         var tid = EffectiveTenantId(dto.TenantId);
-        var request = new UpdateApiKeyRequest(dto.Name, dto.Scope, dto.AllowedAgentIds, dto.AllowedGroupIds, dto.ExpiresAt);
+        var request = new UpdateApiKeyRequest(dto.Name, dto.Scope, dto.AllowedAgentIds, dto.AllowedGroupIds, dto.ExpiresAt, dto.EnvironmentId);
         var result = await _keys.UpdateAsync(tid, id, request, ct);
         if (result is null) return NotFound();
 
@@ -117,7 +117,8 @@ public record CreateApiKeyDto(
     string[]? AllowedAgentIds = null,
     DateTime? ExpiresAt = null,
     int TenantId = 1,
-    string[]? AllowedGroupIds = null);
+    string[]? AllowedGroupIds = null,
+    int? EnvironmentId = null);
 
 public record RotateApiKeyDto(int TenantId = 1);
 
@@ -127,4 +128,5 @@ public record UpdateApiKeyDto(
     string[]? AllowedAgentIds = null,
     string[]? AllowedGroupIds = null,
     DateTime? ExpiresAt = null,
-    int TenantId = 1);
+    int TenantId = 1,
+    int? EnvironmentId = null);

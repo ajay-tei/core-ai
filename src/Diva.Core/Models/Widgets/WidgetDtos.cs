@@ -15,7 +15,8 @@ public record WidgetConfigDto(
     bool ShowBranding,
     bool IsActive,
     DateTime CreatedAt,
-    DateTime? ExpiresAt);
+    DateTime? ExpiresAt,
+    int? EnvironmentId = null);
 
 public record CreateWidgetRequest(
     string AgentId,
@@ -28,7 +29,8 @@ public record CreateWidgetRequest(
     WidgetTheme? Theme = null,
     bool RespectSystemTheme = true,
     bool ShowBranding = true,
-    DateTime? ExpiresAt = null);
+    DateTime? ExpiresAt = null,
+    int? EnvironmentId = null);
 
 /// <summary>Returned by GET /api/widget/{id}/init — contains no secrets.</summary>
 public record WidgetInitResponse(

@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { api, type PlatformApiKey, type PlatformApiKeyListParams, type ApiKeyCreatedResult, type CreateApiKeyDto, type UpdateApiKeyDto, type AgentGroup } from "@/api";
 import { usePagedList } from "@/hooks/usePagedList";
+import { useEnvironment } from "@/hooks/useEnvironment";
+import { EnvironmentBadge } from "@/components/ui/environment-badge";
 import { ListToolbar, ListPagination } from "@/components/ui/list-toolbar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +17,7 @@ import { toast } from "sonner";
 const SCOPES = ["invoke", "admin", "readonly"] as const;
 
 export function ApiKeyManager() {
+  const { environments } = useEnvironment();
   const { result, loading, params, update, updateDebounced, setPage, reload } =
     usePagedList<PlatformApiKey, PlatformApiKeyListParams>(api.listApiKeysPaged, { page: 1, pageSize: 25 });
   const [showCreate, setShowCreate] = useState(false);
@@ -166,6 +169,22 @@ export function ApiKeyManager() {
                 </div>
               </div>
             )}
+            {environments.length > 0 && (
+              <div className="space-y-1.5">
+                <Label>Environment (optional)</Label>
+                <Select
+                  value={form.environmentId ? String(form.environmentId) : "none"}
+                  onValueChange={(v) => setForm({ ...form, environmentId: v === "none" ? undefined : Number(v) })}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Default (tenant's default environment)</SelectItem>
+                    {environments.map((e) => <SelectItem key={e.id} value={String(e.id)}>{e.displayName}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">Requests using this key resolve agents/config from this environment, regardless of who's logged into the admin portal.</p>
+              </div>
+            )}
             <Button onClick={handleCreate}><Plus className="h-4 w-4 mr-1" /> Generate Key</Button>
           </CardContent>
         </Card>
@@ -244,6 +263,9 @@ export function ApiKeyManager() {
                     <Badge variant={k.isActive ? "default" : "secondary"}>{k.isActive ? "Active" : "Revoked"}</Badge>
                     <Badge variant="outline">{k.scope}</Badge>
                     <code className="text-xs bg-muted px-1.5 py-0.5 rounded">{k.keyPrefix}…</code>
+                    {k.environmentId && (
+                      <EnvironmentBadge environment={environments.find((e) => e.id === k.environmentId)} allEnvironments={environments} />
+                    )}
                   </div>
                   <div className="text-xs text-muted-foreground">
                     Created {new Date(k.createdAt).toLocaleDateString()}

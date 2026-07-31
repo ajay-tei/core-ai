@@ -28,5 +28,16 @@ public class TenantEnvironmentEntity : ITenantEntity
     /// </summary>
     public bool IsDefault { get; set; }
 
+    /// <summary>
+    /// Optional client/customer label (e.g. "Acme", "Globex") for topologies where a shared
+    /// upstream tier (Dev/QA — ClientGroup left null) fans out into multiple per-client
+    /// environment pairs (e.g. "Acme-Play"/"Acme-Live", "Globex-Play"/"Globex-Live") that all
+    /// share the same Rank tier. Purely a label — Rank alone still governs promotion direction.
+    /// Used to (a) group/search the admin UI's environment switcher and manager list, and
+    /// (b) block cross-client promotion in <see cref="IPromotionOrchestrationService"/> when both
+    /// the source and target environment have a (different) non-null ClientGroup.
+    /// </summary>
+    public string? ClientGroup { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

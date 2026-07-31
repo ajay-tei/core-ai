@@ -4,6 +4,31 @@
 
 ---
 
+## [2026-07-31] Environment-based agent management — multi-client fan-out enhancements (post-Phase F)
+
+Closes the 4 gaps flagged when explaining how to model "Dev → QA → per-client Play/Live" on top of
+Track 2's flat-rank environment list: a `ClientGroup` label for grouping/searching and blocking
+cross-client promotion, environment tagging on Platform API Keys and Widgets, and a bulk-promote
+action so rolling an agent out to N clients doesn't require N trips through the Promote dialog.
+
+| Area | Change |
+|------|--------|
+| `ClientGroup` label | New nullable `ClientGroup` column on `TenantEnvironmentEntity` — purely a label (Rank still governs promotion order); lets a shared upstream tier (Dev/QA, `ClientGroup=null`) fan out into multiple per-client environment pairs sharing the same rank tier (e.g. "Acme-Play"/"Acme-Live" at rank 2/3, "Globex-Play"/"Globex-Live" also at rank 2/3) |
+| Lineage-aware promotion guard | `PromotionOrchestrationService`'s rank check (renamed `CheckPromotionAllowedAsync`) now also blocks promoting between two environments that both carry a *different* non-null `ClientGroup` — e.g. `Acme-Play → Globex-Live` is rejected even though rank alone would allow it. Promoting from/to a shared (`ClientGroup=null`) environment is unaffected |
+| Bulk promote | New `POST /api/admin/promotions/bulk` (`BulkPromoteRequest`/`BulkPromoteResultItem`) — promotes the same object into several target environments in one call; each target is validated and promoted independently (one client's failure, e.g. a missing LLM config, doesn't block the others) |
+| Environment tagging — API Keys | `CreateApiKeyRequest`/`UpdateApiKeyRequest`/`PlatformApiKeyInfo` (Core) and `CreateApiKeyDto`/`UpdateApiKeyDto` (Host) gained `EnvironmentId` — the `PlatformApiKeyEntity` column already existed from Phase E, only the DTOs/service wiring were missing. `ApiKeyManager.tsx` gained an Environment dropdown (create + edit) and a badge per row |
+| Environment tagging — Widgets | `CreateWidgetRequest`/`WidgetConfigDto` (Core) gained `EnvironmentId`, wired through `WidgetConfigService`. `WidgetEditor.tsx` gained an Environment dropdown; `WidgetManager.tsx` gained a badge per row |
+| Environment switcher grouping | `EnvironmentSwitcher` now groups options by `ClientGroup` using `SelectGroup`/`SelectLabel` (shared tier first, then one labeled group per client, alphabetical) instead of one long flat list — addresses the "many clients" clutter concern raised when this topology was discussed. `EnvironmentManager.tsx` gained a `ClientGroup` text field and groups its list display the same way |
+| Bulk-target promotion UI | `PromotionDialog.tsx` reworked from a single-select dropdown to a multi-select badge picker with a "Select all" toggle. Single-target selection keeps the original detailed dependency preview; multi-target selection skips the up-front preview (each target validates independently server-side) and shows a per-target success/error result list after promoting instead of a single toast |
+
+**Migration**: `AddEnvironmentClientGroup` (both providers — `ClientGroup nvarchar(max) NULL` on `TenantEnvironments`), `has-pending-model-changes` clean on both. No other schema changes — API key/widget `EnvironmentId` columns already existed from Phase E.
+
+**Verification**: full solution build 0 errors, full test suite passes except the same pre-existing `ContextWindowTests` failure. Frontend `tsc -b` 0 errors, production `vite build` succeeds, `eslint` shows no new issues in any touched file (one pre-existing `react-hooks/set-state-in-effect` warning in `EnvironmentManager.tsx`, already present from when that file was first created in Phase F, matches the same widespread pre-existing pattern across the codebase — not introduced by this pass). Deployed via `docker-compose.tei.yml + docker-compose.sqlserver.yml`; migration confirmed applied via container logs (`ALTER TABLE [TenantEnvironments] ADD [ClientGroup] nvarchar(max) NULL`), health check 200, `POST /api/admin/promotions/bulk` returns 401 (auth-gated as expected), admin portal 200.
+
+**Deferred (unchanged from Phase F)**: draft/publish + promote UI for MCP Servers/Scheduled Tasks/Agent Groups (still Agent-only), version history/rollback UI, `GroupDetail.tsx`'s LLM environment dropdown (cross-tenant ambiguity), dashboard drift widget, step-by-step promotion progress feed, empty-state CTAs.
+
+---
+
 ## [2026-07-31] Environment-based agent management — Phase F (admin UI, v1 slice)
 
 Seventh phase: the first admin-portal UI for everything Phases A–I built server-side. This is the

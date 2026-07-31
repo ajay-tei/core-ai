@@ -52,6 +52,7 @@ public sealed class PlatformApiKeyService : IPlatformApiKeyService
                 ? JsonSerializer.Serialize(request.AllowedGroupIds)
                 : null,
             ExpiresAt = request.ExpiresAt,
+            EnvironmentId = request.EnvironmentId,
             CreatedByUserId = userId
         };
 
@@ -155,7 +156,7 @@ public sealed class PlatformApiKeyService : IPlatformApiKeyService
 
             return new PlatformApiKeyInfo(
                 e.Id, e.Name, e.KeyPrefix, e.Scope, allowedAgents,
-                e.CreatedAt, e.ExpiresAt, e.IsActive, e.LastUsedAt, e.CreatedByUserId, allowedGroups);
+                e.CreatedAt, e.ExpiresAt, e.IsActive, e.LastUsedAt, e.CreatedByUserId, allowedGroups, e.EnvironmentId);
         }).ToList();
     }
 
@@ -194,6 +195,7 @@ public sealed class PlatformApiKeyService : IPlatformApiKeyService
             ? JsonSerializer.Serialize(request.AllowedGroupIds)
             : null;
         entity.ExpiresAt = request.ExpiresAt;
+        entity.EnvironmentId = request.EnvironmentId;
 
         await db.SaveChangesAsync(ct);
         _logger.LogInformation("Platform API key updated: {Name} ({Prefix}) for tenant {TenantId}",
@@ -215,7 +217,7 @@ public sealed class PlatformApiKeyService : IPlatformApiKeyService
 
         return new PlatformApiKeyInfo(
             entity.Id, entity.Name, entity.KeyPrefix, entity.Scope, allowedAgents,
-            entity.CreatedAt, entity.ExpiresAt, entity.IsActive, entity.LastUsedAt, entity.CreatedByUserId, allowedGroups);
+            entity.CreatedAt, entity.ExpiresAt, entity.IsActive, entity.LastUsedAt, entity.CreatedByUserId, allowedGroups, entity.EnvironmentId);
     }
 
     public async Task<ApiKeyCreatedResult> RotateAsync(int tenantId, int keyId, string userId, CancellationToken ct)

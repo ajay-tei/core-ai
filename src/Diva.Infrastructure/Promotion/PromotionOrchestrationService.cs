@@ -35,7 +35,7 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
     {
         using var db = _db.CreateDbContext();
 
-        var rankCheck = await CheckRankAsync(db, tenantId, fromEnvironmentId, toEnvironmentId, ct);
+        var rankCheck = await CheckPromotionAllowedAsync(db, tenantId, fromEnvironmentId, toEnvironmentId, ct);
         if (rankCheck is not null)
         {
             return new PromotionPreview { CanPromote = false, BlockingError = rankCheck };
@@ -67,7 +67,7 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
     {
         using var db = _db.CreateDbContext();
 
-        var rankCheck = await CheckRankAsync(db, tenantId, fromEnvironmentId, toEnvironmentId, ct);
+        var rankCheck = await CheckPromotionAllowedAsync(db, tenantId, fromEnvironmentId, toEnvironmentId, ct);
         if (rankCheck is not null)
         {
             return new PromotionResult { Success = false, Error = rankCheck };
@@ -179,7 +179,7 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
         return obj?.Name ?? string.Empty;
     }
 
-    private static async Task<string?> CheckRankAsync(Data.DivaDbContext db, int tenantId, int fromEnvironmentId, int toEnvironmentId, CancellationToken ct)
+    private static async Task<string?> CheckPromotionAllowedAsync(Data.DivaDbContext db, int tenantId, int fromEnvironmentId, int toEnvironmentId, CancellationToken ct)
     {
         var fromEnv = await db.TenantEnvironments.AsNoTracking().FirstOrDefaultAsync(e => e.Id == fromEnvironmentId && e.TenantId == tenantId, ct);
         var toEnv = await db.TenantEnvironments.AsNoTracking().FirstOrDefaultAsync(e => e.Id == toEnvironmentId && e.TenantId == tenantId, ct);
@@ -191,6 +191,15 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
         if (toEnv.Rank <= fromEnv.Rank)
         {
             return $"Cannot promote from '{fromEnv.DisplayName}' (rank {fromEnv.Rank}) to '{toEnv.DisplayName}' (rank {toEnv.Rank}) — target must have a strictly higher rank.";
+        }
+
+        // Lineage guard: a shared upstream tier (Dev/QA — ClientGroup left null) may fan out into
+        // any client's environment, but two environments that BOTH carry a (different) ClientGroup
+        // belong to different clients and must never promote into each other directly.
+        if (!string.IsNullOrEmpty(fromEnv.ClientGroup) && !string.IsNullOrEmpty(toEnv.ClientGroup)
+            && !string.Equals(fromEnv.ClientGroup, toEnv.ClientGroup, StringComparison.OrdinalIgnoreCase))
+        {
+            return $"Cannot promote from '{fromEnv.DisplayName}' (client '{fromEnv.ClientGroup}') to '{toEnv.DisplayName}' (client '{toEnv.ClientGroup}') — these belong to different clients.";
         }
 
         return null;

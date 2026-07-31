@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { api, type WidgetConfigDto, type WidgetConfigListParams } from "@/api";
 import { usePagedList } from "@/hooks/usePagedList";
+import { useEnvironment } from "@/hooks/useEnvironment";
+import { EnvironmentBadge } from "@/components/ui/environment-badge";
 import { ListToolbar, ListPagination } from "@/components/ui/list-toolbar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +18,7 @@ const BASE_URL = import.meta.env.VITE_API_URL ?? import.meta.env.BASE_URL.replac
 const TENANT_ID = Number(localStorage.getItem(storageKey("tenant_id")) ?? "1");
 
 export function WidgetManager() {
+  const { environments } = useEnvironment();
   const { result, loading, params, update, updateDebounced, setPage, reload } =
     usePagedList<WidgetConfigDto, WidgetConfigListParams>(api.listWidgetsPaged, { tenantId: TENANT_ID, page: 1, pageSize: 25 });
   const [editorOpen, setEditorOpen] = useState(false);
@@ -90,6 +93,9 @@ export function WidgetManager() {
                     )}
                     {w.ssoConfigId && <Badge variant="outline" className="text-xs">SSO</Badge>}
                     {w.allowAnonymous && <Badge variant="outline" className="text-xs">Anon</Badge>}
+                    {w.environmentId && (
+                      <EnvironmentBadge environment={environments.find(e => e.id === w.environmentId)} allEnvironments={environments} className="text-xs" />
+                    )}
                   </span>
                   <span className="flex gap-2">
                     <Button variant="ghost" size="sm" onClick={() => copyEmbed(w)} title="Copy embed code">

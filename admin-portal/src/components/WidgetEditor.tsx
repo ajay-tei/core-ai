@@ -7,6 +7,7 @@ import {
   type WidgetConfigDto,
   type WidgetThemeDto,
 } from "@/api";
+import { useEnvironment } from "@/hooks/useEnvironment";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -60,6 +61,7 @@ type PresetName = "light" | "dark" | "custom";
 
 export function WidgetEditor({ tenantId, widgetId, onClose, onSaved }: Props) {
   const isEdit = Boolean(widgetId);
+  const { environments } = useEnvironment();
   const [form, setForm] = useState<CreateWidgetRequest>(emptyRequest());
   const [preset, setPreset] = useState<PresetName>("light");
   const [originsText, setOriginsText] = useState("");
@@ -91,6 +93,7 @@ export function WidgetEditor({ tenantId, widgetId, onClose, onSaved }: Props) {
           respectSystemTheme: w.respectSystemTheme,
           showBranding: w.showBranding,
           expiresAt: w.expiresAt,
+          environmentId: w.environmentId,
         });
         setOriginsText(w.allowedOrigins.join("\n"));
         setPreset((w.theme.preset as PresetName) ?? "light");
@@ -213,6 +216,25 @@ export function WidgetEditor({ tenantId, widgetId, onClose, onSaved }: Props) {
               />
             </div>
           </div>
+
+          {environments.length > 0 && (
+            <div className="space-y-1">
+              <Label>Environment (optional)</Label>
+              <Select
+                value={form.environmentId ? String(form.environmentId) : "none"}
+                onValueChange={v => setForm(f => ({ ...f, environmentId: v === "none" ? undefined : Number(v) }))}
+              >
+                <SelectTrigger><SelectValue placeholder="Default" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Default (tenant's default environment)</SelectItem>
+                  {environments.map(e => (
+                    <SelectItem key={e.id} value={String(e.id)}>{e.displayName}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Users embedding this widget interact with agents/config from this environment.</p>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1">

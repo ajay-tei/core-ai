@@ -56,6 +56,7 @@ public sealed class WidgetConfigService : IWidgetConfigService
             RespectSystemTheme = request.RespectSystemTheme,
             ShowBranding      = request.ShowBranding,
             ExpiresAt         = request.ExpiresAt,
+            EnvironmentId     = request.EnvironmentId,
         };
 
         using var db = _db.CreateDbContext(TenantContext.System(tenantId));
@@ -81,6 +82,7 @@ public sealed class WidgetConfigService : IWidgetConfigService
         entity.RespectSystemTheme = request.RespectSystemTheme;
         entity.ShowBranding       = request.ShowBranding;
         entity.ExpiresAt          = request.ExpiresAt;
+        entity.EnvironmentId      = request.EnvironmentId;
 
         await db.SaveChangesAsync(ct);
         return ToDto(entity);
@@ -112,7 +114,8 @@ public sealed class WidgetConfigService : IWidgetConfigService
         e.ShowBranding,
         e.IsActive,
         e.CreatedAt,
-        e.ExpiresAt);
+        e.ExpiresAt,
+        e.EnvironmentId);
 
     private static string? SerializeOrigins(string[]? origins) =>
         origins is { Length: > 0 } ? JsonSerializer.Serialize(origins) : null;

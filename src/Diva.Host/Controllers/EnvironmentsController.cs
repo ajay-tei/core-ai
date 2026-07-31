@@ -29,7 +29,7 @@ public class EnvironmentsController : ControllerBase
         return ctx is { TenantId: > 0 } ? ctx.TenantId : requestedTenantId;
     }
 
-    public record EnvironmentRequest(string Slug, string DisplayName, int Rank, bool IsDefault, int TenantId = 1);
+    public record EnvironmentRequest(string Slug, string DisplayName, int Rank, bool IsDefault, int TenantId = 1, string? ClientGroup = null);
 
     // GET /api/admin/environments?tenantId=1
     [HttpGet]
@@ -53,7 +53,7 @@ public class EnvironmentsController : ControllerBase
     public async Task<IActionResult> Create([FromBody] EnvironmentRequest req, CancellationToken ct = default)
     {
         var tid = EffectiveTenantId(req.TenantId);
-        var (entity, error) = await _service.CreateAsync(tid, new EnvironmentDto(req.Slug, req.DisplayName, req.Rank, req.IsDefault), ct);
+        var (entity, error) = await _service.CreateAsync(tid, new EnvironmentDto(req.Slug, req.DisplayName, req.Rank, req.IsDefault, req.ClientGroup), ct);
         return entity is null ? BadRequest(new { error }) : Ok(entity);
     }
 
@@ -62,7 +62,7 @@ public class EnvironmentsController : ControllerBase
     public async Task<IActionResult> Update(int id, [FromBody] EnvironmentRequest req, CancellationToken ct = default)
     {
         var tid = EffectiveTenantId(req.TenantId);
-        var (entity, error) = await _service.UpdateAsync(tid, id, new EnvironmentDto(req.Slug, req.DisplayName, req.Rank, req.IsDefault), ct);
+        var (entity, error) = await _service.UpdateAsync(tid, id, new EnvironmentDto(req.Slug, req.DisplayName, req.Rank, req.IsDefault, req.ClientGroup), ct);
         if (entity is not null) return Ok(entity);
         return error == "Environment not found." ? NotFound(new { error }) : BadRequest(new { error });
     }

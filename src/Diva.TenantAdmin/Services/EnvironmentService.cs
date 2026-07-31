@@ -6,7 +6,7 @@ using Microsoft.Extensions.Logging;
 namespace Diva.TenantAdmin.Services;
 
 /// <summary>Request payload for creating/updating a tenant environment.</summary>
-public sealed record EnvironmentDto(string Slug, string DisplayName, int Rank, bool IsDefault);
+public sealed record EnvironmentDto(string Slug, string DisplayName, int Rank, bool IsDefault, string? ClientGroup = null);
 
 public interface IEnvironmentService
 {
@@ -84,6 +84,7 @@ public sealed class EnvironmentService : IEnvironmentService
             DisplayName = dto.DisplayName.Trim(),
             Rank = dto.Rank,
             IsDefault = dto.IsDefault,
+            ClientGroup = string.IsNullOrWhiteSpace(dto.ClientGroup) ? null : dto.ClientGroup.Trim(),
             CreatedAt = DateTime.UtcNow,
         };
         db.TenantEnvironments.Add(entity);
@@ -118,6 +119,7 @@ public sealed class EnvironmentService : IEnvironmentService
         entity.DisplayName = dto.DisplayName.Trim();
         entity.Rank = dto.Rank;
         entity.IsDefault = dto.IsDefault;
+        entity.ClientGroup = string.IsNullOrWhiteSpace(dto.ClientGroup) ? null : dto.ClientGroup.Trim();
         await db.SaveChangesAsync(ct);
         return (entity, null);
     }

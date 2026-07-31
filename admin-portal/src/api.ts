@@ -544,6 +544,7 @@ export interface WidgetConfigDto
   isActive: boolean;
   createdAt: string;
   expiresAt?: string;
+  environmentId?: number;
 }
 
 export interface WidgetConfigListParams
@@ -567,6 +568,7 @@ export interface CreateWidgetRequest
   respectSystemTheme: boolean;
   showBranding: boolean;
   expiresAt?: string;
+  environmentId?: number;
 }
 
 // ── User Profiles ──────────────────────────────────────────────────────────────
@@ -1148,6 +1150,7 @@ export interface PlatformApiKey
   isActive: boolean;
   lastUsedAt?: string;
   createdByUserId?: string;
+  environmentId?: number;
 }
 
 export interface PlatformApiKeyListParams
@@ -1176,6 +1179,7 @@ export interface CreateApiKeyDto
   allowedGroupIds?: string[];
   expiresAt?: string;
   tenantId?: number;
+  environmentId?: number;
 }
 
 export interface UpdateApiKeyDto
@@ -1186,6 +1190,7 @@ export interface UpdateApiKeyDto
   allowedGroupIds?: string[];
   expiresAt?: string;
   tenantId?: number;
+  environmentId?: number;
 }
 
 // ── Agent Access Groups (Phase 28) ────────────────────────────────────────────
@@ -1271,6 +1276,7 @@ export interface TenantEnvironment
   rank: number;
   isDefault: boolean;
   createdAt: string;
+  clientGroup?: string;
 }
 
 export interface EnvironmentRequest
@@ -1280,6 +1286,7 @@ export interface EnvironmentRequest
   rank: number;
   isDefault: boolean;
   tenantId?: number;
+  clientGroup?: string;
 }
 
 // ── Draft / Publish (Phase C) + Promotion (Phase D) ───────────────────────────
@@ -1332,6 +1339,21 @@ export interface PromoteRequest
   fromEnvironmentId: number;
   toEnvironmentId: number;
   tenantId?: number;
+}
+
+export interface BulkPromoteRequest
+{
+  objectType: string;
+  logicalId: string;
+  fromEnvironmentId: number;
+  toEnvironmentIds: number[];
+  tenantId?: number;
+}
+
+export interface BulkPromoteResultItem
+{
+  toEnvironmentId: number;
+  result: PromotionResult;
 }
 
 export interface RollbackRequest
@@ -2254,6 +2276,8 @@ export const api = {
   },
   promote: (req: PromoteRequest) =>
     request<PromotionResult>("/api/admin/promotions", { method: "POST", body: JSON.stringify(req) }),
+  bulkPromote: (req: BulkPromoteRequest) =>
+    request<BulkPromoteResultItem[]>("/api/admin/promotions/bulk", { method: "POST", body: JSON.stringify(req) }),
   getPromotionHistory: (logicalId: string, tenantId = 1) =>
     request<PromotableVersion[]>(`/api/admin/promotions/history?logicalId=${ logicalId }&tenantId=${ tenantId }`),
   getPromotionDiff: (fromVersionId: number, toVersionId: number, tenantId = 1) =>

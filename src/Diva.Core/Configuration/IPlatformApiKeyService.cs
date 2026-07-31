@@ -32,7 +32,8 @@ public sealed record CreateApiKeyRequest(
     string Scope,
     string[]? AllowedAgentIds,
     DateTime? ExpiresAt,
-    string[]? AllowedGroupIds = null);
+    string[]? AllowedGroupIds = null,
+    int? EnvironmentId = null);
 
 /// <summary>
 /// Request to update an existing platform API key. Grants use full-replace semantics
@@ -43,7 +44,8 @@ public sealed record UpdateApiKeyRequest(
     string? Scope = null,
     string[]? AllowedAgentIds = null,
     string[]? AllowedGroupIds = null,
-    DateTime? ExpiresAt = null);
+    DateTime? ExpiresAt = null,
+    int? EnvironmentId = null);
 
 /// <summary>
 /// Manages platform API keys for non-SSO authentication.
@@ -81,4 +83,5 @@ public sealed record PlatformApiKeyInfo(
     bool IsActive,
     DateTime? LastUsedAt,
     string? CreatedByUserId,
-    string[]? AllowedGroupIds = null);
+    string[]? AllowedGroupIds = null,
+    int? EnvironmentId = null);

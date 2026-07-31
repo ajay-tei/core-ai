@@ -11,7 +11,23 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Plus, Trash2, Pencil, Save, X, Layers } from "lucide-react";
 import { toast } from "sonner";
 
-const EMPTY_FORM: EnvironmentRequest = { slug: "", displayName: "", rank: 0, isDefault: false };
+const EMPTY_FORM: EnvironmentRequest = { slug: "", displayName: "", rank: 0, isDefault: false, clientGroup: "" };
+
+/** Groups environments by ClientGroup (shared/untagged tier first, then one section per client,
+ *  alphabetical), each internally sorted by Rank — keeps the list scannable as clients are added. */
+function groupEnvironments(environments: TenantEnvironment[]): [string, TenantEnvironment[]][]
+{
+  const byGroup = new Map<string, TenantEnvironment[]>();
+  for (const env of environments)
+  {
+    const key = env.clientGroup?.trim() || "Shared";
+    if (!byGroup.has(key)) byGroup.set(key, []);
+    byGroup.get(key)!.push(env);
+  }
+  const entries = [...byGroup.entries()].map(([k, v]) => [k, [...v].sort((a, b) => a.rank - b.rank)] as [string, TenantEnvironment[]]);
+  entries.sort(([a], [b]) => (a === "Shared" ? -1 : b === "Shared" ? 1 : a.localeCompare(b)));
+  return entries;
+}
 
 export function EnvironmentManager()
 {
@@ -45,7 +61,7 @@ export function EnvironmentManager()
 
   const openEdit = (env: TenantEnvironment) =>
   {
-    setForm({ slug: env.slug, displayName: env.displayName, rank: env.rank, isDefault: env.isDefault });
+    setForm({ slug: env.slug, displayName: env.displayName, rank: env.rank, isDefault: env.isDefault, clientGroup: env.clientGroup ?? "" });
     setEditingId(env.id);
     setShowForm(true);
   };
@@ -154,6 +170,20 @@ export function EnvironmentManager()
                 <Label>Default (untagged/legacy traffic resolves here)</Label>
               </div>
             </div>
+            <div className="space-y-1.5">
+              <Label>Client (optional)</Label>
+              <Input
+                value={form.clientGroup ?? ""}
+                onChange={(e) => setForm({ ...form, clientGroup: e.target.value })}
+                placeholder="e.g. Acme — leave blank for a shared tier like Dev/QA"
+              />
+              <p className="text-xs text-muted-foreground">
+                Tag this environment to one client when you have several client-specific environment
+                pairs (e.g. "Acme-Play"/"Acme-Live", "Globex-Play"/"Globex-Live") fanning out from a
+                shared Dev/QA tier. Two environments tagged to different clients can never be promoted
+                into each other directly.
+              </p>
+            </div>
             <div className="flex gap-2">
               <Button onClick={handleSave}><Save className="h-4 w-4 mr-1" /> {editingId !== null ? "Save" : "Create"}</Button>
               <Button variant="outline" onClick={closeForm}>Cancel</Button>
@@ -167,27 +197,32 @@ export function EnvironmentManager()
       ) : environments.length === 0 ? (
         <Card><CardContent className="py-8 text-center text-muted-foreground">No environments configured yet. Click "Add Environment" to create one.</CardContent></Card>
       ) : (
-        <div className="space-y-3">
-          {environments.map((env) => (
-            <Card key={env.id}>
-              <CardContent className="flex items-center justify-between py-4">
-                <div className="flex items-center gap-3">
-                  <EnvironmentBadge environment={env} allEnvironments={environments} />
-                  <div>
-                    <div className="font-medium">{env.displayName}</div>
-                    <div className="text-xs text-muted-foreground">slug: {env.slug} · rank: {env.rank}{env.isDefault && " · default"}</div>
-                  </div>
-                </div>
-                <div className="flex gap-1">
-                  <Button variant="ghost" size="icon" onClick={() => openEdit(env)} title="Edit">
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="icon" onClick={() => handleDelete(env)} title="Delete">
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+        <div className="space-y-6">
+          {groupEnvironments(environments).map(([groupName, envs]) => (
+            <div key={groupName} className="space-y-3">
+              <h3 className="text-sm font-medium text-muted-foreground">{groupName}</h3>
+              {envs.map((env) => (
+                <Card key={env.id}>
+                  <CardContent className="flex items-center justify-between py-4">
+                    <div className="flex items-center gap-3">
+                      <EnvironmentBadge environment={env} allEnvironments={environments} />
+                      <div>
+                        <div className="font-medium">{env.displayName}</div>
+                        <div className="text-xs text-muted-foreground">slug: {env.slug} · rank: {env.rank}{env.isDefault && " · default"}</div>
+                      </div>
+                    </div>
+                    <div className="flex gap-1">
+                      <Button variant="ghost" size="icon" onClick={() => openEdit(env)} title="Edit">
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon" onClick={() => handleDelete(env)} title="Delete">
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           ))}
         </div>
       )}

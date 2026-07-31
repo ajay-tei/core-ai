@@ -53,6 +53,25 @@ public class PromotionsController : ControllerBase
         return result.Success ? Ok(result) : BadRequest(result);
     }
 
+    // POST /api/admin/promotions/bulk — promote the same object into several target environments
+    // in one call (e.g. rolling an agent out to every client's Play environment at once).
+    // Each target is independent: one failing (e.g. a missing LLM config in that client's
+    // environment) does not stop the others — inspect each entry's own Success/Error.
+    [HttpPost("bulk")]
+    public async Task<IActionResult> BulkPromote([FromBody] BulkPromoteRequest req, CancellationToken ct)
+    {
+        var tid = EffectiveTenantId(req.TenantId);
+        var ctx = HttpContext.TryGetTenantContext();
+        var results = new List<BulkPromoteResultItem>();
+        foreach (var toEnvironmentId in req.ToEnvironmentIds.Distinct())
+        {
+            var result = await _orchestrator.PromoteAsync(
+                tid, req.ObjectType, req.LogicalId, req.FromEnvironmentId, toEnvironmentId, ctx?.UserId, ct);
+            results.Add(new BulkPromoteResultItem(toEnvironmentId, result));
+        }
+        return Ok(results);
+    }
+
     // GET /api/admin/promotions/history?tenantId=1&logicalId=...
     [HttpGet("history")]
     public async Task<IActionResult> History([FromQuery] Guid logicalId, [FromQuery] int tenantId = 1, CancellationToken ct = default)
@@ -84,5 +103,9 @@ public class PromotionsController : ControllerBase
 }
 
 public record PromoteRequest(string ObjectType, Guid LogicalId, int FromEnvironmentId, int ToEnvironmentId, int TenantId = 1);
+
+public record BulkPromoteRequest(string ObjectType, Guid LogicalId, int FromEnvironmentId, int[] ToEnvironmentIds, int TenantId = 1);
+
+public record BulkPromoteResultItem(int ToEnvironmentId, PromotionResult Result);
 
 public record RollbackRequest(string ObjectType, Guid LogicalId, int EnvironmentId, int ToVersionId, int TenantId = 1);
