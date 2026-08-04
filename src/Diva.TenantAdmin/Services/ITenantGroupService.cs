@@ -81,7 +81,7 @@ public interface ITenantGroupService
 
     // ── Available configs for agent picker ────────────────────────────────────
     /// <summary>Returns all named LLM configs accessible to a tenant (own + group-level) for the agent builder picker.</summary>
-    Task<List<AvailableLlmConfigDto>> ListAvailableLlmConfigsForTenantAsync(int tenantId, CancellationToken ct);
+    Task<List<AvailableLlmConfigDto>> ListAvailableLlmConfigsForTenantAsync(int tenantId, int? environmentId, CancellationToken ct);
 
     // ── Runtime helpers ───────────────────────────────────────────────────────
     Task<List<GroupBusinessRuleEntity>> GetActiveRulesForTenantAsync(int tenantId, string agentType, CancellationToken ct);

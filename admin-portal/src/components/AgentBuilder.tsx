@@ -1073,9 +1073,9 @@ export function AgentBuilder() {
   useEffect(() => {
     api.getLlmConfig().then(setLlmConfig).catch(() => {});
     api.getAgentDefaults().then(setAgentDefaults).catch(() => {});
-    api.listAvailableLlmConfigs().then(setAvailableLlmConfigs).catch(() => {});
+    api.listAvailableLlmConfigs(undefined, currentEnvironmentId ?? undefined).then(setAvailableLlmConfigs).catch(() => {});
     api.listCredentials().then(setCredentials).catch(() => {});
-  }, []);
+  }, [currentEnvironmentId]);
 
   // Draft status (Phase C/F) — only applies to existing agents; a brand-new (unsaved) agent has
   // no live row yet, so there's nothing to draft-isolate from.

@@ -4,6 +4,31 @@
 
 ---
 
+## [2026-08-04] Bugfix: Agent Builder's "LLM Config" dropdown showed every environment's named configs
+
+Same class of bug as the Tool Servers picker fixed earlier today: `ListAvailableLlmConfigsForTenantAsync`
+(backing Agent Builder's "LLM Config" dropdown) had no environment filter anywhere in its query —
+neither the tenant's own named configs nor group-inherited ones — so a config name tagged to Dev and
+its same-named counterpart tagged to Prod both showed up side by side with no way to tell them apart.
+Confirmed not intentional — LLM configs are meant to resolve per-environment exactly like MCP servers
+(`ILlmConfigResolver.ResolveAsync` already re-resolves by `(Name, environmentId)` at runtime), the
+admin-authoring dropdown just never got the same filter applied.
+
+**Fix**:
+
+| File | Change |
+|------|--------|
+| `ITenantGroupService.cs` / `TenantGroupService.cs` | `ListAvailableLlmConfigsForTenantAsync` gained a required `int? environmentId` parameter; filters both the tenant's own named configs and group-inherited configs by `(EnvironmentId == environmentId \|\| EnvironmentId == null)` |
+| `LlmConfigController.cs` | `ListAvailableLlmConfigs` action gained `[FromQuery] int? environmentId` |
+| `api.ts` | `listAvailableLlmConfigs` gained an optional `environmentId` parameter |
+| `AgentBuilder.tsx` | Already had `useEnvironment()` wired in for the agent's own environment tagging — the LLM-config-loading `useEffect` now also passes `currentEnvironmentId` and re-runs when it changes |
+
+**Verification**: build 0 errors, full test suite 301/301 in `Diva.TenantAdmin.Tests` (only the known
+pre-existing `ContextWindowTests` failure elsewhere), `tsc -b`/`eslint` clean on touched frontend
+files, both API and admin-portal rebuilt and redeployed.
+
+---
+
 ## [2026-08-04] Bugfix: Agent Builder's "Tool Servers" picker showed every environment's MCP servers, duplicated by name
 
 `McpServerSelector.tsx` (the "Shared MCP Servers" multi-select in Agent Builder → Tool Servers)

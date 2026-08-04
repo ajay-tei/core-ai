@@ -843,14 +843,15 @@ public sealed class TenantGroupService : ITenantGroupService
         _llmResolver.InvalidateForTenant(tenantId);
     }
 
-    public async Task<List<AvailableLlmConfigDto>> ListAvailableLlmConfigsForTenantAsync(int tenantId, CancellationToken ct)
+    public async Task<List<AvailableLlmConfigDto>> ListAvailableLlmConfigsForTenantAsync(int tenantId, int? environmentId, CancellationToken ct)
     {
         using var db = _db.CreateDbContext();
 
         // Tenant's own named configs (unnamed default is auto-applied via hierarchy, not pinnable)
-        var tenantConfigs = await db.TenantLlmConfigs
-            .Where(c => c.TenantId == tenantId && c.Name != null)
-            .ToListAsync(ct);
+        var tenantConfigsQuery = db.TenantLlmConfigs.Where(c => c.TenantId == tenantId && c.Name != null);
+        if (environmentId is > 0)
+            tenantConfigsQuery = tenantConfigsQuery.Where(c => c.EnvironmentId == environmentId || c.EnvironmentId == null);
+        var tenantConfigs = await tenantConfigsQuery.ToListAsync(ct);
 
         var result = tenantConfigs
             .Select(c => new AvailableLlmConfigDto(
@@ -864,11 +865,14 @@ public sealed class TenantGroupService : ITenantGroupService
         var groupIds = await _membershipCache.GetGroupIdsForTenantAsync(tenantId, ct);
         if (groupIds.Count > 0)
         {
-            var groupConfigs = await db.GroupLlmConfigs
+            var groupConfigsQuery = db.GroupLlmConfigs
                 .Where(c => groupIds.Contains(c.GroupId))
                 .Include(c => c.Group)
                 .Include(c => c.PlatformConfig)
-                .ToListAsync(ct);
+                .AsQueryable();
+            if (environmentId is > 0)
+                groupConfigsQuery = groupConfigsQuery.Where(c => c.EnvironmentId == environmentId || c.EnvironmentId == null);
+            var groupConfigs = await groupConfigsQuery.ToListAsync(ct);
 
             result.AddRange(groupConfigs.Select(c =>
             {

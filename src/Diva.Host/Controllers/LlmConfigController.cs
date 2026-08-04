@@ -291,10 +291,10 @@ public class LlmConfigController : ControllerBase
     // GET /api/admin/llm-configs/available?tenantId=N  — all named configs for agent picker (tenant + groups)
     [HttpGet("api/admin/llm-configs/available")]
     public async Task<IActionResult> ListAvailableLlmConfigs(
-        [FromQuery] int tenantId = 1, CancellationToken ct = default)
+        [FromQuery] int tenantId = 1, [FromQuery] int? environmentId = null, CancellationToken ct = default)
     {
         var tid = EffectiveTenantId(tenantId);
-        var configs = await _groups.ListAvailableLlmConfigsForTenantAsync(tid, ct);
+        var configs = await _groups.ListAvailableLlmConfigsForTenantAsync(tid, environmentId, ct);
         return Ok(configs);
     }
 

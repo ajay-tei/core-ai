@@ -1944,8 +1944,12 @@ export const api = {
     request<TenantLlmConfig>(`/api/admin/llm-configs/${ id }?tenantId=${ tenantId }`, { method: "PUT", body: JSON.stringify(dto) }),
   deleteTenantLlmConfigById: (id: number, tenantId = 1) =>
     request<void>(`/api/admin/llm-configs/${ id }?tenantId=${ tenantId }`, { method: "DELETE" }),
-  listAvailableLlmConfigs: (tenantId = 1) =>
-    request<AvailableLlmConfig[]>(`/api/admin/llm-configs/available?tenantId=${ tenantId }`),
+  listAvailableLlmConfigs: (tenantId = 1, environmentId?: number) =>
+  {
+    const qs = new URLSearchParams({ tenantId: String(tenantId) });
+    if (environmentId) qs.set("environmentId", String(environmentId));
+    return request<AvailableLlmConfig[]>(`/api/admin/llm-configs/available?${ qs }`);
+  },
   fetchLlmConfigModels: (configId: number, tenantId = 1) =>
     request<string[]>(`/api/admin/llm-configs/${ configId }/models?tenantId=${ tenantId }`),
 
