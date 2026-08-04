@@ -101,8 +101,10 @@ export function TenantDetail() {
 }
 
 // ── Tenant LLM Config Panel ────────────────────────────────────────────────────
+// Exported so TenantLlmConfigSettings.tsx (the tenant-self-service Settings page)
+// can reuse the exact same panel a master admin sees from Platform → Tenants → [tenant].
 
-function TenantLlmConfigPanel({ tenantId }: { tenantId: number }) {
+export function TenantLlmConfigPanel({ tenantId }: { tenantId: number }) {
   const [environments, setEnvironments] = useState<TenantEnvironment[]>([]);
   const [groupConfigs, setGroupConfigs] = useState<AvailableLlmConfig[]>([]);
   const [ownConfigs,   setOwnConfigs]   = useState<TenantLlmConfig[]>([]);

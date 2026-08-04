@@ -4,6 +4,29 @@
 
 ---
 
+## [2026-08-04] Bugfix: tenant admins had no way to reach the environment-aware LLM Config UI
+
+The environment-tagged named-LLM-config panel (create a config, pick provider/model/API key, tag
+it to an environment) existed only inside `TenantDetail.tsx`, reachable exclusively via
+`/platform/tenants/:id` — a master-admin-only route (Platform → Tenants → [pick a tenant]). A
+regular tenant admin logged into their own tenant had no sidebar link or route to it at all — the
+tenant-scoped "Settings" nav group has entries for Environments/Users/SSO/MCP
+Credentials/Servers/API Keys/A2A/Widgets, but no "LLM Config" — the only "LLM Config" sidebar entry
+pointed at `/platform/llm-config`, the *global platform-wide* single config, not the per-tenant
+named-configs-with-environment-tags feature. Found via direct user report ("I dont see any option
+to set environment wise key within tenant").
+
+**Fix**: exported `TenantLlmConfigPanel` from `TenantDetail.tsx` (unchanged otherwise) and reused it
+in a new `TenantLlmConfigSettings.tsx` self-service page (`tenantId` defaults to `1` like every
+other tenant-scoped `api.ts` call — the backend's `EffectiveTenantId` pattern overrides it with the
+caller's own JWT-derived `TenantId`). Added route `settings/llm-config` and a sidebar link (icon
+`Cpu`, "Configuration" group, next to "Environments") in `app-sidebar.tsx`.
+
+**Verification**: `tsc -b` and `eslint` clean on all touched files, admin-portal container rebuilt
+and redeployed.
+
+---
+
 ## [2026-07-31] Bugfix: promotion silently relocated objects instead of copying them (all 4 promotable types)
 
 Writing a new test suite for the Promotion subsystem (`PromotionSnapshotSerializerTests.cs`,
