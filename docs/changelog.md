@@ -4,6 +4,32 @@
 
 ---
 
+## [2026-08-04] Bugfix: master/platform admins saw a meaningless environment switcher — and it leaked into every request
+
+`Topbar.tsx` rendered `<EnvironmentSwitcher />` unconditionally, with no `auth.isMasterAdmin()`
+check — unlike `AppSidebar`, which already picks an entirely different nav (`platformNavGroups`)
+for master admins specifically because tenant-scoped concepts like environments don't apply to a
+cross-tenant super-user. Worse than a cosmetic issue: `EnvironmentProvider.load()` called
+`api.listEnvironments()` with no `tenantId` argument (defaulting to `1`), auto-selected the
+lowest-rank environment, and **persisted its ID to `localStorage`** — which `authHeaders()` then
+attached as `X-Environment` on *every* subsequent request, including ones managing a completely
+unrelated tenant (e.g. `/platform/tenants/47`). Since `TenantContextMiddleware` honors
+`X-Environment` for admin callers (Phase E), a master admin's browser was silently sending Tenant
+1's environment ID while operating on any other tenant's data. Found via direct user report ("why
+I see environment selection dropdown when I login as platform admin").
+
+**Fix**:
+
+| File | Change |
+|------|--------|
+| `hooks/useEnvironment.tsx` | `EnvironmentProvider.load()` now checks `auth.isMasterAdmin()` first — clears any stored environment ID, sets `environments`/`currentEnvironmentId` empty/null, and skips the `api.listEnvironments()` fetch entirely for master admins |
+| `components/layout/topbar.tsx` | `<EnvironmentSwitcher />` now wrapped in `{!auth.isMasterAdmin() && ...}`, matching the sidebar's existing `isMaster` distinction |
+
+**Verification**: `tsc -b` and `eslint` clean on both touched files, admin-portal rebuilt and
+redeployed.
+
+---
+
 ## [2026-08-04] Bugfix: tenant admins had no way to reach the environment-aware LLM Config UI
 
 The environment-tagged named-LLM-config panel (create a config, pick provider/model/API key, tag

@@ -6,6 +6,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router";
 import { api, getStoredEnvironmentId, setStoredEnvironmentId, type TenantEnvironment } from "@/api";
+import { auth } from "@/lib/auth";
 
 interface EnvironmentContextValue
 {
@@ -40,6 +41,21 @@ export function EnvironmentProvider({ children }: { children: ReactNode; })
 
   const load = () =>
   {
+    // Master admins have no single tenant context — TenantEnvironmentEntity rows are tenant-scoped,
+    // so there's no coherent "current environment" for someone operating across every tenant.
+    // Fetching here defaulted to Tenant 1's environments (api.listEnvironments()'s tenantId=1
+    // default), which was both meaningless for a master admin and, worse, got persisted via
+    // setStoredEnvironmentId and re-sent as X-Environment on every subsequent request — including
+    // ones managing a COMPLETELY UNRELATED tenant. Clear any stale value and skip the fetch.
+    if (auth.isMasterAdmin())
+    {
+      setStoredEnvironmentId(null);
+      setEnvironments([]);
+      setCurrentEnvironmentIdState(null);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     api.listEnvironments()
       .then((envs) =>

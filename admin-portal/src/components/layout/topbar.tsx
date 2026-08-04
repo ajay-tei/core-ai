@@ -74,7 +74,7 @@ export function Topbar() {
       </Breadcrumb>
 
       <div className="ml-auto flex items-center gap-2">
-        <EnvironmentSwitcher />
+        {!auth.isMasterAdmin() && <EnvironmentSwitcher />}
         {AUTH_ENABLED && (() => {
           const user = auth.getUser();
           // isLocalUser: userId is a plain integer — local-auth users only (not SSO)
