@@ -4,6 +4,39 @@
 
 ---
 
+## [2026-08-04] Refinement: Shared MCP Server's "Select API key" dropdown now excludes keys that could never actually use the mapping rule
+
+Follow-up to the previous credential-dropdown fix. Traced the full runtime resolution chain to
+confirm this precisely:
+- `TenantContextMiddleware` resolves an untagged (`EnvironmentId = null`) API key's effective
+  environment as the tenant's **default** environment — never "every environment".
+- `McpCredentialSelector.ResolveSharedBindingsAsync` selects which physical MCP server row to use
+  by matching `s.EnvironmentId == null || s.EnvironmentId == <caller's resolved environment>`.
+- Combined, a per-API-key mapping rule on a server tagged to a *non-default* environment can never
+  fire for an untagged key, because that key's traffic never reaches that server row in the first
+  place — it always resolves to the default-environment row instead. The same is true in reverse:
+  a key explicitly tagged to Staging can never reach the *default* server row either.
+
+**Fix**: the "Select API key" dropdown now only lists keys whose *effective* environment (explicit
+tag, or the tenant's default when untagged) matches the server being edited/created — so it's no
+longer possible to build a dead-on-arrival mapping rule. Pre-existing mapping rows keep their
+current selection visible (with a stale rule harmless, just never matched) even if the referenced
+key no longer qualifies, so nothing silently disappears. Verified against live data first: all 4
+existing per-key rules are on Development-tagged (the tenant's default) servers referencing untagged
+keys — both resolve to Development, so none are affected by this change; a `QA` key tagged to
+Staging is now correctly the only option offered when editing a Staging-tagged server.
+
+**Deliberately NOT applied to the credential dropdown itself** (the "→ credential" picker): traced
+`CredentialResolver.ResolveAsync` and confirmed an untagged credential is a genuine, permanent,
+by-name fallback for *any* environment that reaches it — "prefer a row tagged to the caller's own
+environment; fall back to an untagged row." Once an API key's traffic legitimately reaches a given
+server row, an untagged credential is always a valid, reachable choice regardless of that row's
+environment. Excluding untagged credentials there would incorrectly hide legitimate options.
+
+**Verification**: `tsc -b` and `eslint` clean, admin-portal rebuilt and redeployed.
+
+---
+
 ## [2026-08-04] Bugfix: Shared MCP Server's credential dropdowns (default / per-API-key / per-user-group) listed credentials from every environment
 
 `GET /api/admin/credentials` already supports `?environmentId=` filtering, but `api.listCredentials()`

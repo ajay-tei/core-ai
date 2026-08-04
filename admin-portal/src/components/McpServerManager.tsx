@@ -108,6 +108,17 @@ export function McpServerManager() {
   // save) — same rule as Agent Groups' Member Agents picker.
   const credentialsEnvironmentId = form.id ? editingServerEnvironmentId : currentEnvironmentId;
   const credentialsEnvName = environments.find((e) => e.id === credentialsEnvironmentId)?.displayName;
+  const defaultEnvironmentId = environments.find((e) => e.isDefault)?.id;
+
+  // An untagged API key always resolves to the tenant's DEFAULT environment at runtime (see
+  // TenantContextMiddleware), so a per-key mapping on a server tagged to a DIFFERENT environment
+  // can never actually fire — that key's traffic never reaches this server row in the first
+  // place (ResolveSharedBindingsAsync matches servers by the key's own resolved environment).
+  // Only show keys whose effective environment (explicit tag, or default when untagged) matches
+  // the server being edited/created.
+  const visibleApiKeys = credentialsEnvironmentId
+    ? apiKeys.filter((k) => (k.environmentId ?? defaultEnvironmentId) === credentialsEnvironmentId)
+    : apiKeys;
 
   useEffect(() => {
     api.listCredentials(undefined, credentialsEnvironmentId ?? undefined).then(setCredentials).catch(() => setCredentials([]));
@@ -326,12 +337,20 @@ export function McpServerManager() {
                 <p className="text-xs text-muted-foreground py-1">No per-key rules — all API-key callers fall back to the default credential.</p>
               ) : (
                 <div className="space-y-2">
-                  {form.mappings.map((m, i) => (
+                  {form.mappings.map((m, i) => {
+                    // Keep an already-selected key visible even if it's now filtered out (e.g. a
+                    // rule created before this environment restriction existed) so the row still
+                    // shows its label instead of rendering blank — the stale rule is harmless
+                    // until edited since it simply never matches at runtime.
+                    const rowApiKeys = visibleApiKeys.some((k) => k.id === m.apiKeyId)
+                      ? visibleApiKeys
+                      : [...visibleApiKeys, ...apiKeys.filter((k) => k.id === m.apiKeyId)];
+                    return (
                     <div key={i} className="flex items-center gap-2">
                       <Select value={m.apiKeyId ? String(m.apiKeyId) : ""} onValueChange={(v) => updateMapping(i, { apiKeyId: Number(v) })}>
                         <SelectTrigger className="flex-1"><SelectValue placeholder="Select API key…" /></SelectTrigger>
                         <SelectContent>
-                          {apiKeys.map((k) => <SelectItem key={k.id} value={String(k.id)}>{k.name} <span className="text-muted-foreground">({k.keyPrefix})</span></SelectItem>)}
+                          {rowApiKeys.map((k) => <SelectItem key={k.id} value={String(k.id)}>{k.name} <span className="text-muted-foreground">({k.keyPrefix})</span></SelectItem>)}
                         </SelectContent>
                       </Select>
                       <span className="text-muted-foreground text-sm">→</span>
@@ -343,13 +362,17 @@ export function McpServerManager() {
                       </Select>
                       <Button variant="ghost" size="sm" onClick={() => removeMapping(i)}><Trash2 className="h-4 w-4" /></Button>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
               {apiKeys.length === 0 && (
                 <p className="text-xs text-amber-600">No platform API keys exist yet. Create them under Settings → API Keys.</p>
               )}
-              {apiKeys.length > 0 && credentials.length === 0 && (
+              {apiKeys.length > 0 && visibleApiKeys.length === 0 && (
+                <p className="text-xs text-amber-600">No API keys are usable in {credentialsEnvName ?? "this environment"} — an untagged key resolves to the tenant's default environment, so only keys explicitly tagged to {credentialsEnvName ?? "this environment"} can be mapped here.</p>
+              )}
+              {apiKeys.length > 0 && visibleApiKeys.length > 0 && credentials.length === 0 && (
                 <p className="text-xs text-amber-600">No credentials exist in {credentialsEnvName ?? "this environment"} yet. Create one under Settings → Credentials.</p>
               )}
             </div>
