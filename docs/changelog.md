@@ -4,6 +4,25 @@
 
 ---
 
+## [2026-08-04] Bugfix: Platform API Key edit form couldn't change the Environment tag
+
+Investigated in response to a design question ("should platform API keys be environment-wise?").
+Answer: yes, and this is mostly already built — `ApiKeysController.Create` already sets `EnvironmentId`
+from the request, `List`/`ListPaged` already filter by it, `ApiKeyManager.tsx` already reacts to the
+top switcher and has an Environment dropdown on the **create** form. `TenantContextMiddleware`
+already resolves a request's environment from the invoking key's own tag (Phase E) — this is the
+foundational mechanism, not a gap. One real gap found while verifying: the **edit** form's
+`startEdit`/`editForm` never included `environmentId` at all, so an existing key's environment tag
+could only ever be set at creation — never changed afterward, even though the backend
+`UpdateApiKeyRequest` already supported it.
+
+**Fix**: `startEdit` now populates `environmentId`; the edit form gained the same Environment
+`Select` used by the create form.
+
+**Verification**: `tsc -b` and `eslint` clean, admin-portal rebuilt and redeployed.
+
+---
+
 ## [2026-08-04] Feature: edit existing tenant-owned LLM configs (previously create/delete only)
 
 `TenantLlmConfigPanel`'s "Tenant-owned Configs" section only had Create and Delete — changing a

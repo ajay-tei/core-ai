@@ -74,6 +74,7 @@ export function ApiKeyManager() {
       allowedAgentIds: k.allowedAgentIds ?? [],
       allowedGroupIds: k.allowedGroupIds ?? [],
       expiresAt: k.expiresAt,
+      environmentId: k.environmentId,
     });
   };
 
@@ -253,6 +254,21 @@ export function ApiKeyManager() {
                           );
                         })}
                       </div>
+                    </div>
+                  )}
+                  {environments.length > 0 && (
+                    <div className="space-y-1.5">
+                      <Label>Environment</Label>
+                      <Select
+                        value={editForm.environmentId ? String(editForm.environmentId) : "none"}
+                        onValueChange={(v) => setEditForm({ ...editForm, environmentId: v === "none" ? undefined : Number(v) })}
+                      >
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Default (tenant's default environment)</SelectItem>
+                          {environments.map((e) => <SelectItem key={e.id} value={String(e.id)}>{e.displayName}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
                     </div>
                   )}
                   <div className="flex gap-2">
