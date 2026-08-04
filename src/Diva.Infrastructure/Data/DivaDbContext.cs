@@ -417,8 +417,11 @@ public class DivaDbContext : DbContext
         // ── Shared MCP Tool Servers ───────────────────────────
         modelBuilder.Entity<TenantMcpServerEntity>()
             .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
+        // Includes EnvironmentId (unlike the original Phase-A index) so a tenant can have the same
+        // server Name live in multiple environments simultaneously — required for promotion to
+        // create an independent target-environment copy instead of colliding with the source's row.
         modelBuilder.Entity<TenantMcpServerEntity>()
-            .HasIndex(e => new { e.TenantId, e.Name }).IsUnique();
+            .HasIndex(e => new { e.TenantId, e.Name, e.EnvironmentId }).IsUnique();
 
         // ── Widget Configs ────────────────────────────────────
         modelBuilder.Entity<WidgetConfigEntity>()

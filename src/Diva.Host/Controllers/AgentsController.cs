@@ -208,6 +208,12 @@ public class AgentsController : ControllerBase
         dto.TenantId = tenant.TenantId;
         dto.CreatedAt = DateTime.UtcNow;
         dto.Status = "Draft";
+        // Every new object needs its own logical identity (for cross-environment promotion
+        // tracking) and must be tagged to the environment the caller is currently working in —
+        // otherwise it's untagged and (by the untagged-fallback rule) visible from every
+        // environment, and can never be promoted since Promote requires a LogicalId.
+        dto.LogicalId = Guid.NewGuid();
+        dto.EnvironmentId = tenant.EnvironmentId > 0 ? tenant.EnvironmentId : null;
 
         using var db = _db.CreateDbContext(tenant);
         db.AgentDefinitions.Add(dto);

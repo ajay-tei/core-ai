@@ -24,7 +24,7 @@ public interface IAgentGroupService
 {
     Task<List<AgentGroupEntity>> ListAsync(int tenantId, CancellationToken ct);
     Task<AgentGroupEntity?> GetAsync(int tenantId, string id, CancellationToken ct);
-    Task<AgentGroupEntity> CreateAsync(int tenantId, AgentGroupDto dto, CancellationToken ct);
+    Task<AgentGroupEntity> CreateAsync(int tenantId, AgentGroupDto dto, int? environmentId, CancellationToken ct);
     Task<AgentGroupEntity?> UpdateAsync(int tenantId, string id, AgentGroupDto dto, CancellationToken ct);
     Task<bool> DeleteAsync(int tenantId, string id, CancellationToken ct);
 

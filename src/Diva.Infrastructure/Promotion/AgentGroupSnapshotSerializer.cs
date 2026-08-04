@@ -10,8 +10,8 @@ using Microsoft.Extensions.Logging;
 /// <summary>
 /// Snapshot serializer for agent access groups. Member AgentIdsJson is resolved to/from agent
 /// Names (not portable across tenants/environments as raw ids) — mirrors AgentExportService's
-/// delegate-name resolution pattern. Matched by Name within the tenant on materialize (see
-/// <see cref="IPromotableSnapshotSerializer"/> for the environment-scoping caveat).
+/// delegate-name resolution pattern. Matched by (TenantId, EnvironmentId, LogicalId) on
+/// materialize, so the same Name can safely exist in multiple environments simultaneously.
 /// </summary>
 public sealed class AgentGroupSnapshotSerializer : IPromotableSnapshotSerializer
 {
@@ -71,7 +71,8 @@ public sealed class AgentGroupSnapshotSerializer : IPromotableSnapshotSerializer
                 snapshot.Name, string.Join("; ", warnings));
         }
 
-        var group = await db.AgentGroups.FirstOrDefaultAsync(g => g.TenantId == tenantId && g.Name == snapshot.Name, ct);
+        var group = await db.AgentGroups.FirstOrDefaultAsync(
+            g => g.TenantId == tenantId && g.EnvironmentId == environmentId && g.LogicalId == logicalId, ct);
         if (group is null)
         {
             group = new AgentGroupEntity { TenantId = tenantId, Name = snapshot.Name, CreatedAt = DateTime.UtcNow };

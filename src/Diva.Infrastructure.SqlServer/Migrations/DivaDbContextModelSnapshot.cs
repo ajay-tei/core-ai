@@ -2447,10 +2447,11 @@ namespace Diva.Infrastructure.SqlServer.Migrations
 
                     b.HasIndex("EnvironmentId");
 
-                    b.HasIndex("TenantId", "Name")
-                        .IsUnique();
-
                     b.HasIndex("TenantId", "EnvironmentId", "LogicalId");
+
+                    b.HasIndex("TenantId", "Name", "EnvironmentId")
+                        .IsUnique()
+                        .HasFilter("[EnvironmentId] IS NOT NULL");
 
                     b.ToTable("TenantMcpServers");
                 });

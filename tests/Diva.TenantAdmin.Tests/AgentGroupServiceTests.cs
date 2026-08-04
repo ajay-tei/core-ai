@@ -57,7 +57,7 @@ public class AgentGroupServiceTests : IDisposable
 
     private async Task SeedGroupAsync(string name, string[] agentIds, string[] allowedUsers, string[] allowedRoles)
     {
-        await _service.CreateAsync(TenantId, new AgentGroupDto(name, null, agentIds, allowedUsers, allowedRoles, []), CancellationToken.None);
+        await _service.CreateAsync(TenantId, new AgentGroupDto(name, null, agentIds, allowedUsers, allowedRoles, []), null, CancellationToken.None);
     }
 
     // ── Backward compatibility ────────────────────────────────────────────────
@@ -112,7 +112,7 @@ public class AgentGroupServiceTests : IDisposable
     [Fact]
     public async Task CanInvoke_ApiKeyGroupGrant_Allowed()
     {
-        var group = await _service.CreateAsync(TenantId, new AgentGroupDto("Finance", null, ["agent-a"], ["alice"], [], []), CancellationToken.None);
+        var group = await _service.CreateAsync(TenantId, new AgentGroupDto("Finance", null, ["agent-a"], ["alice"], [], []), null, CancellationToken.None);
         var tenant = User("svc-key", groupAccess: [group.Id]);
         Assert.True(await _service.CanInvokeAgentAsync("agent-a", tenant, CancellationToken.None));
     }
@@ -145,7 +145,7 @@ public class AgentGroupServiceTests : IDisposable
         await _db.SaveChangesAsync();
 
         // Restrict agent-a to the user group only.
-        await _service.CreateAsync(TenantId, new AgentGroupDto("Finance", null, ["agent-a"], [], [], [ug.Id]), CancellationToken.None);
+        await _service.CreateAsync(TenantId, new AgentGroupDto("Finance", null, ["agent-a"], [], [], [ug.Id]), null, CancellationToken.None);
 
         Assert.True(await _service.CanInvokeAgentAsync("agent-a", User("alice"), CancellationToken.None));
         Assert.False(await _service.CanInvokeAgentAsync("agent-a", User("bob"), CancellationToken.None));
@@ -171,7 +171,7 @@ public class AgentGroupServiceTests : IDisposable
     [Fact]
     public async Task UpdateAsync_InvalidatesCache()
     {
-        var group = await _service.CreateAsync(TenantId, new AgentGroupDto("Finance", null, ["agent-a"], ["alice"], [], []), CancellationToken.None);
+        var group = await _service.CreateAsync(TenantId, new AgentGroupDto("Finance", null, ["agent-a"], ["alice"], [], []), null, CancellationToken.None);
 
         // Prime the cache: bob is denied.
         Assert.False(await _service.CanInvokeAgentAsync("agent-a", User("bob"), CancellationToken.None));
@@ -185,7 +185,7 @@ public class AgentGroupServiceTests : IDisposable
     [Fact]
     public async Task DeleteAsync_RemovesRestriction()
     {
-        var group = await _service.CreateAsync(TenantId, new AgentGroupDto("Finance", null, ["agent-a"], ["alice"], [], []), CancellationToken.None);
+        var group = await _service.CreateAsync(TenantId, new AgentGroupDto("Finance", null, ["agent-a"], ["alice"], [], []), null, CancellationToken.None);
         Assert.False(await _service.CanInvokeAgentAsync("agent-a", User("bob"), CancellationToken.None));
 
         await _service.DeleteAsync(TenantId, group.Id, CancellationToken.None);

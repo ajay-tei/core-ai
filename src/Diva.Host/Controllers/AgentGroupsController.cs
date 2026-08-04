@@ -97,7 +97,8 @@ public class AgentGroupsController : ControllerBase
     {
         var tid = EffectiveTenantId(req.TenantId);
         var dto = new AgentGroupDto(req.Name, req.Description, req.AgentIds ?? [], req.AllowedUserIds ?? [], req.AllowedRoles ?? [], req.AllowedUserGroupIds ?? []);
-        var created = await _service.CreateAsync(tid, dto, ct);
+        var envId = HttpContext.TryGetTenantContext()?.EnvironmentId;
+        var created = await _service.CreateAsync(tid, dto, envId is > 0 ? envId : null, ct);
         return Ok(ToDto(created));
     }
 

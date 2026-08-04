@@ -8,10 +8,9 @@ using Microsoft.Extensions.Logging;
 
 /// <summary>
 /// Snapshot serializer for agents — thin wrapper around the existing <see cref="IAgentExportService"/>
-/// rather than reimplementing bundle/rule serialization. Known limitation: ImportAsync's match-by-Name
-/// is not environment-scoped (predates Phase A's environment columns) — acceptable today because every
-/// tenant still has exactly one (backfilled) environment; Phase D/E's promotion orchestration is
-/// expected to refine this once true multi-environment upsert-by-LogicalId is needed.
+/// rather than reimplementing bundle/rule serialization. Resolves the specific (TenantId,
+/// EnvironmentId, LogicalId) row itself and passes it via <see cref="AgentImportOptions.TargetAgentId"/>,
+/// since ImportAsync's own by-Name matching is tenant-wide, not environment-scoped.
 /// </summary>
 public sealed class AgentSnapshotSerializer : IPromotableSnapshotSerializer
 {
@@ -54,11 +53,29 @@ public sealed class AgentSnapshotSerializer : IPromotableSnapshotSerializer
         var bundle = JsonSerializer.Deserialize<AgentExportBundle>(snapshotJson, JsonOptions)
             ?? throw new InvalidOperationException("Invalid agent snapshot JSON.");
 
-        var result = await _export.ImportAsync(
-            bundle,
-            TenantContext.System(tenantId),
-            new AgentImportOptions { OverwriteExisting = true, ImportRules = true },
-            ct);
+        // Resolve the specific row (if any) already live for THIS (tenant, environment, logicalId)
+        // ourselves, and pass it as TargetAgentId — ImportAsync's own by-Name matching is tenant-wide,
+        // not environment-scoped, and would otherwise find whichever same-named agent exists in ANY
+        // environment (typically the source's own row on a first promotion), overwriting it in place
+        // instead of creating an independent copy for this environment.
+        string? targetAgentId;
+        using (var lookupDb = _db.CreateDbContext())
+        {
+            targetAgentId = await lookupDb.AgentDefinitions
+                .Where(a => a.TenantId == tenantId && a.EnvironmentId == environmentId && a.LogicalId == logicalId)
+                .Select(a => a.Id)
+                .FirstOrDefaultAsync(ct);
+        }
+
+        // When no row exists yet for this specific (tenant, environment, logicalId), force a
+        // genuine CREATE (OverwriteExisting = false) — otherwise ImportAsync's fallback by-Name
+        // search would still find and overwrite whichever OTHER environment's same-named agent
+        // happens to exist (typically the source's own row on a first promotion).
+        var options = targetAgentId is { Length: > 0 }
+            ? new AgentImportOptions { OverwriteExisting = true, ImportRules = true, TargetAgentId = targetAgentId }
+            : new AgentImportOptions { OverwriteExisting = false, ImportRules = true };
+
+        var result = await _export.ImportAsync(bundle, TenantContext.System(tenantId), options, ct);
 
         if (result.Warnings.Count > 0)
         {

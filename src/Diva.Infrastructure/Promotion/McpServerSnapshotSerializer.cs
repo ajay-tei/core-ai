@@ -7,8 +7,9 @@ using Diva.Infrastructure.Data.Entities;
 using Microsoft.EntityFrameworkCore;
 
 /// <summary>
-/// Snapshot serializer for tenant MCP server definitions. Matched by Name within the tenant on
-/// materialize (see <see cref="IPromotableSnapshotSerializer"/> for the environment-scoping caveat).
+/// Snapshot serializer for tenant MCP server definitions. Matched by (TenantId, EnvironmentId,
+/// LogicalId) on materialize, so the same Name can safely exist in multiple environments
+/// simultaneously (enforced by TenantMcpServerEntity's (TenantId, Name, EnvironmentId) unique index).
 /// </summary>
 public sealed class McpServerSnapshotSerializer : IPromotableSnapshotSerializer
 {
@@ -60,7 +61,8 @@ public sealed class McpServerSnapshotSerializer : IPromotableSnapshotSerializer
             ?? throw new InvalidOperationException("Invalid MCP server snapshot JSON.");
 
         using var db = _db.CreateDbContext();
-        var server = await db.TenantMcpServers.FirstOrDefaultAsync(s => s.TenantId == tenantId && s.Name == snapshot.Name, ct);
+        var server = await db.TenantMcpServers.FirstOrDefaultAsync(
+            s => s.TenantId == tenantId && s.EnvironmentId == environmentId && s.LogicalId == logicalId, ct);
         if (server is null)
         {
             server = new TenantMcpServerEntity { TenantId = tenantId, Name = snapshot.Name, CreatedAt = DateTime.UtcNow };

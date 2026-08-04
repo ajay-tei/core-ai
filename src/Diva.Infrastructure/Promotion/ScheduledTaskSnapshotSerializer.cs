@@ -10,8 +10,8 @@ using Microsoft.Extensions.Logging;
 /// <summary>
 /// Snapshot serializer for scheduled tasks. AgentId is resolved to/from the target agent's Name
 /// (not portable across tenants/environments as a raw id) — mirrors AgentExportService's
-/// delegate-name resolution pattern. Matched by Name within the tenant on materialize (see
-/// <see cref="IPromotableSnapshotSerializer"/> for the environment-scoping caveat).
+/// delegate-name resolution pattern. Matched by (TenantId, EnvironmentId, LogicalId) on
+/// materialize, so the same Name can safely exist in multiple environments simultaneously.
 /// </summary>
 public sealed class ScheduledTaskSnapshotSerializer : IPromotableSnapshotSerializer
 {
@@ -87,7 +87,8 @@ public sealed class ScheduledTaskSnapshotSerializer : IPromotableSnapshotSeriali
                 snapshot.Name, snapshot.AgentName, tenantId);
         }
 
-        var task = await db.ScheduledTasks.FirstOrDefaultAsync(t => t.TenantId == tenantId && t.Name == snapshot.Name, ct);
+        var task = await db.ScheduledTasks.FirstOrDefaultAsync(
+            t => t.TenantId == tenantId && t.EnvironmentId == environmentId && t.LogicalId == logicalId, ct);
         if (task is null)
         {
             task = new ScheduledTaskEntity { TenantId = tenantId, Name = snapshot.Name, CreatedAt = DateTime.UtcNow };

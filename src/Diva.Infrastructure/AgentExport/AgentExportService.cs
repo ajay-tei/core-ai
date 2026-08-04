@@ -74,10 +74,11 @@ public sealed class AgentExportService : IAgentExportService
             db, bundle.Agent.DelegateAgentNames, warnings, ct);
 
         // Overwrite or create
-        AgentDefinitionEntity existing = options.OverwriteExisting
-            ? await db.AgentDefinitions
-                .FirstOrDefaultAsync(a => a.Name == effectiveName, ct) ?? new AgentDefinitionEntity()
-            : new AgentDefinitionEntity();
+        AgentDefinitionEntity existing = options.TargetAgentId is { Length: > 0 } targetId
+            ? await db.AgentDefinitions.FirstOrDefaultAsync(a => a.Id == targetId, ct) ?? new AgentDefinitionEntity()
+            : options.OverwriteExisting
+                ? await db.AgentDefinitions.FirstOrDefaultAsync(a => a.Name == effectiveName, ct) ?? new AgentDefinitionEntity()
+                : new AgentDefinitionEntity();
 
         var isNew = string.IsNullOrEmpty(existing.Id) || existing.Id == existing.Id && existing.TenantId == 0;
 

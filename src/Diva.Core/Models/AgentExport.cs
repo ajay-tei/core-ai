@@ -103,6 +103,16 @@ public sealed record AgentImportOptions
 
     /// <summary>Override the imported agent name. Null = use the name from the bundle.</summary>
     public string? NewAgentName { get; init; }
+
+    /// <summary>
+    /// When set, overwrite THIS exact agent Id instead of matching by Name. Name-based matching
+    /// finds whichever row has that Name tenant-wide, which is ambiguous once the same Name can
+    /// legitimately exist in multiple environments (promotion). Used by AgentSnapshotSerializer to
+    /// target the specific (TenantId, EnvironmentId, LogicalId) row it already resolved; null for
+    /// the general bundle-import feature, which has no environment concept and keeps its original
+    /// by-Name matching.
+    /// </summary>
+    public string? TargetAgentId { get; init; }
 }
 
 /// <summary>Result returned after a successful import.</summary>

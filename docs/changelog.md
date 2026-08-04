@@ -4,6 +4,77 @@
 
 ---
 
+## [2026-07-31] Bugfix: promotion silently relocated objects instead of copying them (all 4 promotable types)
+
+Writing a new test suite for the Promotion subsystem (`PromotionSnapshotSerializerTests.cs`,
+`PromotionLedgerServiceTests.cs`, `PromotionOrchestrationServiceTests.cs` — 35 tests total, none
+existed before) surfaced a severe, previously-undiscovered bug: every `IPromotableSnapshotSerializer.
+MaterializeAsync` implementation decided create-vs-update by looking up the existing row by
+`(TenantId, Name)` only — never by environment or `LogicalId`. On the first promotion of anything
+(the common case, since "first promotion" by definition means only the source row exists so far),
+this found and repurposed the **source row itself**, silently changing its `EnvironmentId` to the
+target — the object *disappeared from the source environment* instead of an independent target copy
+being created alongside it.
+
+MCP Servers had an additional, permanent variant: `TenantMcpServerEntity`'s unique index was
+`(TenantId, Name)` only (missing `EnvironmentId`, unlike `McpCredentialEntity`'s correctly-scoped
+`(TenantId, Name, EnvironmentId)`), making it structurally impossible to ever have the same server
+Name live in two environments simultaneously.
+
+**Fix:**
+
+| File | Change |
+|------|--------|
+| `DivaDbContext.cs` | `TenantMcpServerEntity`'s unique index widened to `(TenantId, Name, EnvironmentId)` |
+| `McpServerSnapshotSerializer.cs` / `ScheduledTaskSnapshotSerializer.cs` / `AgentGroupSnapshotSerializer.cs` | `MaterializeAsync` now matches the existing row by `(TenantId, EnvironmentId, LogicalId)` instead of `(TenantId, Name)` |
+| `AgentImportOptions` (`Diva.Core/Models/AgentExport.cs`) | Gained `string? TargetAgentId` — when set, `AgentExportService.ImportAsync` overwrites that exact row instead of searching tenant-wide by Name (additive, backward compatible — the general bundle-import feature is unaffected since it never sets this) |
+| `AgentSnapshotSerializer.cs` | Resolves the existing row (if any) for `(tenantId, environmentId, logicalId)` itself and passes it via `TargetAgentId`; forces `OverwriteExisting = false` when none exists, so `ImportAsync` never falls back to its tenant-wide by-Name search and accidentally overwrites another environment's same-named agent |
+| `AddMcpServerEnvironmentToUniqueIndex` migration | Both providers (SQLite: `src/Diva.Infrastructure/Data/Migrations`, SQL Server: `src/Diva.Infrastructure.SqlServer/Migrations`) |
+
+**New tests**: `tests/Diva.TenantAdmin.Tests/PromotionSnapshotSerializerTests.cs` (18),
+`PromotionLedgerServiceTests.cs` (6), `PromotionOrchestrationServiceTests.cs` (8) — the Promotion
+subsystem had zero test coverage before this. Several tests directly confirm the fix (e.g.
+`MaterializeAsync_PromotingToNewEnvironment_CreatesIndependentCopy_PreservesSource`,
+`MaterializeAsync_SameNameDifferentLogicalId_CreatesIndependentRow_DoesNotRepurposeExisting`).
+
+**Verification**: build 0 errors, `dotnet test Diva.slnx` — 301/301 passed in `Diva.TenantAdmin.Tests`
+(only the known pre-existing `ContextWindowTests` failure elsewhere), `has-pending-model-changes`
+clean both providers, deployed via `docker-compose.sqlserver.yml` — migration
+`20260731222335_AddMcpServerEnvironmentToUniqueIndex` applied cleanly at startup, no errors in logs.
+
+**Still open**: Agent Group promotion still intentionally drops `AllowedUserIdsJson`/`UserGroupLinks`
+(explicit user/user-group grants) — documented as deliberate in `PromotableSnapshotDtos.cs` (avoids
+leaking Dev-only test-user access into Production on promotion), but the promotion preview UI
+doesn't currently warn about this silent drop.
+
+---
+
+## [2026-07-31] Bugfix: Create endpoints never tagged new objects with EnvironmentId/LogicalId
+
+All 4 promotable object types' Create paths (`AgentsController.Create`, `McpServersController.
+Create`, `ScheduledTaskService.CreateAsync`, `AgentGroupService.CreateAsync`) never set
+`EnvironmentId`/`LogicalId` on new rows — only List/Filter paths were wired when environment
+scoping shipped (Phase A/F). New objects were therefore both (a) visible from every environment
+(untagged rows fall back to matching any environment) and (b) unpromotable (Promotion requires a
+`LogicalId`). Root cause found via a user question about a scheduled task appearing under the
+default environment when created under a different one.
+
+**Fix**: all 4 Create paths now set `LogicalId = Guid.NewGuid()` and `EnvironmentId` from the
+caller's current `TenantContext.EnvironmentId` (or `null` if unset/system). `IScheduledTaskService.
+CreateScheduledTaskRequest` gained a trailing `int? EnvironmentId = null` field (additive);
+`IAgentGroupService.CreateAsync` gained a new **required** `int? environmentId` parameter (breaking,
+by design — forces every call site to make a deliberate choice), updated at its one production call
+site and all 5 test call sites in `AgentGroupServiceTests.cs`.
+
+**Backfill**: not needed — an existing idempotent `Program.cs` startup fixup (runs on every restart)
+already sweeps any row with `EnvironmentId == null` and tags it to the tenant's default environment,
+so previously-created untagged rows self-heal on the next deploy.
+
+**Verification**: build 0 errors, full test suite same pre-existing-only failure, deployed via
+`docker-compose.sqlserver.yml`.
+
+---
+
 ## [2026-07-31] Bugfix: Platform API Keys list didn't filter by environment switcher
 
 `ApiKeyManager.tsx` never actually reacted to the environment switcher — unlike every other

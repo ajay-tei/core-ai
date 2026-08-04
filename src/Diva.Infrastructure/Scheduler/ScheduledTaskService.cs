@@ -54,7 +54,11 @@ public sealed class ScheduledTaskService : IScheduledTaskService
             RunAsUserEmail = string.IsNullOrWhiteSpace(req.RunAsUserId) || string.IsNullOrWhiteSpace(req.RunAsUserEmail) ? null : req.RunAsUserEmail,
             RunAsUserLabel = string.IsNullOrWhiteSpace(req.RunAsUserId) || string.IsNullOrWhiteSpace(req.RunAsUserLabel) ? null : req.RunAsUserLabel,
             CreatedAt = DateTime.UtcNow,
-            NextRunUtc = null
+            NextRunUtc = null,
+            // Fresh logical identity for promotion tracking + tag to the caller's current
+            // environment (untagged = visible from every environment, by the fallback rule).
+            LogicalId = Guid.NewGuid(),
+            EnvironmentId = req.EnvironmentId,
         };
 
         entity.NextRunUtc = req.IsEnabled ? ComputeNextRunUtc(entity, DateTime.UtcNow) : null;

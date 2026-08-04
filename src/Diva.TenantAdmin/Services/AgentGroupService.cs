@@ -67,7 +67,7 @@ public sealed class AgentGroupService : IAgentGroupService
             .FirstOrDefaultAsync(g => g.Id == id && g.TenantId == tenantId, ct);
     }
 
-    public async Task<AgentGroupEntity> CreateAsync(int tenantId, AgentGroupDto dto, CancellationToken ct)
+    public async Task<AgentGroupEntity> CreateAsync(int tenantId, AgentGroupDto dto, int? environmentId, CancellationToken ct)
     {
         using var db = _db.CreateDbContext();
         var entity = new AgentGroupEntity
@@ -80,6 +80,10 @@ public sealed class AgentGroupService : IAgentGroupService
             AllowedRolesJson = Serialize(dto.AllowedRoles),
             CreatedAt = DateTime.UtcNow,
             UserGroupLinks = BuildUserGroupLinks(tenantId, dto.AllowedUserGroupIds),
+            // Fresh logical identity for promotion tracking + tag to the caller's current
+            // environment (untagged = visible from every environment, by the fallback rule).
+            LogicalId = Guid.NewGuid(),
+            EnvironmentId = environmentId is > 0 ? environmentId : null,
         };
         db.AgentGroups.Add(entity);
         await db.SaveChangesAsync(ct);

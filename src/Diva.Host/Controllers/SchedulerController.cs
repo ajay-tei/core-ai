@@ -90,6 +90,7 @@ public class SchedulerController : ControllerBase
         CancellationToken ct = default)
     {
         if (dto is null) return BadRequest(new { error = "Request body is required." });
+        var envId = HttpContext.TryGetTenantContext()?.EnvironmentId;
 
         Exception? ex = null;
         object? created = null;
@@ -103,7 +104,8 @@ public class SchedulerController : ControllerBase
                 dto.PromptText, dto.ParametersJson,
                 dto.IsEnabled,
                 dto.NotifyEmails, dto.NotifyOn, dto.SuccessKeywords,
-                dto.RunAsUserId, dto.RunAsUserEmail, dto.RunAsUserLabel), ct);
+                dto.RunAsUserId, dto.RunAsUserEmail, dto.RunAsUserLabel,
+                envId is > 0 ? envId : null), ct);
         }
         catch (ArgumentException e) { ex = e; }
 
@@ -319,6 +321,7 @@ public class SchedulerController : ControllerBase
         if (dto?.Tasks is null) return BadRequest(new { error = "Request body is required." });
 
         var tid = EffectiveTenantId(tenantId);
+        var envId = HttpContext.TryGetTenantContext()?.EnvironmentId;
         var existing = (await _service.ListAsync(tid, ct))
                            .Select(t => t.Name)
                            .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -343,7 +346,8 @@ public class SchedulerController : ControllerBase
                     task.TimeZoneId ?? "UTC", task.PayloadType ?? "prompt",
                     task.PromptText, task.ParametersJson, task.IsEnabled,
                     task.NotifyEmails, task.NotifyOn, task.SuccessKeywords,
-                    task.RunAsUserId, task.RunAsUserEmail, task.RunAsUserLabel), ct);
+                    task.RunAsUserId, task.RunAsUserEmail, task.RunAsUserLabel,
+                    envId is > 0 ? envId : null), ct);
                 created++;
             }
             catch (Exception e) { ex = e; }

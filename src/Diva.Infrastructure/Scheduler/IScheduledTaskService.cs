@@ -94,7 +94,8 @@ public sealed record CreateScheduledTaskRequest(
     string? SuccessKeywords = null,
     string? RunAsUserId = null,
     string? RunAsUserEmail = null,
-    string? RunAsUserLabel = null);
+    string? RunAsUserLabel = null,
+    int? EnvironmentId = null);
 
 public sealed record UpdateScheduledTaskRequest(
     string? AgentId,

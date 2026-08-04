@@ -142,6 +142,10 @@ public class McpServersController : ControllerBase
             ApiKeyCredentialMappingsJson = dto.ApiKeyCredentialMappingsJson,
             CreatedByUserId = ctx?.UserId,
             UserGroupCredentials = BuildGroupCredentials(tid, dto.UserGroupCredentials),
+            // Fresh logical identity for promotion tracking + tag to the caller's current
+            // environment (untagged = visible from every environment, by the fallback rule).
+            LogicalId = Guid.NewGuid(),
+            EnvironmentId = ctx is { EnvironmentId: > 0 } ? ctx.EnvironmentId : null,
         };
 
         db.TenantMcpServers.Add(entity);

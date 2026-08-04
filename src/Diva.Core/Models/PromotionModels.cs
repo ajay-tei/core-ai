@@ -87,11 +87,8 @@ public interface IPromotableSnapshotSerializer
 
     /// <summary>
     /// Creates or updates the live row for (tenantId, environmentId) from the snapshot, matched by
-    /// Name within the tenant. Known limitation: matching is not yet environment-scoped (a tenant
-    /// with more than one environment could match the wrong environment's row by name) — safe today
-    /// because every tenant still has exactly one (backfilled) environment; Phase D/E's promotion
-    /// orchestration is expected to refine this to match by (EnvironmentId, LogicalId) once
-    /// environment-scoped routing ships.
+    /// (TenantId, EnvironmentId, LogicalId) — never by Name alone, so the same Name can safely
+    /// exist in multiple environments simultaneously (each environment's own promoted copy).
     /// </summary>
     Task MaterializeAsync(int tenantId, int environmentId, Guid logicalId, string snapshotJson, CancellationToken ct);
 }
