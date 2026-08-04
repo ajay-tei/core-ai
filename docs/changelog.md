@@ -4,6 +4,25 @@
 
 ---
 
+## [2026-08-04] Bugfix: Allowed Agent Groups didn't refresh when changing the per-key Environment dropdown
+
+`ApiKeyManager.tsx` has two independent environment selectors: the topbar switcher
+(`currentEnvironmentId`) and a per-form "Environment" field (`form.environmentId` /
+`editForm.environmentId`) that tags which environment the key itself will be scoped to. The
+Allowed Agent Groups list was wired only to the topbar switcher, so changing the Environment
+dropdown *inside* the Create or Edit form had no effect on which groups were shown — it kept
+showing groups for whatever environment the topbar happened to be on, not the environment the key
+was actually about to be saved with.
+
+**Fix**: the groups-loading effect now uses the active form's own `environmentId` (falling back to
+the topbar's current environment when the form hasn't set one explicitly), and re-runs whenever
+that value or the open form (`editingId`) changes. The empty-state hint text (added in the prior
+fix) now also names the correct environment per form instead of always naming the topbar's.
+
+**Verification**: `tsc -b` and `eslint` clean, admin-portal rebuilt and redeployed.
+
+---
+
 ## [2026-08-04] UX fix: "Allowed Agent Groups" section vanished silently when the current environment has no groups yet
 
 Follow-up to the prior fix that scoped the Allowed Agent Groups picker to the selected environment.

@@ -26,7 +26,14 @@ export function ApiKeyManager() {
   const [groups, setGroups] = useState<AgentGroup[]>([]);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<UpdateApiKeyDto>({});
-  const currentEnvName = environments.find((e) => e.id === currentEnvironmentId)?.displayName;
+
+  // Groups should reflect whichever environment the key being created/edited will actually be
+  // scoped to (the form's own Environment dropdown), not just the topbar switcher — falling back
+  // to the topbar's current environment when the form hasn't set one explicitly.
+  const createEnvironmentId = form.environmentId ?? currentEnvironmentId;
+  const editEnvironmentId = editForm.environmentId ?? currentEnvironmentId;
+  const createEnvName = environments.find((e) => e.id === createEnvironmentId)?.displayName;
+  const editEnvName = environments.find((e) => e.id === editEnvironmentId)?.displayName;
 
   useEffect(() => {
     if (currentEnvironmentId) update({ environmentId: currentEnvironmentId });
@@ -34,8 +41,9 @@ export function ApiKeyManager() {
   }, [currentEnvironmentId]);
 
   useEffect(() => {
-    api.listAgentGroups(undefined, currentEnvironmentId ?? undefined).then(setGroups).catch(() => setGroups([]));
-  }, [currentEnvironmentId]);
+    const envId = editingId !== null ? editEnvironmentId : createEnvironmentId;
+    api.listAgentGroups(undefined, envId ?? undefined).then(setGroups).catch(() => setGroups([]));
+  }, [editingId, editEnvironmentId, createEnvironmentId]);
 
   const handleCreate = async () => {
     if (!form.name.trim()) { toast.error("Name is required"); return; }
@@ -176,7 +184,7 @@ export function ApiKeyManager() {
                 </div>
               ) : (
                 <p className="text-xs text-muted-foreground italic">
-                  No agent groups exist in {currentEnvName ?? "the selected environment"} yet. Promote a group from another environment or create one first.
+                  No agent groups exist in {createEnvName ?? "the selected environment"} yet. Promote a group from another environment or create one first.
                 </p>
               )}
             </div>
@@ -261,7 +269,7 @@ export function ApiKeyManager() {
                       </div>
                     ) : (
                       <p className="text-xs text-muted-foreground italic">
-                        No agent groups exist in {currentEnvName ?? "the selected environment"} yet. Promote a group from another environment or create one first.
+                        No agent groups exist in {editEnvName ?? "the selected environment"} yet. Promote a group from another environment or create one first.
                       </p>
                     )}
                   </div>
