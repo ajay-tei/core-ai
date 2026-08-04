@@ -1074,7 +1074,7 @@ export function AgentBuilder() {
     api.getLlmConfig().then(setLlmConfig).catch(() => {});
     api.getAgentDefaults().then(setAgentDefaults).catch(() => {});
     api.listAvailableLlmConfigs(undefined, currentEnvironmentId ?? undefined).then(setAvailableLlmConfigs).catch(() => {});
-    api.listCredentials().then(setCredentials).catch(() => {});
+    api.listCredentials(undefined, currentEnvironmentId ?? undefined).then(setCredentials).catch(() => {});
   }, [currentEnvironmentId]);
 
   // Draft status (Phase C/F) — only applies to existing agents; a brand-new (unsaved) agent has

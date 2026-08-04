@@ -2137,8 +2137,14 @@ export const api = {
     request<GroupAgentOverlay>(`/api/agents/group-templates/${ templateId }/overlay/enabled`, { method: "PATCH", body: JSON.stringify({ isEnabled }) }),
 
   // ── MCP Credentials ─────────────────────────────────────────────────────────
-  listCredentials: (tenantId?: number) =>
-    request<McpCredential[]>(`/api/admin/credentials${ tenantId ? `?tenantId=${ tenantId }` : "" }`),
+  listCredentials: (tenantId?: number, environmentId?: number) =>
+  {
+    const qs = new URLSearchParams();
+    if (tenantId) qs.set("tenantId", String(tenantId));
+    if (environmentId) qs.set("environmentId", String(environmentId));
+    const q = qs.toString();
+    return request<McpCredential[]>(`/api/admin/credentials${ q ? `?${ q }` : "" }`);
+  },
   listCredentialsPaged: (params: McpCredentialListParams = {}) =>
   {
     const qs = new URLSearchParams({ tenantId: String(params.tenantId ?? 1) });

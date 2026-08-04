@@ -87,7 +87,7 @@ function parseMappings(json?: string): ApiKeyCredentialMapping[] {
 }
 
 export function McpServerManager() {
-  const { currentEnvironmentId } = useEnvironment();
+  const { currentEnvironmentId, environments } = useEnvironment();
   const { result, loading, params, update, updateDebounced, setPage, reload } =
     usePagedList<McpServer, McpServerListParams>(api.listMcpServersPaged, { page: 1, pageSize: 25 });
 
@@ -100,22 +100,33 @@ export function McpServerManager() {
   const [userGroups, setUserGroups] = useState<UserGroup[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<ServerForm>(EMPTY_FORM);
+  const [editingServerEnvironmentId, setEditingServerEnvironmentId] = useState<number | null>(null);
+
+  // Credential choices must come from whichever environment the server actually belongs to: its
+  // own tag when editing (an existing server's environment can't be changed here), or the
+  // topbar's current environment when creating (a new server is tagged to it automatically on
+  // save) — same rule as Agent Groups' Member Agents picker.
+  const credentialsEnvironmentId = form.id ? editingServerEnvironmentId : currentEnvironmentId;
+  const credentialsEnvName = environments.find((e) => e.id === credentialsEnvironmentId)?.displayName;
+
+  useEffect(() => {
+    api.listCredentials(undefined, credentialsEnvironmentId ?? undefined).then(setCredentials).catch(() => setCredentials([]));
+  }, [credentialsEnvironmentId]);
 
   useEffect(() => {
     Promise.all([
-      api.listCredentials().catch(() => [] as McpCredential[]),
       api.listApiKeys().catch(() => [] as PlatformApiKey[]),
       api.listUserGroups().catch(() => [] as UserGroup[]),
-    ]).then(([c, k, ug]) => {
-      setCredentials(c);
+    ]).then(([k, ug]) => {
       setApiKeys(k);
       setUserGroups(ug);
-    }).catch(() => toast.error("Failed to load credential/key/group options"));
+    }).catch(() => toast.error("Failed to load key/group options"));
   }, []);
 
-  const openCreate = () => { setForm(EMPTY_FORM); setShowForm(true); };
+  const openCreate = () => { setForm(EMPTY_FORM); setEditingServerEnvironmentId(null); setShowForm(true); };
 
   const openEdit = (s: McpServer) => {
+    setEditingServerEnvironmentId(s.environmentId ?? null);
     setForm({
       id: s.id,
       name: s.name,
@@ -134,7 +145,7 @@ export function McpServerManager() {
     setShowForm(true);
   };
 
-  const closeForm = () => { setShowForm(false); setForm(EMPTY_FORM); };
+  const closeForm = () => { setShowForm(false); setForm(EMPTY_FORM); setEditingServerEnvironmentId(null); };
 
   const buildDto = (): CreateMcpServerDto => {
     const isHttp = form.transport === "http" || form.transport === "sse";
@@ -297,6 +308,9 @@ export function McpServerManager() {
                   {credentials.map((c) => <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>)}
                 </SelectContent>
               </Select>
+              {credentials.length === 0 && (
+                <p className="text-xs text-amber-600">No credentials exist in {credentialsEnvName ?? "this environment"} yet. Create one under Settings → Credentials.</p>
+              )}
             </div>
 
             {/* ── Per-API-key credential routing ───────────────────────────── */}
@@ -335,6 +349,9 @@ export function McpServerManager() {
               {apiKeys.length === 0 && (
                 <p className="text-xs text-amber-600">No platform API keys exist yet. Create them under Settings → API Keys.</p>
               )}
+              {apiKeys.length > 0 && credentials.length === 0 && (
+                <p className="text-xs text-amber-600">No credentials exist in {credentialsEnvName ?? "this environment"} yet. Create one under Settings → Credentials.</p>
+              )}
             </div>
 
             {/* ── Per-user-group credential routing ───────────────────── */}
@@ -372,6 +389,9 @@ export function McpServerManager() {
               )}
               {userGroups.length === 0 && (
                 <p className="text-xs text-amber-600">No user groups exist yet. Create them under Settings → User Groups.</p>
+              )}
+              {userGroups.length > 0 && credentials.length === 0 && (
+                <p className="text-xs text-amber-600">No credentials exist in {credentialsEnvName ?? "this environment"} yet. Create one under Settings → Credentials.</p>
               )}
             </div>
 

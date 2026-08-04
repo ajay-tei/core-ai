@@ -4,6 +4,36 @@
 
 ---
 
+## [2026-08-04] Bugfix: Shared MCP Server's credential dropdowns (default / per-API-key / per-user-group) listed credentials from every environment
+
+`GET /api/admin/credentials` already supports `?environmentId=` filtering, but `api.listCredentials()`
+took no parameter and `McpServerManager.tsx` fetched it once on mount with zero reactivity — all
+three credential-selection dropdowns (Default credential, the "→ credential" column in per-API-key
+rules, and the "→ credential" column in per-user-group rules) share the same unfiltered list.
+
+Shared MCP Servers have no explicit Environment field of their own in this UI (tagged automatically
+from context at creation, like Agent Groups) — so the fix uses the **topbar's current environment**
+when creating a new server (what it'll be tagged to on save), and the **server's own existing
+`environmentId`** when editing (can't be changed here, so credential choices must stay scoped to
+wherever the server already lives). Also fixed the same gap in `AgentBuilder.tsx`'s credential list
+— its effect already depended on `currentEnvironmentId` for the LLM Config dropdown but never passed
+it to `listCredentials`.
+
+**Important data-reality note, verified via DB query**: unlike Platform API Keys, a credential's
+`EnvironmentId == null` is an intentionally-permanent "universal" designation, not a rollout
+artifact — confirmed in `CredentialResolver.ResolveAsync`'s own comment: "Prefer a row tagged to the
+caller's own environment; fall back to an untagged row... never a DIFFERENT tagged environment's
+row." All 8 of tenant 1's existing credentials are untagged (`EnvironmentId = NULL`), so they will
+correctly continue to appear in **every** environment's dropdown after this fix — that's by design,
+not a leftover bug. The fix only becomes visibly different once an environment-*specific* credential
+is created (e.g. a Staging-only credential will no longer appear while editing a Development-tagged
+server).
+
+**Verification**: `tsc -b` and `eslint` clean (only the pre-existing, unrelated `AgentBuilder.tsx:759`
+warning remains), admin-portal rebuilt and redeployed.
+
+---
+
 ## [2026-08-04] Bugfix: Agent Access Group's "Member Agents" picker listed agents from every environment
 
 Same root-cause pattern as the Tool Servers/LLM Config/Allowed Agent Groups pickers:
