@@ -208,7 +208,8 @@ public class AgentGroupsController : ControllerBase
         Parse(e.AllowedRolesJson),
         e.UserGroupLinks.Select(l => l.UserGroupId).ToArray(),
         e.CreatedAt,
-        e.UpdatedAt);
+        e.UpdatedAt,
+        e.EnvironmentId);
 
     private static string[] Parse(string? json)
     {
@@ -238,4 +239,5 @@ public record AgentGroupResponse(
     string[] AllowedRoles,
     int[] AllowedUserGroupIds,
     DateTime CreatedAt,
-    DateTime? UpdatedAt);
+    DateTime? UpdatedAt,
+    int? EnvironmentId = null);

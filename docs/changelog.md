@@ -4,6 +4,48 @@
 
 ---
 
+## [2026-08-04] Bugfix: `McpServerDto` and `AgentGroupResponse` never actually sent `EnvironmentId` — silently defeating every edit-case environment filter built on top of them
+
+Root cause of "I see it still as same before" after the previous two MCP Server credential-dropdown
+fixes. Both response DTOs were missing the field entirely:
+
+```csharp
+// McpServersController.ToDto — EnvironmentId never included
+private static McpServerDto ToDto(TenantMcpServerEntity s) => new(
+    s.Id, s.Name, ..., s.CreatedAt, s.UpdatedAt, s.CreatedByUserId);   // <- no EnvironmentId
+
+// AgentGroupsController.ToDto — same gap
+private static AgentGroupResponse ToDto(AgentGroupEntity e) => new(
+    e.Id, e.Name, ..., e.CreatedAt, e.UpdatedAt);                     // <- no EnvironmentId
+```
+
+So `McpServer.environmentId` and `AgentGroup.environmentId` were always `undefined` on the frontend,
+no matter what the actual row was tagged with. This silently defeated the **edit-case** logic in
+two previous fixes that read the entity's own environment client-side:
+- `McpServerManager.tsx`'s credential/API-key dropdown fixes (`b182d0d`, `7bbf88d`) — `openEdit`
+  always computed `editingServerEnvironmentId = null`, so `credentialsEnvironmentId` fell through to
+  `null` and every filter silently no-opped back to "show everything," exactly matching the reported
+  symptom.
+- `AgentGroups.tsx`'s Member Agents picker fix (`c81445f`) — same gap, `g.environmentId` was always
+  `undefined` in `openEdit`, so editing an existing group always showed unfiltered agents too
+  (the create-path was unaffected, since it derives its environment from the topbar directly rather
+  than reading a fetched entity's field).
+
+**Audited every other client-side `.environmentId` read this session touched** to check for the
+same class of bug: `PlatformApiKeyInfo` (`ApiKeysController`), `CredentialRow`/`ToListItem`
+(`CredentialsController`), and the LLM config response records (`LlmConfigController`) all correctly
+include `EnvironmentId` already — confirmed via source read, not just assumption. `WidgetConfigEntity`
+is serialized directly with no narrowing DTO, so it's unaffected by this class of bug entirely.
+
+**Fix**: added `EnvironmentId` to both `McpServerDto` and `AgentGroupResponse`, populated from the
+entity in each controller's `ToDto`.
+
+**Verification**: `dotnet build` 0 errors, `dotnet test` 301/301 in `Diva.TenantAdmin.Tests` (only
+the known pre-existing `Diva.Agents.Tests.ContextWindowTests` failure remains), API and admin-portal
+both rebuilt and redeployed (backend DTO change requires both).
+
+---
+
 ## [2026-08-04] Refinement: Shared MCP Server's "Select API key" dropdown now excludes keys that could never actually use the mapping rule
 
 Follow-up to the previous credential-dropdown fix. Traced the full runtime resolution chain to

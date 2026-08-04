@@ -319,7 +319,7 @@ public class McpServersController : ControllerBase
             .OrderBy(c => c.UserGroupId)
             .Select(c => new UserGroupCredentialMapping(c.UserGroupId, c.CredentialRef))
             .ToArray(),
-        s.CreatedAt, s.UpdatedAt, s.CreatedByUserId);
+        s.CreatedAt, s.UpdatedAt, s.CreatedByUserId, s.EnvironmentId);
 
     private static List<McpServerUserGroupCredentialEntity> BuildGroupCredentials(
         int tenantId, UserGroupCredentialMapping[]? mappings)
@@ -360,7 +360,8 @@ public record McpServerDto(
     UserGroupCredentialMapping[] UserGroupCredentials,
     DateTime CreatedAt,
     DateTime? UpdatedAt,
-    string? CreatedByUserId);
+    string? CreatedByUserId,
+    int? EnvironmentId = null);
 
 /// <summary>Per-user-group credential mapping for a shared MCP server (relational row).</summary>
 public record UserGroupCredentialMapping(int UserGroupId, string CredentialRef);
