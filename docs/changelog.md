@@ -4,6 +4,26 @@
 
 ---
 
+## [2026-08-04] Feature: edit existing tenant-owned LLM configs (previously create/delete only)
+
+`TenantLlmConfigPanel`'s "Tenant-owned Configs" section only had Create and Delete — changing a
+config's provider, model, API key, endpoint, or environment tag required deleting and recreating it
+(losing its `Id`, which any agent's `LlmConfigId` pin would then dangle against). The backend
+`PUT /api/admin/llm-configs/{id}` already supported updating everything except `Name` (immutable —
+it's the stable identifier agents pin to and the resolver matches across environments by). Found via
+direct user report.
+
+**Fix**: added inline Edit — a pencil button per config row swaps it for an edit form (reusing the
+same `LlmForm` + Environment `Select` used by the Create form), pre-populated from the existing row.
+API key uses the established masked-placeholder convention (`maskedApiKey` prop — "leave blank to
+keep", already used by `PlatformLlmConfig.tsx`'s own edit flow) so re-saving without touching the key
+field doesn't clear it. Save calls `api.updateTenantLlmConfigById`.
+
+**Verification**: `tsc -b` and `eslint` clean, admin-portal rebuilt and redeployed. Pure frontend
+change — no backend edits needed, the update endpoint already existed.
+
+---
+
 ## [2026-08-04] Bugfix: Agent Builder's "LLM Config" dropdown showed every environment's named configs
 
 Same class of bug as the Tool Servers picker fixed earlier today: `ListAvailableLlmConfigsForTenantAsync`

@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Building2, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Building2, Pencil, Plus, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
@@ -122,6 +122,11 @@ export function TenantLlmConfigPanel({ tenantId }: { tenantId: number }) {
   const [newForm,      setNewForm]      = useState<UpsertLlmConfigDto>({});
   const [addingSaving, setAddingSaving] = useState(false);
 
+  // Edit existing own config
+  const [editingId,    setEditingId]    = useState<number | null>(null);
+  const [editForm,     setEditForm]     = useState<UpsertLlmConfigDto>({});
+  const [editSaving,   setEditSaving]   = useState(false);
+
   async function load() {
     try {
       const [available, own, envs] = await Promise.all([
@@ -176,6 +181,38 @@ export function TenantLlmConfigPanel({ tenantId }: { tenantId: number }) {
       toast.success("Config deleted");
     } catch (e) {
       toast.error(`Failed: ${e}`);
+    }
+  }
+
+  function startEdit(c: TenantLlmConfig) {
+    setEditingId(c.id);
+    setEditForm({
+      provider:            c.provider,
+      model:               c.model,
+      endpoint:            c.endpoint,
+      deploymentName:      c.deploymentName,
+      availableModelsJson: c.availableModelsJson,
+      environmentId:       c.environmentId,
+      // apiKey intentionally left blank — LlmForm's maskedApiKey prop signals "leave blank to keep"
+    });
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditForm({});
+  }
+
+  async function saveEdit(id: number) {
+    setEditSaving(true);
+    try {
+      const updated = await api.updateTenantLlmConfigById(id, editForm, tenantId);
+      setOwnConfigs(l => l.map(x => x.id === id ? updated : x));
+      toast.success(`"${updated.name}" updated`);
+      cancelEdit();
+    } catch (e) {
+      toast.error(`Failed: ${e}`);
+    } finally {
+      setEditSaving(false);
     }
   }
 
@@ -274,7 +311,35 @@ export function TenantLlmConfigPanel({ tenantId }: { tenantId: number }) {
         {(currentEnvironmentId
           ? ownConfigs.filter(c => c.environmentId === currentEnvironmentId || c.environmentId == null)
           : ownConfigs
-        ).map(c => (
+        ).map(c => editingId === c.id ? (
+          <Card key={c.id} className="border-dashed">
+            <CardHeader><CardTitle className="text-sm">Edit "{c.name}"</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
+              <LlmForm value={editForm} onChange={p => setEditForm(f => ({ ...f, ...p }))} maskedApiKey={c.apiKey} />
+              {environments.length > 0 && (
+                <div className="space-y-1">
+                  <Label className="text-xs">Environment</Label>
+                  <Select
+                    value={editForm.environmentId ? String(editForm.environmentId) : "none"}
+                    onValueChange={v => setEditForm(f => ({ ...f, environmentId: v === "none" ? undefined : Number(v) }))}
+                  >
+                    <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">All environments (untagged)</SelectItem>
+                      {environments.map(e => <SelectItem key={e.id} value={String(e.id)}>{e.displayName}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <Button size="sm" onClick={() => saveEdit(c.id)} disabled={editSaving}>
+                  {editSaving ? "Saving…" : "Save"}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={cancelEdit}>Cancel</Button>
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
           <div key={c.id} className="flex items-center justify-between rounded border px-3 py-2">
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium">{c.name}</span>
@@ -287,6 +352,9 @@ export function TenantLlmConfigPanel({ tenantId }: { tenantId: number }) {
             </div>
             <div className="flex items-center gap-1">
               <span className="text-xs text-muted-foreground">ID {c.id}</span>
+              <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => startEdit(c)}>
+                <Pencil className="size-3" />
+              </Button>
               <Button size="sm" variant="ghost" className="text-destructive h-7 px-2" onClick={() => deleteOwnConfig(c.id, c.name)}>
                 <Trash2 className="size-3" />
               </Button>
