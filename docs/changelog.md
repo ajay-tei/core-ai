@@ -4,6 +4,30 @@
 
 ---
 
+## [2026-08-04] Bugfix: tenant-owned LLM configs list didn't react to the top environment dropdown
+
+`TenantLlmConfigPanel`'s "Tenant-owned Configs" list rendered `ownConfigs` unfiltered — showing
+every environment's configs at once (each with its own `EnvironmentBadge`) regardless of the top
+switcher's selection, unlike every other environment-filtered list page (Agents, MCP Servers,
+Scheduled Tasks, Agent Groups, MCP Credentials, API Keys). The panel already fetched its own
+`environments` list (for the create-form's environment picker), but never consulted the global
+switcher's `currentEnvironmentId` at all. Found via direct user report.
+
+**Fix**: `TenantLlmConfigPanel` now calls `useEnvironment()` and filters the rendered list to
+`c.environmentId === currentEnvironmentId || c.environmentId == null` when a switcher selection
+exists (same untagged-fallback pattern used everywhere else). This works correctly in **both**
+places the panel is used without any extra branching: master admins (`TenantDetail.tsx`) already
+get `currentEnvironmentId = null` from the 2026-08-04 master-admin switcher fix, which naturally
+means "no filter" — preserving the existing "show everything with badges" master-admin behavior —
+while a real tenant admin (`TenantLlmConfigSettings.tsx`) gets real filtering reacting to their own
+top switcher.
+
+**Verification**: `tsc -b` clean; `eslint` shows only the pre-existing unrelated
+`react-hooks/exhaustive-deps` warning on this file (present before this change too), admin-portal
+rebuilt and redeployed.
+
+---
+
 ## [2026-08-04] Bugfix: master/platform admins saw a meaningless environment switcher — and it leaked into every request
 
 `Topbar.tsx` rendered `<EnvironmentSwitcher />` unconditionally, with no `auth.isMasterAdmin()`

@@ -5,6 +5,7 @@ import { SsoConfig } from "@/components/SsoConfig";
 import { LocalUsersPanel } from "@/components/LocalUsersPanel";
 import { LlmForm } from "@/components/PlatformLlmConfig";
 import { EnvironmentBadge } from "@/components/ui/environment-badge";
+import { useEnvironment } from "@/hooks/useEnvironment";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
@@ -105,6 +106,11 @@ export function TenantDetail() {
 // can reuse the exact same panel a master admin sees from Platform → Tenants → [tenant].
 
 export function TenantLlmConfigPanel({ tenantId }: { tenantId: number }) {
+  // currentEnvironmentId is null for master admins (no single tenant context — see useEnvironment.tsx),
+  // which naturally means "no filter" here too, matching the existing "show every environment with a
+  // badge" behavior for TenantDetail.tsx's master-admin view. For a real tenant admin viewing their
+  // own Settings page, this reacts to the top environment switcher like every other list page.
+  const { currentEnvironmentId } = useEnvironment();
   const [environments, setEnvironments] = useState<TenantEnvironment[]>([]);
   const [groupConfigs, setGroupConfigs] = useState<AvailableLlmConfig[]>([]);
   const [ownConfigs,   setOwnConfigs]   = useState<TenantLlmConfig[]>([]);
@@ -265,7 +271,10 @@ export function TenantLlmConfigPanel({ tenantId }: { tenantId: number }) {
           <p className="text-xs text-muted-foreground italic">No tenant-owned configs yet.</p>
         )}
 
-        {ownConfigs.map(c => (
+        {(currentEnvironmentId
+          ? ownConfigs.filter(c => c.environmentId === currentEnvironmentId || c.environmentId == null)
+          : ownConfigs
+        ).map(c => (
           <div key={c.id} className="flex items-center justify-between rounded border px-3 py-2">
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium">{c.name}</span>
