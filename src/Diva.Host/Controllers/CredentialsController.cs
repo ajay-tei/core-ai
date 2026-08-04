@@ -5,6 +5,7 @@ using Diva.Infrastructure.Auth;
 using Diva.Infrastructure.Data;
 using Diva.Infrastructure.Data.Entities;
 using Diva.Infrastructure.Extensions;
+using Diva.TenantAdmin.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -17,15 +18,18 @@ public class CredentialsController : ControllerBase
 {
     private readonly IDatabaseProviderFactory _db;
     private readonly ICredentialEncryptor _encryptor;
+    private readonly IEnvironmentService _environments;
     private readonly ILogger<CredentialsController> _logger;
 
     public CredentialsController(
         IDatabaseProviderFactory db,
         ICredentialEncryptor encryptor,
+        IEnvironmentService environments,
         ILogger<CredentialsController> logger)
     {
         _db = db;
         _encryptor = encryptor;
+        _environments = environments;
         _logger = logger;
     }
 
@@ -45,7 +49,14 @@ public class CredentialsController : ControllerBase
         using var db = _db.CreateDbContext(Core.Models.TenantContext.System(tid));
         var query = db.McpCredentials.Where(c => c.TenantId == tid);
         if (environmentId is > 0)
-            query = query.Where(c => c.EnvironmentId == environmentId || c.EnvironmentId == null);
+        {
+            // An untagged credential only shows while viewing the tenant's DEFAULT environment —
+            // consistent with how untagged Platform API Keys are listed. This doesn't change actual
+            // runtime resolution (CredentialResolver still falls back to an untagged row by name for
+            // ANY environment), it only narrows what's offered here for a non-default environment.
+            var defaultEnvId = (await _environments.GetDefaultAsync(tid, ct))?.Id;
+            query = query.Where(c => c.EnvironmentId == environmentId || (c.EnvironmentId == null && environmentId == defaultEnvId));
+        }
         var rows = await query
             .OrderByDescending(c => c.CreatedAt)
             .AsNoTracking()
@@ -76,7 +87,11 @@ public class CredentialsController : ControllerBase
             query = query.Where(c => c.Name.Contains(q));
         }
         if (environmentId is > 0)
-            query = query.Where(c => c.EnvironmentId == environmentId || c.EnvironmentId == null);
+        {
+            // See comment in List() above — untagged credentials only show for the tenant's default.
+            var defaultEnvId = (await _environments.GetDefaultAsync(tid, ct))?.Id;
+            query = query.Where(c => c.EnvironmentId == environmentId || (c.EnvironmentId == null && environmentId == defaultEnvId));
+        }
 
         var paged = await query
             .OrderByDescending(c => c.CreatedAt)

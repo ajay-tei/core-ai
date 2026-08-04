@@ -4,6 +4,36 @@
 
 ---
 
+## [2026-08-04] Refinement: viewing a non-default environment no longer shows untagged ("default environment") MCP credentials
+
+Applied the same tenant-default-aware null-matching fix used for Platform API Keys (`2b325e9`) to
+`CredentialsController.List`/`ListPaged`. Previously, an untagged credential matched *every*
+environment filter (`c.EnvironmentId == environmentId || c.EnvironmentId == null`) — so switching
+to Staging still showed all of the tenant's untagged credentials alongside any Staging-specific
+ones, which read as "default environment credentials leaking into Staging."
+
+**Fix**: untagged credentials now only appear while viewing the tenant's **default** environment,
+resolved via the existing `IEnvironmentService.GetDefaultAsync` — mirroring exactly how untagged
+Platform API Keys are already filtered. Affects both the `McpServerManager.tsx`/`AgentBuilder.tsx`
+credential pickers and the standalone Credentials admin list page (`CredentialManager.tsx`), since
+all three share this one backend endpoint.
+
+**Important tradeoff to flag**: this only changes what's *offered in the admin UI* for a given
+environment. It does **not** change actual runtime resolution — `CredentialResolver.ResolveAsync`
+still looks up a credential by name for the caller's own environment first, falling back to an
+untagged row of the same name, regardless of environment. So an untagged credential that's no
+longer selectable while viewing Staging will still be used automatically at runtime if referenced
+by name and no Staging-specific override exists — it just can no longer be *picked from this
+particular dropdown* while viewing Staging. To reference it from a Staging context going forward,
+either switch to the default environment to configure the mapping, or tag a credential explicitly
+to Staging.
+
+**Verification**: `dotnet build` 0 errors, `dotnet test` 301/301 in `Diva.TenantAdmin.Tests` (only
+the known pre-existing `Diva.Agents.Tests.ContextWindowTests` failure remains), API and admin-portal
+both rebuilt and redeployed.
+
+---
+
 ## [2026-08-04] Correction: MCP credentials list environment filtering restored (previous revert was a misread)
 
 Briefly reverted the environment filtering on `McpServerManager.tsx`'s and `AgentBuilder.tsx`'s
