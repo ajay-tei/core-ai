@@ -105,10 +105,7 @@ export function McpServerManager() {
   // Credential choices must come from whichever environment the server actually belongs to: its
   // own tag when editing (an existing server's environment can't be changed here), or the
   // topbar's current environment when creating (a new server is tagged to it automatically on
-  // save) — same rule as Agent Groups' Member Agents picker. Used below only for the API-key
-  // relevance filter — the credentials list itself is intentionally NOT environment-filtered (a
-  // credential's name is a tenant-wide pool of secrets; CredentialResolver already does the right
-  // per-environment resolution at runtime regardless of what's offered in this picker).
+  // save) — same rule as Agent Groups' Member Agents picker.
   const credentialsEnvironmentId = form.id ? editingServerEnvironmentId : currentEnvironmentId;
   const credentialsEnvName = environments.find((e) => e.id === credentialsEnvironmentId)?.displayName;
   const defaultEnvironmentId = environments.find((e) => e.isDefault)?.id;
@@ -124,15 +121,17 @@ export function McpServerManager() {
     : apiKeys;
 
   useEffect(() => {
+    api.listCredentials(undefined, credentialsEnvironmentId ?? undefined).then(setCredentials).catch(() => setCredentials([]));
+  }, [credentialsEnvironmentId]);
+
+  useEffect(() => {
     Promise.all([
-      api.listCredentials().catch(() => [] as McpCredential[]),
       api.listApiKeys().catch(() => [] as PlatformApiKey[]),
       api.listUserGroups().catch(() => [] as UserGroup[]),
-    ]).then(([c, k, ug]) => {
-      setCredentials(c);
+    ]).then(([k, ug]) => {
       setApiKeys(k);
       setUserGroups(ug);
-    }).catch(() => toast.error("Failed to load credential/key/group options"));
+    }).catch(() => toast.error("Failed to load key/group options"));
   }, []);
 
   const openCreate = () => { setForm(EMPTY_FORM); setEditingServerEnvironmentId(null); setShowForm(true); };
@@ -321,7 +320,7 @@ export function McpServerManager() {
                 </SelectContent>
               </Select>
               {credentials.length === 0 && (
-                <p className="text-xs text-amber-600">No credentials exist yet. Create one under Settings → Credentials.</p>
+                <p className="text-xs text-amber-600">No credentials exist in {credentialsEnvName ?? "this environment"} yet. Create one under Settings → Credentials.</p>
               )}
             </div>
 
@@ -374,7 +373,7 @@ export function McpServerManager() {
                 <p className="text-xs text-amber-600">No API keys are usable in {credentialsEnvName ?? "this environment"} — an untagged key resolves to the tenant's default environment, so only keys explicitly tagged to {credentialsEnvName ?? "this environment"} can be mapped here.</p>
               )}
               {apiKeys.length > 0 && visibleApiKeys.length > 0 && credentials.length === 0 && (
-                <p className="text-xs text-amber-600">No credentials exist yet. Create one under Settings → Credentials.</p>
+                <p className="text-xs text-amber-600">No credentials exist in {credentialsEnvName ?? "this environment"} yet. Create one under Settings → Credentials.</p>
               )}
             </div>
 
@@ -415,7 +414,7 @@ export function McpServerManager() {
                 <p className="text-xs text-amber-600">No user groups exist yet. Create them under Settings → User Groups.</p>
               )}
               {userGroups.length > 0 && credentials.length === 0 && (
-                <p className="text-xs text-amber-600">No credentials exist yet. Create one under Settings → Credentials.</p>
+                <p className="text-xs text-amber-600">No credentials exist in {credentialsEnvName ?? "this environment"} yet. Create one under Settings → Credentials.</p>
               )}
             </div>
 

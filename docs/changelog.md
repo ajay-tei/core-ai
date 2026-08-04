@@ -4,26 +4,6 @@
 
 ---
 
-## [2026-08-04] Revert: MCP credentials list is no longer environment-filtered
-
-Per explicit request, backed out the environment filtering added to the "credentials" list in
-`McpServerManager.tsx` (Default / per-API-key / per-user-group dropdowns) and `AgentBuilder.tsx`'s
-credential picker. Both now fetch the full tenant-wide credential list unconditionally again, same
-as before this session's changes.
-
-This does not change runtime behavior at all — `CredentialResolver.ResolveAsync` was always the
-thing deciding which physical credential row actually gets used for a given caller's environment
-(preferring an environment-tagged match, falling back to untagged), independent of what this admin
-picker displays. Only the admin-authoring list is affected.
-
-The "Select API key" relevance filter (added in the same earlier change, which genuinely does
-affect whether a mapping rule can ever fire) is unaffected by this revert and remains in place.
-
-**Verification**: `tsc -b` and `eslint` clean (only the pre-existing unrelated `AgentBuilder.tsx:759`
-warning remains), admin-portal rebuilt and redeployed.
-
----
-
 ## [2026-08-04] Bugfix: `McpServerDto` and `AgentGroupResponse` never actually sent `EnvironmentId` — silently defeating every edit-case environment filter built on top of them
 
 Root cause of "I see it still as same before" after the previous two MCP Server credential-dropdown
