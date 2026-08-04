@@ -26,6 +26,7 @@ export function ApiKeyManager() {
   const [groups, setGroups] = useState<AgentGroup[]>([]);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<UpdateApiKeyDto>({});
+  const currentEnvName = environments.find((e) => e.id === currentEnvironmentId)?.displayName;
 
   useEffect(() => {
     if (currentEnvironmentId) update({ environmentId: currentEnvironmentId });
@@ -149,10 +150,10 @@ export function ApiKeyManager() {
                 </Select>
               </div>
             </div>
-            {groups.length > 0 && (
-              <div className="space-y-1.5">
-                <Label>Allowed Agent Groups (optional)</Label>
-                <p className="text-xs text-muted-foreground">Grant this key access to agents in restricted groups. Leave empty for no extra grants.</p>
+            <div className="space-y-1.5">
+              <Label>Allowed Agent Groups (optional)</Label>
+              <p className="text-xs text-muted-foreground">Grant this key access to agents in restricted groups. Leave empty for no extra grants.</p>
+              {groups.length > 0 ? (
                 <div className="flex flex-wrap gap-2">
                   {groups.map((g) => {
                     const selected = (form.allowedGroupIds ?? []).includes(g.id);
@@ -173,8 +174,12 @@ export function ApiKeyManager() {
                     );
                   })}
                 </div>
-              </div>
-            )}
+              ) : (
+                <p className="text-xs text-muted-foreground italic">
+                  No agent groups exist in {currentEnvName ?? "the selected environment"} yet. Promote a group from another environment or create one first.
+                </p>
+              )}
+            </div>
             {environments.length > 0 && (
               <div className="space-y-1.5">
                 <Label>Environment (optional)</Label>
@@ -230,10 +235,10 @@ export function ApiKeyManager() {
                       </Select>
                     </div>
                   </div>
-                  {groups.length > 0 && (
-                    <div className="space-y-1.5">
-                      <Label>Allowed Agent Groups</Label>
-                      <p className="text-xs text-muted-foreground">Grant this key access to agents in restricted groups.</p>
+                  <div className="space-y-1.5">
+                    <Label>Allowed Agent Groups</Label>
+                    <p className="text-xs text-muted-foreground">Grant this key access to agents in restricted groups.</p>
+                    {groups.length > 0 ? (
                       <div className="flex flex-wrap gap-2">
                         {groups.map((g) => {
                           const selected = (editForm.allowedGroupIds ?? []).includes(g.id);
@@ -254,8 +259,12 @@ export function ApiKeyManager() {
                           );
                         })}
                       </div>
-                    </div>
-                  )}
+                    ) : (
+                      <p className="text-xs text-muted-foreground italic">
+                        No agent groups exist in {currentEnvName ?? "the selected environment"} yet. Promote a group from another environment or create one first.
+                      </p>
+                    )}
+                  </div>
                   {environments.length > 0 && (
                     <div className="space-y-1.5">
                       <Label>Environment</Label>

@@ -4,6 +4,29 @@
 
 ---
 
+## [2026-08-04] UX fix: "Allowed Agent Groups" section vanished silently when the current environment has no groups yet
+
+Follow-up to the prior fix that scoped the Allowed Agent Groups picker to the selected environment.
+That fix is behaving correctly — verified directly against the database: all 12 existing Agent
+Groups for tenant 1 have `EnvironmentId = 1` (Development), because they existed before
+multi-environment promotion was used and were swept there by the startup default-environment
+backfill. Switching the top environment switcher to Staging or Demo Play (which have 0 groups each)
+correctly returns an empty list — but the UI hid the whole "Allowed Agent Groups" section whenever
+`groups.length === 0`, which is indistinguishable from a bug.
+
+This is expected behavior, not a regression: an Agent Group's `AgentIdsJson` holds literal
+per-environment Agent row IDs, so a group can't be meaningfully shared across environments without
+being promoted (creating an independent, remapped copy in the target environment).
+
+**Fix**: the section now always renders. When no groups exist for the current environment, it shows
+an inline hint ("No agent groups exist in `<Environment>` yet. Promote a group from another
+environment or create one first.") instead of disappearing. Applied to both the Create and Edit
+forms in `ApiKeyManager.tsx`.
+
+**Verification**: `tsc -b` and `eslint` clean, admin-portal rebuilt and redeployed.
+
+---
+
 ## [2026-08-04] Bugfix: Platform API Key's "Allowed Agent Groups" picker showed every environment's groups
 
 Same class of bug as the Tool Servers and LLM Config pickers: `api.listAgentGroups()` had no
