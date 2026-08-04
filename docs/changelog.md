@@ -4,6 +4,35 @@
 
 ---
 
+## [2026-08-04] Bugfix: race condition in `usePagedList` could let a stale unfiltered response overwrite a correctly-filtered one
+
+Investigated a report that the top environment dropdown "wasn't working" for API Key filtering.
+Checked live server logs (`docker logs core-ai-diva-api-1`) for actual `/api/admin/api-keys/paged`
+request patterns and found every environment switch fires **two** sequential requests: one without
+`environmentId` and one with it (e.g. `...&pageSize=25` immediately followed by
+`...&pageSize=25&environmentId=2`). `usePagedList`'s `load()` had no protection against out-of-order
+responses — network timing does not guarantee the later-fired (filtered) request's response arrives
+last, so if the unfiltered one happened to resolve after it, it silently overwrote the correct,
+filtered `result` state with the unfiltered one. This is foundational, shared infrastructure
+(`admin-portal/src/hooks/usePagedList.ts`) used by all 16+ paginated admin-portal list pages, not
+just API Keys — any of them could hit the same race under the right timing, even though it was only
+reported for this one.
+
+**Fix**: `load()` now tags each fetch with an incrementing request id and only applies a response
+(`setResult`/`setError`/`setLoading`) if it's still the most recently issued request, discarding any
+stale one — a standard React async-race guard.
+
+**Not fully root-caused**: why exactly two requests fire per switch (one omitting `environmentId`)
+wasn't conclusively pinned down through static analysis — likely an interaction between
+`usePagedList`'s own mount/param-change effect and the consumer's separate
+`useEffect(() => update({ environmentId }), [currentEnvironmentId])` pattern. The redundant request
+is now harmless (its response is always discarded if superseded) but still a minor efficiency
+cost — flagged for a closer look if it turns out to matter in practice.
+
+**Verification**: `tsc -b` and `eslint` clean, admin-portal rebuilt and redeployed.
+
+---
+
 ## [2026-08-04] Bugfix: Platform API Key edit form couldn't change the Environment tag
 
 Investigated in response to a design question ("should platform API keys be environment-wise?").

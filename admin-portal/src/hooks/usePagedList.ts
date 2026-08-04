@@ -37,15 +37,22 @@ export function usePagedList<T, TParams extends { page?: number; pageSize?: numb
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const fetchFnRef = useRef(fetchFn);
     fetchFnRef.current = fetchFn;
+    // Guards against out-of-order responses: e.g. an unfiltered mount-time fetch and a
+    // filter-triggered fetch (from a consumer's `useEffect` reacting to e.g. the environment
+    // switcher) can both be in flight at once, and network timing does not guarantee the LATER
+    // request's response arrives last. Without this, a slower stale response can silently
+    // overwrite a newer, correctly-filtered one.
+    const requestIdRef = useRef(0);
 
     const load = useCallback((p: TParams) =>
     {
+        const requestId = ++requestIdRef.current;
         setLoading(true);
         setError(null);
         fetchFnRef.current(p)
-            .then(setResult)
-            .catch(e => setError(String(e)))
-            .finally(() => setLoading(false));
+            .then(data => { if (requestId === requestIdRef.current) setResult(data); })
+            .catch(e => { if (requestId === requestIdRef.current) setError(String(e)); })
+            .finally(() => { if (requestId === requestIdRef.current) setLoading(false); });
     }, []);
 
     useEffect(() =>
