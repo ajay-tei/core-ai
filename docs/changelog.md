@@ -4,6 +4,23 @@
 
 ---
 
+## [2026-08-04] Bugfix: Platform API Key's "Allowed Agent Groups" picker showed every environment's groups
+
+Same class of bug as the Tool Servers and LLM Config pickers: `api.listAgentGroups()` had no
+`environmentId` parameter, and `ApiKeyManager.tsx` called it once on mount with no reactivity to the
+top switcher — even though `AgentGroupsController.List` already supported `?environmentId=`
+filtering. Confirmed by direct user question — yes, Agent (Access) Groups are one of the 4
+environment-scoped/promotable object types from this session's earlier work, so this dropdown
+should scope to the currently-selected environment like every other one.
+
+**Fix**: `listAgentGroups` gained an optional `environmentId` parameter; `ApiKeyManager.tsx`'s
+groups-loading effect now passes `currentEnvironmentId` and re-runs when it changes. Only one call
+site existed, so extended in place rather than adding a second endpoint.
+
+**Verification**: `tsc -b` and `eslint` clean, admin-portal rebuilt and redeployed.
+
+---
+
 ## [2026-08-04] Bugfix: race condition in `usePagedList` could let a stale unfiltered response overwrite a correctly-filtered one
 
 Investigated a report that the top environment dropdown "wasn't working" for API Key filtering.

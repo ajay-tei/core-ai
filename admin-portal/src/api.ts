@@ -2200,8 +2200,14 @@ export const api = {
     request<ApiKeyCreatedResult>(`/api/admin/api-keys/${ id }/rotate`, { method: "POST", body: JSON.stringify({ tenantId: tenantId ?? 1 }) }),
 
   // ── Agent Access Groups (Phase 28) ──────────────────────────────────────────
-  listAgentGroups: (tenantId?: number) =>
-    request<AgentGroup[]>(`/api/agent-groups${ tenantId ? `?tenantId=${ tenantId }` : "" }`),
+  listAgentGroups: (tenantId?: number, environmentId?: number) =>
+  {
+    const qs = new URLSearchParams();
+    if (tenantId) qs.set("tenantId", String(tenantId));
+    if (environmentId) qs.set("environmentId", String(environmentId));
+    const q = qs.toString();
+    return request<AgentGroup[]>(`/api/agent-groups${ q ? `?${ q }` : "" }`);
+  },
   listAgentGroupsPaged: (params: AgentGroupListParams = {}) =>
   {
     const qs = new URLSearchParams({ tenantId: String(params.tenantId ?? 1) });

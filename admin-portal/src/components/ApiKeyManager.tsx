@@ -33,8 +33,8 @@ export function ApiKeyManager() {
   }, [currentEnvironmentId]);
 
   useEffect(() => {
-    api.listAgentGroups().then(setGroups).catch(() => setGroups([]));
-  }, []);
+    api.listAgentGroups(undefined, currentEnvironmentId ?? undefined).then(setGroups).catch(() => setGroups([]));
+  }, [currentEnvironmentId]);
 
   const handleCreate = async () => {
     if (!form.name.trim()) { toast.error("Name is required"); return; }
