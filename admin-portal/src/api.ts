@@ -1627,7 +1627,13 @@ export interface McpProbeResult
 }
 
 export const api = {
-  listAgents: () => request<AgentSummary[]>("/api/agents"),
+  listAgents: (environmentId?: number) =>
+  {
+    const qs = new URLSearchParams();
+    if (environmentId) qs.set("environmentId", String(environmentId));
+    const q = qs.toString();
+    return request<AgentSummary[]>(`/api/agents${ q ? `?${ q }` : "" }`);
+  },
   listAgentsPaged: (params: AgentListParams = {}) =>
   {
     const qs = new URLSearchParams();

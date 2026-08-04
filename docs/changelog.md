@@ -4,6 +4,38 @@
 
 ---
 
+## [2026-08-04] Bugfix: Agent Access Group's "Member Agents" picker listed agents from every environment
+
+Same root-cause pattern as the Tool Servers/LLM Config/Allowed Agent Groups pickers:
+`GET /api/agents` already supports `?environmentId=` filtering, but `api.listAgents()` took no
+parameter and `AgentGroups.tsx` called it once on mount with zero reactivity. Confirmed via DB
+query: tenant 1 has 18 agents in Development, 1 in Staging, 1 in Demo Play — so the picker was
+showing 20 agents everywhere, 18 of which aren't valid picks for a Staging/Demo Play group (a
+group's `AgentIdsJson` holds literal per-environment Agent row IDs, same constraint as Allowed
+Agent Groups from the earlier fix).
+
+Agent Groups have no Environment field of their own in this UI (a group is tagged automatically
+from the tenant context at creation, per the earlier Create-path fix) — so the picker uses:
+- the **topbar's current environment** when creating a new group (that's what it will be tagged to
+  on save), and
+- the **group's own existing `environmentId`** when editing (its environment can't be changed here,
+  so member-agent choices must stay scoped to wherever it already lives, regardless of what the
+  topbar switches to mid-edit).
+
+**Fix**: `listAgents` gained an optional `environmentId` parameter; `AgentGroups.tsx` computes an
+`agentsEnvironmentId` (create vs. edit as above) and re-fetches whenever it changes. The picker's
+empty-state text now also names the relevant environment instead of a generic "No agents available."
+
+**Verification**: `tsc -b` and `eslint` clean, admin-portal rebuilt and redeployed.
+
+**Note**: at least 8 other pickers call `api.listAgents()` with no environment filter
+(`DelegateAgentSelector.tsx`, `ScheduleTaskEditor.tsx`, `BusinessRuleEditor.tsx`, `BusinessRules.tsx`,
+`PromptEditor.tsx`, `GroupAgentTemplateBuilder.tsx`, `WidgetEditor.tsx`, `AgentAssistantDrawer.tsx`)
+and likely have the same gap — not fixed here since they weren't reported; flagged for a follow-up
+pass if confirmed.
+
+---
+
 ## [2026-08-04] Bugfix: Platform API Keys list page's top environment filter had no visible effect
 
 Root cause was different from every prior "picker not wired up" bug this session — verified

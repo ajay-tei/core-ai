@@ -142,7 +142,7 @@ function CheckableList({
 }
 
 export function AgentGroups() {
-  const { currentEnvironmentId } = useEnvironment();
+  const { environments, currentEnvironmentId } = useEnvironment();
   const { result, loading, params, update, updateDebounced, setPage, reload } =
     usePagedList<AgentGroup, AgentGroupListParams>(api.listAgentGroupsPaged, { page: 1, pageSize: 25 });
 
@@ -153,17 +153,28 @@ export function AgentGroups() {
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [userGroups, setUserGroups] = useState<UserGroup[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingEnvironmentId, setEditingEnvironmentId] = useState<number | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<AgentGroupRequest>(EMPTY);
   const [roleInput, setRoleInput] = useState("");
 
+  // Member agents must come from whichever environment the group actually belongs to: its own tag
+  // when editing (an existing group's environment can't be changed here), or the topbar's current
+  // environment when creating (a new group is tagged to it automatically on save).
+  const agentsEnvironmentId = editingId ? editingEnvironmentId : currentEnvironmentId;
+  const agentsEnvName = environments.find((e) => e.id === agentsEnvironmentId)?.displayName;
+
   useEffect(() => {
-    api.listAgents().then(setAgents).catch(() => setAgents([]));
+    api.listAgents(agentsEnvironmentId ?? undefined).then(setAgents).catch(() => setAgents([]));
+  }, [agentsEnvironmentId]);
+
+  useEffect(() => {
     api.listUserGroups().then(setUserGroups).catch(() => setUserGroups([]));
   }, []);
 
   const openCreate = () => {
     setEditingId(null);
+    setEditingEnvironmentId(null);
     setForm(EMPTY);
     setRoleInput("");
     setShowForm(true);
@@ -171,6 +182,7 @@ export function AgentGroups() {
 
   const openEdit = (g: AgentGroup) => {
     setEditingId(g.id);
+    setEditingEnvironmentId(g.environmentId ?? null);
     setForm({
       name: g.name,
       description: g.description ?? "",
@@ -315,7 +327,7 @@ export function AgentGroups() {
                 onSelectAll={(vals) => selectAll("agentIds", vals)}
                 onClear={() => clearField("agentIds")}
                 searchPlaceholder="Search agents…"
-                emptyText="No agents available."
+                emptyText={`No agents available in ${agentsEnvName ?? "this environment"}.`}
               />
             </div>
 
