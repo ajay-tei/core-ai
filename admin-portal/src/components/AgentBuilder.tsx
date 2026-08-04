@@ -1074,8 +1074,13 @@ export function AgentBuilder() {
     api.getLlmConfig().then(setLlmConfig).catch(() => {});
     api.getAgentDefaults().then(setAgentDefaults).catch(() => {});
     api.listAvailableLlmConfigs(undefined, currentEnvironmentId ?? undefined).then(setAvailableLlmConfigs).catch(() => {});
-    api.listCredentials(undefined, currentEnvironmentId ?? undefined).then(setCredentials).catch(() => {});
   }, [currentEnvironmentId]);
+
+  // Credentials are a tenant-wide pool of secrets, not environment-filtered here — CredentialResolver
+  // already does the right per-environment resolution at runtime regardless of what this picker offers.
+  useEffect(() => {
+    api.listCredentials().then(setCredentials).catch(() => {});
+  }, []);
 
   // Draft status (Phase C/F) — only applies to existing agents; a brand-new (unsaved) agent has
   // no live row yet, so there's nothing to draft-isolate from.
