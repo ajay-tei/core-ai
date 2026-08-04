@@ -4,6 +4,21 @@
 
 ---
 
+## [2026-08-04] Correction: MCP credentials list environment filtering restored (previous revert was a misread)
+
+Briefly reverted the environment filtering on `McpServerManager.tsx`'s and `AgentBuilder.tsx`'s
+credential lists based on a misread of an ambiguous negative question ("can you not filter...?" was
+intended as "why isn't this filtered, please make it so," not "please remove the filtering"). Used
+`git revert` on that revert commit to restore the filtering exactly as it was after the original
+fix: the server's own `environmentId` when editing, the topbar's current environment when creating.
+No new code changes beyond restoring the prior state — see the "Shared MCP Server credential
+dropdowns" entry below for the original rationale.
+
+**Verification**: `tsc -b` and `eslint` clean (only the pre-existing unrelated `AgentBuilder.tsx:759`
+warning remains), admin-portal rebuilt and redeployed.
+
+---
+
 ## [2026-08-04] Bugfix: `McpServerDto` and `AgentGroupResponse` never actually sent `EnvironmentId` — silently defeating every edit-case environment filter built on top of them
 
 Root cause of "I see it still as same before" after the previous two MCP Server credential-dropdown
