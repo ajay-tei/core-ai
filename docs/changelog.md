@@ -4,6 +4,36 @@
 
 ---
 
+## [2026-08-04] Bugfix: Agent Builder's "Tool Servers" picker showed every environment's MCP servers, duplicated by name
+
+`McpServerSelector.tsx` (the "Shared MCP Servers" multi-select in Agent Builder → Tool Servers)
+called `api.listMcpServers()` with no environment filter at all, and the underlying `listMcpServers`
+helper in `api.ts` didn't even accept an `environmentId` parameter — even though the backend
+`McpServersController.List` action already supported `?environmentId=` filtering. This was
+latent/invisible before the 2026-07-31 promotion fix (a tenant could only ever have ONE physical
+row per server Name, so there was nothing to duplicate) but became visible as soon as promotion
+started correctly creating independent per-environment copies: the same server name now
+legitimately exists as multiple rows, and the picker listed all of them side by side with no way
+to tell them apart. Found via direct user report.
+
+Runtime tool execution was **not** affected — `McpCredentialSelector.ResolveSharedBindingsAsync`
+(the resolver actually used when an agent runs) already filters `TenantMcpServers` by the caller's
+environment (confirmed while investigating this report), so an agent always connects to its own
+environment's server. Only the admin-authoring picker was unfiltered.
+
+**Fix**: `api.listMcpServers` gained an optional `environmentId` parameter; `McpServerSelector.tsx`
+now calls `useEnvironment()` and passes `currentEnvironmentId`, reacting to the top switcher like
+every other environment-filtered list/picker.
+
+**Also confirmed, not a bug**: promoting an Agent cascades to promote its referenced MCP servers
+too — this is the documented, intentional cascade-dependency behavior
+(`AgentPromotionDependencyResolver.GetCascadeDependenciesAsync`), not something to fix.
+
+**Verification**: `tsc -b` and `eslint` clean on both touched files, admin-portal rebuilt and
+redeployed.
+
+---
+
 ## [2026-08-04] Bugfix: tenant-owned LLM configs list didn't react to the top environment dropdown
 
 `TenantLlmConfigPanel`'s "Tenant-owned Configs" list rendered `ownConfigs` unfiltered — showing

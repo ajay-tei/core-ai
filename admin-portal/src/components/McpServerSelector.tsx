@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Server, X } from "lucide-react";
 import { api, type McpServer } from "@/api";
+import { useEnvironment } from "@/hooks/useEnvironment";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,11 +25,12 @@ interface McpServerSelectorProps {
  * runtime based on the platform API key used to invoke the agent.
  */
 export function McpServerSelector({ value, onChange }: McpServerSelectorProps) {
+  const { currentEnvironmentId } = useEnvironment();
   const [servers, setServers] = useState<McpServer[]>([]);
 
   useEffect(() => {
-    api.listMcpServers().then(setServers).catch(() => {});
-  }, []);
+    api.listMcpServers(undefined, currentEnvironmentId ?? undefined).then(setServers).catch(() => {});
+  }, [currentEnvironmentId]);
 
   const selectedNames: string[] = (() => {
     try {

@@ -2148,8 +2148,14 @@ export const api = {
     request<{ id: number; name: string; message: string; }>(`/api/admin/credentials/${ id }/rotate`, { method: "POST", body: JSON.stringify(dto) }),
 
   // ── Shared MCP Servers ──────────────────────────────────────────────────────
-  listMcpServers: (tenantId?: number) =>
-    request<McpServer[]>(`/api/admin/mcp-servers${ tenantId ? `?tenantId=${ tenantId }` : "" }`),
+  listMcpServers: (tenantId?: number, environmentId?: number) =>
+  {
+    const qs = new URLSearchParams();
+    if (tenantId) qs.set("tenantId", String(tenantId));
+    if (environmentId) qs.set("environmentId", String(environmentId));
+    const q = qs.toString();
+    return request<McpServer[]>(`/api/admin/mcp-servers${ q ? `?${ q }` : "" }`);
+  },
   listMcpServersPaged: (params: McpServerListParams = {}) =>
   {
     const qs = new URLSearchParams({ tenantId: String(params.tenantId ?? 1) });
