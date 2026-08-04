@@ -2,6 +2,7 @@ using Diva.Core.Configuration;
 using Diva.Core.Extensions;
 using Diva.Host.Auth;
 using Diva.Infrastructure.Auth;
+using Diva.TenantAdmin.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Diva.Host.Controllers;
@@ -12,11 +13,13 @@ namespace Diva.Host.Controllers;
 public class ApiKeysController : ControllerBase
 {
     private readonly IPlatformApiKeyService _keys;
+    private readonly IEnvironmentService _environments;
     private readonly ILogger<ApiKeysController> _logger;
 
-    public ApiKeysController(IPlatformApiKeyService keys, ILogger<ApiKeysController> logger)
+    public ApiKeysController(IPlatformApiKeyService keys, IEnvironmentService environments, ILogger<ApiKeysController> logger)
     {
         _keys = keys;
+        _environments = environments;
         _logger = logger;
     }
 
@@ -35,7 +38,14 @@ public class ApiKeysController : ControllerBase
         var keys = await _keys.ListAsync(tid, ct);
         IEnumerable<PlatformApiKeyInfo> filtered = keys;
         if (environmentId is > 0)
-            filtered = filtered.Where(k => k.EnvironmentId == environmentId || k.EnvironmentId == null);
+        {
+            // An untagged (null) key resolves at runtime as if scoped to the tenant's default
+            // environment (see TenantContextMiddleware) — so it should only appear here when the
+            // caller is viewing that default environment, not universally like the other
+            // promotable/environment-taggable entity types.
+            var defaultEnvId = (await _environments.GetDefaultAsync(tid, ct))?.Id;
+            filtered = filtered.Where(k => k.EnvironmentId == environmentId || (k.EnvironmentId == null && environmentId == defaultEnvId));
+        }
         return Ok(filtered);
     }
 
@@ -59,7 +69,12 @@ public class ApiKeysController : ControllerBase
             filtered = filtered.Where(k => k.Name.Contains(q, StringComparison.OrdinalIgnoreCase));
         }
         if (environmentId is > 0)
-            filtered = filtered.Where(k => k.EnvironmentId == environmentId || k.EnvironmentId == null);
+        {
+            // See comment in List() above — null keys resolve to the tenant's default environment,
+            // not to every environment.
+            var defaultEnvId = (await _environments.GetDefaultAsync(tid, ct))?.Id;
+            filtered = filtered.Where(k => k.EnvironmentId == environmentId || (k.EnvironmentId == null && environmentId == defaultEnvId));
+        }
         return Ok(filtered.ToPagedResult(page, pageSize));
     }
 

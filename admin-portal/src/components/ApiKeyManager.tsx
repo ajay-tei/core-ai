@@ -34,6 +34,7 @@ export function ApiKeyManager() {
   const editEnvironmentId = editForm.environmentId ?? currentEnvironmentId;
   const createEnvName = environments.find((e) => e.id === createEnvironmentId)?.displayName;
   const editEnvName = environments.find((e) => e.id === editEnvironmentId)?.displayName;
+  const currentEnvName = environments.find((e) => e.id === currentEnvironmentId)?.displayName;
 
   useEffect(() => {
     if (currentEnvironmentId) update({ environmentId: currentEnvironmentId });
@@ -221,7 +222,9 @@ export function ApiKeyManager() {
       {loading ? (
         <div className="space-y-3">{[1,2,3].map(i => <Skeleton key={i} className="h-16 w-full" />)}</div>
       ) : (result?.items.length ?? 0) === 0 ? (
-        <Card><CardContent className="py-8 text-center text-muted-foreground">No API keys created. Click "Create API Key" to get started.</CardContent></Card>
+        <Card><CardContent className="py-8 text-center text-muted-foreground">
+          {currentEnvName ? `No API keys in ${currentEnvName} yet. Create one, or edit an existing key's Environment field to move it here.` : "No API keys created. Click \"Create API Key\" to get started."}
+        </CardContent></Card>
       ) : (
         <div className="space-y-3">
           {(result?.items ?? []).map((k) => (

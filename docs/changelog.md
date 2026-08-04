@@ -4,6 +4,36 @@
 
 ---
 
+## [2026-08-04] Bugfix: Platform API Keys list page's top environment filter had no visible effect
+
+Root cause was different from every prior "picker not wired up" bug this session — verified
+directly against the database: all 5 existing Platform API Keys have `EnvironmentId = NULL`. The
+List/ListPaged filter used the same "untagged fallback" pattern as every other environment-scoped
+entity (`k.EnvironmentId == environmentId || k.EnvironmentId == null`), which made null keys match
+**every** environment filter — so switching Development/Staging/Demo Play always showed the exact
+same 5 keys, making the filter look completely inert.
+
+That fallback pattern is actually wrong specifically for API keys. `PlatformApiKeyEntity`'s own doc
+comment says a null `EnvironmentId` "resolves as if using the tenant's IsDefault environment" — and
+`TenantContextMiddleware` confirms it: `validatedKey.EnvironmentId ?? ResolveDefaultEnvironmentIdAsync(...)`.
+So an untagged key is never actually usable in every environment at runtime — it always resolves to
+the tenant's default. Unlike Agents/MCP Servers/Scheduled Tasks/Agent Groups, Platform API Keys were
+never covered by Program.cs's startup backfill sweep (they're not one of the 4 promotable types), so
+they were left permanently null instead of being tagged to the default environment on first boot.
+
+**Fix**: `ApiKeysController.List`/`ListPaged` now resolve the tenant's actual default environment
+(via the existing `IEnvironmentService.GetDefaultAsync`) and only let a null-tagged key match when
+the filter *is* that default environment — matching the documented runtime resolution behavior
+instead of matching every environment. Also improved the list's empty-state message to name the
+current environment instead of a generic "No API keys created" (which was misleading once keys
+correctly stopped appearing outside the default environment).
+
+**Verification**: `dotnet build` 0 errors, `dotnet test` 301/301 in `Diva.TenantAdmin.Tests` (only
+the known pre-existing `Diva.Agents.Tests.ContextWindowTests` failure remains), `tsc -b`/`eslint`
+clean, API and admin-portal rebuilt and redeployed.
+
+---
+
 ## [2026-08-04] Bugfix: Allowed Agent Groups didn't refresh when changing the per-key Environment dropdown
 
 `ApiKeyManager.tsx` has two independent environment selectors: the topbar switcher
