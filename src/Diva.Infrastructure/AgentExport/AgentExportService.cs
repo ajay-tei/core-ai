@@ -90,6 +90,18 @@ public sealed class AgentExportService : IAgentExportService
             existing.TenantId = tenant.TenantId;
             existing.CreatedAt = DateTime.UtcNow;
             existing.Version = 1;
+            existing.LogicalId = Guid.NewGuid();
+            // Imported agents always land in the tenant's DEFAULT environment, never whichever
+            // environment the importing admin currently has selected — an imported bundle has no
+            // environment context of its own, so landing it somewhere predictable (for review/
+            // promotion afterward) is safer than silently inheriting the caller's current tab.
+            // Promotion (AgentSnapshotSerializer.MaterializeAsync) overwrites this immediately
+            // after the call with the actual target environment, so this default is only ever
+            // "final" for a direct admin-portal import.
+            existing.EnvironmentId = await db.TenantEnvironments
+                .Where(e => e.TenantId == tenant.TenantId && e.IsDefault)
+                .Select(e => (int?)e.Id)
+                .FirstOrDefaultAsync(ct);
             db.AgentDefinitions.Add(existing);
         }
         else

@@ -4,6 +4,40 @@
 
 ---
 
+## [2026-08-07] Bugfix: importing an agent never tagged it with an environment — it showed up in every environment
+
+`AgentExportService.ImportAsync`'s "create new agent" branch (the path used by the admin portal's
+"Import Agent" feature) never set `EnvironmentId`/`LogicalId` on the newly-created row at all — the
+same class of bug fixed for `AgentsController.Create` back in the original Create-path fix
+(`d8e9909`), but the *Import* path was never updated with the same logic. An imported agent stayed
+permanently untagged (`EnvironmentId = null`), which matches every environment's "untagged fallback"
+filter (`a.EnvironmentId == environmentId || a.EnvironmentId == null`) — so it appeared identically
+in Development, Staging, and Demo Play instead of belonging to just one.
+
+**Fix**: imported agents (the genuine-create case only — overwriting an existing agent by name, or
+promotion's own `TargetAgentId`-driven overwrite, are untouched) are now tagged with `LogicalId =
+Guid.NewGuid()` and `EnvironmentId` resolved to the tenant's **default** environment, per the user's
+explicit request — not whichever environment the importing admin currently has selected, since an
+imported bundle carries no environment context of its own and landing it somewhere predictable (for
+review/promotion afterward) is safer than silently inheriting the caller's current tab.
+
+**Verified safe for promotion**: `AgentSnapshotSerializer.MaterializeAsync` (the promotion-driven
+caller of the same `ImportAsync` method) already overwrites `EnvironmentId`/`LogicalId` itself
+immediately after the call returns, specifically because it anticipated `ImportAsync` not handling
+these columns — so this fix has zero effect on promotion behavior, confirmed by all 301
+`Diva.TenantAdmin.Tests` (including the full promotion suite) still passing unchanged.
+
+**No retroactive data fix needed**: checked directly against the database — zero agents currently
+have `EnvironmentId = NULL` for tenant 1. The pre-existing idempotent Program.cs startup backfill
+sweep already self-healed any previously-imported untagged agent(s) on an earlier restart; this fix
+just stops new imports from needing that safety net going forward.
+
+**Verification**: `dotnet build` 0 errors, `dotnet test` 301/301 in `Diva.TenantAdmin.Tests` (only
+the known pre-existing `Diva.Agents.Tests.ContextWindowTests` failure remains), API and admin-portal
+both rebuilt and redeployed.
+
+---
+
 ## [2026-08-04] Refinement: viewing a non-default environment no longer shows untagged ("default environment") MCP credentials
 
 Applied the same tenant-default-aware null-matching fix used for Platform API Keys (`2b325e9`) to
