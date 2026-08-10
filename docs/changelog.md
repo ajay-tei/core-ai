@@ -4,6 +4,33 @@
 
 ---
 
+## [2026-08-10] Bugfix: Agent Builder's Delegated Agents picker offered agents from every environment
+
+One of the 8 `api.listAgents()` callers flagged (but not fixed) back on 2026-08-04 as having the
+same gap as the Member Agents picker. `DelegateAgentSelector.tsx` fetched the full unfiltered agent
+list once on mount with no environment awareness, so an agent's delegate picker offered every
+agent in the tenant regardless of environment.
+
+Confirmed this is also a deliberate design point, not just a UI nicety — traced the actual runtime
+delegation path (`DelegationAgentResolver.ExecuteAgentAsync` → `DynamicAgentRegistry.GetByIdAsync`)
+and found it already passes `tenant.EnvironmentId` and matches
+`d.EnvironmentId == null || d.EnvironmentId == environmentId`. So a delegate ID pointing at a
+different, *explicitly tagged* environment's agent already fails to resolve at runtime ("Agent not
+found") — cross-environment delegation was already a no-op, just configurable through the UI in a
+way that silently never worked. Only a delegate pointing at an *untagged* agent would still resolve
+today (untagged agents are rare now that Create/Import always tag an environment).
+
+**Fix**: `DelegateAgentSelector` gained an `environmentId` prop, filtering the picker to the current
+environment (`AgentBuilder.tsx` passes `currentEnvironmentId` — safe here specifically because the
+agent list you navigate from is already environment-filtered, so the agent being edited always
+belongs to the topbar's current environment; unlike Agent Groups/MCP Servers, there's no separate
+"entity's own environment when editing" to track). Empty-state message now names the environment.
+
+**Verification**: `tsc -b` and `eslint` clean (only the pre-existing unrelated `AgentBuilder.tsx:759`
+warning remains), admin-portal rebuilt and redeployed.
+
+---
+
 ## [2026-08-07] Bugfix: importing an agent never tagged it with an environment — it showed up in every environment
 
 `AgentExportService.ImportAsync`'s "create new agent" branch (the path used by the admin portal's

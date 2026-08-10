@@ -1050,7 +1050,7 @@ function AdvancedConfigPanel({
 export function AgentBuilder() {
   const { id: agentId } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { currentEnvironmentId } = useEnvironment();
+  const { currentEnvironmentId, environments } = useEnvironment();
 
   const [form, setForm] = useState<AgentDefinition>(DEFAULT_AGENT);
   const [bindings, setBindings] = useState<McpToolBinding[]>([{ ...EMPTY_BINDING }]);
@@ -1761,6 +1761,8 @@ export function AgentBuilder() {
             currentAgentId={agentId}
             value={form.delegateAgentIdsJson}
             onChange={(json) => set("delegateAgentIdsJson", json)}
+            environmentId={currentEnvironmentId ?? undefined}
+            environmentName={environments.find((e) => e.id === currentEnvironmentId)?.displayName}
           />
         </TabsContent>
       </Tabs>

@@ -18,18 +18,26 @@ interface DelegateAgentSelectorProps {
   value?: string;
   /** Called with updated JSON string */
   onChange: (json: string | undefined) => void;
+  /** Only offer agents belonging to this environment — delegation cannot cross environments
+   *  (a delegate ID tagged to a different environment can never actually resolve at runtime,
+   *  see DynamicAgentRegistry.GetByIdAsync's environment-scoped lookup). */
+  environmentId?: number;
+  /** Display name of environmentId, used only for the empty-state message. */
+  environmentName?: string;
 }
 
 export function DelegateAgentSelector({
   currentAgentId,
   value,
   onChange,
+  environmentId,
+  environmentName,
 }: DelegateAgentSelectorProps) {
   const [agents, setAgents] = useState<AgentSummary[]>([]);
 
   useEffect(() => {
-    api.listAgents().then(setAgents).catch(() => {});
-  }, []);
+    api.listAgents(environmentId).then(setAgents).catch(() => {});
+  }, [environmentId]);
 
   const selectedIds: string[] = (() => {
     try {
@@ -114,7 +122,7 @@ export function DelegateAgentSelector({
           </div>
         ) : available.length === 0 ? (
           <p className="text-xs text-muted-foreground">
-            No other enabled agents available for delegation.
+            No other enabled agents available for delegation{environmentName ? ` in ${environmentName}` : ""}.
           </p>
         ) : null}
 
