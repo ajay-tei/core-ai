@@ -39,6 +39,7 @@ public class AgentsController : ControllerBase
     private readonly IEntityDraftService _drafts;
     private readonly IPromotionLedgerService _ledger;
     private readonly IPromotableSnapshotSerializer _snapshotSerializer;
+    private readonly IEnvironmentService _environments;
     private readonly ILogger<AgentsController> _logger;
 
     public AgentsController(
@@ -56,6 +57,7 @@ public class AgentsController : ControllerBase
         IEntityDraftService drafts,
         IPromotionLedgerService ledger,
         IEnumerable<IPromotableSnapshotSerializer> snapshotSerializers,
+        IEnvironmentService environments,
         ILogger<AgentsController> logger,
         ICredentialResolver? credentialResolver = null)
     {
@@ -73,12 +75,30 @@ public class AgentsController : ControllerBase
         _drafts = drafts;
         _ledger = ledger;
         _snapshotSerializer = snapshotSerializers.First(s => s.ObjectType == "Agent");
+        _environments = environments;
         _credentialResolver = credentialResolver;
         _logger = logger;
     }
 
     private TenantContext Tenant =>
         HttpContext.TryGetTenantContext() ?? TenantContext.System(tenantId: 1);
+
+    // Agents are meant to be authored in the tenant's default environment and promoted outward —
+    // editing a non-default-environment copy directly would let it drift from what was actually
+    // promoted. Untagged (null) agents are legacy/pre-Phase-E data and remain editable everywhere.
+    private async Task<bool> IsLockedForEditingAsync(AgentDefinitionEntity agent, int tenantId, CancellationToken ct)
+    {
+        if (agent.EnvironmentId is not { } envId) return false;
+        var defaultEnv = await _environments.GetDefaultAsync(tenantId, ct);
+        return defaultEnv is not null && envId != defaultEnv.Id;
+    }
+
+    private static IActionResult NonDefaultEnvironmentLocked() => new ObjectResult(new
+    {
+        error = "This agent belongs to a non-default environment and cannot be edited directly. " +
+                "Edit the version in the default environment and promote your changes here instead.",
+    })
+    { StatusCode = StatusCodes.Status403Forbidden };
 
     // ── GET /api/agents?environmentId= ───────────────────────────────────────
     [HttpGet]
@@ -229,6 +249,7 @@ public class AgentsController : ControllerBase
         using var db = _db.CreateDbContext(Tenant);
         var existing = await db.AgentDefinitions.FindAsync([id], ct);
         if (existing is null) return NotFound();
+        if (await IsLockedForEditingAsync(existing, Tenant.TenantId, ct)) return NonDefaultEnvironmentLocked();
 
         ApplyAgentUpdate(existing, dto);
 
@@ -287,6 +308,7 @@ public class AgentsController : ControllerBase
         using var db = _db.CreateDbContext(tenant);
         var existing = await db.AgentDefinitions.FindAsync([id], ct);
         if (existing is null) return NotFound();
+        if (await IsLockedForEditingAsync(existing, tenant.TenantId, ct)) return NonDefaultEnvironmentLocked();
         if (existing.LogicalId is not { } logicalId || existing.EnvironmentId is not { } environmentId)
             return BadRequest(new { error = "Agent is missing environment/logical identity — cannot draft." });
 
@@ -339,6 +361,7 @@ public class AgentsController : ControllerBase
         using var db = _db.CreateDbContext(tenant);
         var existing = await db.AgentDefinitions.FindAsync([id], ct);
         if (existing is null) return NotFound();
+        if (await IsLockedForEditingAsync(existing, tenant.TenantId, ct)) return NonDefaultEnvironmentLocked();
         if (existing.LogicalId is not { } logicalId || existing.EnvironmentId is not { } environmentId)
             return BadRequest(new { error = "Agent is missing environment/logical identity — cannot publish." });
 

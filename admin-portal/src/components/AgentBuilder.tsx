@@ -1070,6 +1070,15 @@ export function AgentBuilder() {
   const [credentials, setCredentials] = useState<McpCredential[]>([]);
   const [importOpen, setImportOpen] = useState(false);
 
+  // Agents are meant to be authored in the tenant's default environment and promoted outward —
+  // editing a non-default-environment copy directly would let it drift from what was actually
+  // promoted. Untagged (legacy) agents remain editable everywhere.
+  const defaultEnvironmentId = environments.find((e) => e.isDefault)?.id;
+  const isReadOnly = Boolean(
+    agentId && form.environmentId && defaultEnvironmentId && form.environmentId !== defaultEnvironmentId
+  );
+  const agentEnvName = environments.find((e) => e.id === form.environmentId)?.displayName;
+
   useEffect(() => {
     api.getLlmConfig().then(setLlmConfig).catch(() => {});
     api.getAgentDefaults().then(setAgentDefaults).catch(() => {});
@@ -1145,6 +1154,7 @@ export function AgentBuilder() {
   };
 
   const handleSave = async () => {
+    if (isReadOnly) { toast.error("This agent belongs to a non-default environment and cannot be edited directly."); return; }
     if (!form.name.trim()) {
       toast.error("Agent name is required");
       return;
@@ -1168,6 +1178,7 @@ export function AgentBuilder() {
 
   const handleSaveDraft = async () => {
     if (!agentId) return; // draft isolation only applies to an existing (already-live) agent
+    if (isReadOnly) { toast.error("This agent belongs to a non-default environment and cannot be edited directly."); return; }
     if (!form.name.trim()) {
       toast.error("Agent name is required");
       return;
@@ -1187,6 +1198,7 @@ export function AgentBuilder() {
 
   const handlePublish = async () => {
     if (!agentId) return;
+    if (isReadOnly) { toast.error("This agent belongs to a non-default environment and cannot be edited directly."); return; }
     setPublishing(true);
     try {
       const published = await api.publishAgent(agentId);
@@ -1253,23 +1265,33 @@ export function AgentBuilder() {
             Cancel
           </Button>
           {agentId && (
-            <Button variant="outline" onClick={handleSaveDraft} disabled={savingDraft || !form.name}>
+            <Button variant="outline" onClick={handleSaveDraft} disabled={savingDraft || !form.name || isReadOnly}>
               <Save className="mr-2 size-4" />
               {savingDraft ? "Saving Draft..." : "Save Draft"}
             </Button>
           )}
           {agentId && hasDraft && (
-            <Button variant="secondary" onClick={handlePublish} disabled={publishing}>
+            <Button variant="secondary" onClick={handlePublish} disabled={publishing || isReadOnly}>
               <Upload className="mr-2 size-4" />
               {publishing ? "Publishing..." : "Publish"}
             </Button>
           )}
-          <Button onClick={handleSave} disabled={saving || !form.name}>
+          <Button onClick={handleSave} disabled={saving || !form.name || isReadOnly}>
             <Save className="mr-2 size-4" />
             {saving ? "Saving..." : agentId ? "Save Changes" : "Create Agent"}
           </Button>
         </div>
       </div>
+
+      {isReadOnly && (
+        <div className="flex items-center justify-between rounded-md border border-blue-600/40 bg-blue-500/10 px-4 py-2.5 text-sm">
+          <span>
+            This agent belongs to <strong>{agentEnvName ?? "a non-default environment"}</strong> and cannot be edited
+            directly. Edit the version in the default environment and use <strong>Promote</strong> to bring your
+            changes here.
+          </span>
+        </div>
+      )}
 
       {hasDraft && (
         <div className="flex items-center justify-between rounded-md border border-amber-600/40 bg-amber-500/10 px-4 py-2.5 text-sm">
@@ -1277,7 +1299,7 @@ export function AgentBuilder() {
             You have unpublished draft changes{draftUpdatedAt && ` (saved ${new Date(draftUpdatedAt).toLocaleString()})`} —
             the live agent is unaffected until you click Publish.
           </span>
-          <Button size="sm" variant="secondary" onClick={handlePublish} disabled={publishing}>
+          <Button size="sm" variant="secondary" onClick={handlePublish} disabled={publishing || isReadOnly}>
             {publishing ? "Publishing..." : "Publish now"}
           </Button>
         </div>
@@ -1294,6 +1316,7 @@ export function AgentBuilder() {
         />
       )}
 
+      <fieldset disabled={isReadOnly} className="contents">
       <Tabs defaultValue="identity">
         <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="identity" className="gap-1.5">
@@ -1766,12 +1789,13 @@ export function AgentBuilder() {
           />
         </TabsContent>
       </Tabs>
+      </fieldset>
 
       <div className="flex items-center justify-end gap-3 border-t pt-4">
         <Button variant="outline" onClick={() => navigate("/agents")}>
           Cancel
         </Button>
-        <Button onClick={handleSave} disabled={saving || !form.name}>
+        <Button onClick={handleSave} disabled={saving || !form.name || isReadOnly}>
           <Save className="mr-2 size-4" />
           {saving ? "Saving..." : agentId ? "Save Changes" : "Create Agent"}
         </Button>

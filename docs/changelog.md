@@ -4,6 +4,41 @@
 
 ---
 
+## [2026-08-10] Feature: agents outside the tenant's default environment can no longer be edited directly
+
+Per explicit request — agents are meant to be authored in the default environment and pushed
+outward via Promotion; editing a non-default copy directly would let it drift from whatever was
+actually promoted, defeating the point of environment-scoped promotion.
+
+**Enforced server-side, not just hidden in the UI** (a UI-only lock is trivially bypassed via a
+direct API call): `AgentsController.Update`/`SaveDraft`/`Publish` now resolve the tenant's default
+environment (`IEnvironmentService.GetDefaultAsync`) and return `403 Forbidden` when the target
+agent's `EnvironmentId` is set and differs from it. Untagged (legacy/pre-Phase-E) agents remain
+editable everywhere, unaffected.
+
+**Confirmed zero impact on Promotion**: `AgentSnapshotSerializer.MaterializeAsync` (the promotion
+code path) calls `AgentExportService.ImportAsync` directly — a service method, not this HTTP
+controller action — so promoting into a non-default environment is completely unaffected by this
+guard, by construction.
+
+**Frontend** (`AgentBuilder.tsx`): computes `isReadOnly` from the loaded agent's own `environmentId`
+vs. the tenant's default (`GET /api/agents/{id}` returns the raw entity with no narrowing DTO, so
+this field is reliably populated — see the 2026-08-04 DTO-omission gotcha for why that check
+mattered here). When read-only: shows a banner naming the agent's environment, disables the Save
+Draft/Publish/Save Changes buttons (all of them — there were two separate "Save" buttons plus a
+draft-banner "Publish now" shortcut), and wraps the entire tabbed form in
+`<fieldset disabled className="contents">` so every native input/select/textarea/button inside is
+inert without needing to touch each one individually. Only `Update`/`SaveDraft`/`Publish` are
+guarded — viewing, exporting, and Promoting *from* a non-default agent are all still allowed;
+deletion was intentionally left alone since the request was specifically about editing.
+
+**Verification**: `dotnet build` 0 errors, `dotnet test` 301/301 in `Diva.TenantAdmin.Tests` (only
+the known pre-existing `Diva.Agents.Tests.ContextWindowTests` failure remains), `tsc -b`/`eslint`
+clean (only the pre-existing unrelated `AgentBuilder.tsx:759` warning), API and admin-portal both
+rebuilt and redeployed.
+
+---
+
 ## [2026-08-10] Bugfix: Agent Builder's Delegated Agents picker offered agents from every environment
 
 One of the 8 `api.listAgents()` callers flagged (but not fixed) back on 2026-08-04 as having the
