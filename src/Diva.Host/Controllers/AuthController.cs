@@ -20,6 +20,7 @@ public record AdminLoginRequest(string Username, string Password);
 public record SetupMasterAdminRequest(string Username, string Email, string Password = "changemeonlogin", string DisplayName = "Platform Admin");
 public record CreateLocalUserRequest(string Username, string Email, string Password, string DisplayName, string[] Roles);
 public record ResetPasswordRequest(string NewPassword);
+public record UpdateRolesRequest(string[]? Roles);
 public record ChangePasswordRequest(string CurrentPassword, string NewPassword);
 
 /// <summary>
@@ -611,6 +612,20 @@ public class AuthController : ControllerBase
         CancellationToken ct = default)
     {
         await _localAuth.ResetPasswordAsync(EffectiveTenantId(tenantId), id, req.NewPassword, ct);
+        return NoContent();
+    }
+
+    // ── PUT /api/auth/local-users/{id}/roles?tenantId=1 ──────────────────────
+
+    [HttpPut("local-users/{id:int}/roles")]
+    [RequireTenantAdmin]
+    public async Task<IActionResult> UpdateLocalUserRoles(
+        int id,
+        [FromBody] UpdateRolesRequest req,
+        [FromQuery] int tenantId = 1,
+        CancellationToken ct = default)
+    {
+        await _localAuth.UpdateRolesAsync(EffectiveTenantId(tenantId), id, req.Roles ?? [], ct);
         return NoContent();
     }
 

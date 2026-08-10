@@ -1832,6 +1832,8 @@ export const api = {
     request<void>(`/api/auth/local-users/${ id }?tenantId=${ tenantId }`, { method: "DELETE" }),
   resetLocalUserPassword: (id: number, newPassword: string, tenantId: number) =>
     request<void>(`/api/auth/local-users/${ id }/reset-password?tenantId=${ tenantId }`, { method: "POST", body: JSON.stringify({ newPassword }) }),
+  updateLocalUserRoles: (id: number, roles: string[], tenantId: number) =>
+    request<void>(`/api/auth/local-users/${ id }/roles?tenantId=${ tenantId }`, { method: "PUT", body: JSON.stringify({ roles }) }),
   changePassword: (currentPassword: string, newPassword: string) =>
     request<void>(`/api/auth/change-password`, { method: "POST", body: JSON.stringify({ currentPassword, newPassword }) }),
 

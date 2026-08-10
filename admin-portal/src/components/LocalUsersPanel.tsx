@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Plus, Trash2, KeyRound } from "lucide-react";
+import { Plus, Trash2, KeyRound, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 
 // Note: if `tenantId` needs to change after mount (e.g. TenantDetail.tsx), render this
@@ -36,6 +36,9 @@ export function LocalUsersPanel({
   const [saving,      setSaving]      = useState(false);
   const [resetUser,   setResetUser]   = useState<LocalUser | null>(null);
   const [newPassword, setNewPassword] = useState("");
+  const [rolesUser,   setRolesUser]   = useState<LocalUser | null>(null);
+  const [draftRoles,  setDraftRoles]  = useState<string[]>([]);
+  const [savingRoles, setSavingRoles] = useState(false);
 
 
   async function addUser() {
@@ -73,6 +76,30 @@ export function LocalUsersPanel({
       setNewPassword("");
     } catch (e) {
       toast.error(`Failed: ${e}`);
+    }
+  }
+
+  function openEditRoles(u: LocalUser) {
+    setRolesUser(u);
+    setDraftRoles(u.roles);
+  }
+
+  function toggleDraftRole(role: string) {
+    setDraftRoles(r => r.includes(role) ? r.filter(x => x !== role) : [...r, role]);
+  }
+
+  async function saveRoles() {
+    if (!rolesUser) return;
+    setSavingRoles(true);
+    try {
+      await api.updateLocalUserRoles(rolesUser.id, draftRoles, tenantId);
+      toast.success("Roles updated");
+      setRolesUser(null);
+      reload();
+    } catch (e) {
+      toast.error(`Failed: ${e}`);
+    } finally {
+      setSavingRoles(false);
     }
   }
 
@@ -135,6 +162,10 @@ export function LocalUsersPanel({
               </TableCell>
               <TableCell>
                 <div className="flex gap-1">
+                  <Button size="icon" variant="ghost" title="Edit roles"
+                    onClick={() => openEditRoles(u)}>
+                    <ShieldCheck className="size-4" />
+                  </Button>
                   <Button size="icon" variant="ghost" title="Reset password"
                     onClick={() => { setResetUser(u); setNewPassword(""); }}>
                     <KeyRound className="size-4" />
@@ -218,6 +249,27 @@ export function LocalUsersPanel({
           <DialogFooter>
             <Button variant="outline" onClick={() => setResetUser(null)}>Cancel</Button>
             <Button onClick={resetPassword} disabled={!newPassword}>Reset Password</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit roles dialog */}
+      <Dialog open={!!rolesUser} onOpenChange={v => { if (!v) setRolesUser(null); }}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Edit Roles — {rolesUser?.username}</DialogTitle></DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="flex gap-3">
+              {availableRoles.map(r => (
+                <label key={r} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                  <input type="checkbox" checked={draftRoles.includes(r)} onChange={() => toggleDraftRole(r)} />
+                  {r}
+                </label>
+              ))}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRolesUser(null)}>Cancel</Button>
+            <Button onClick={saveRoles} disabled={savingRoles}>{savingRoles ? "Saving…" : "Save Roles"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

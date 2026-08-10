@@ -27,6 +27,9 @@ public interface ILocalAuthService
     /// </summary>
     Task<bool> ChangePasswordAsync(int tenantId, int userId, string currentPassword, string newPassword, CancellationToken ct = default);
     Task SetActiveAsync(int tenantId, int id, bool isActive, CancellationToken ct = default);
+    /// <summary>Replaces a local user's role set. Roles are the source of truth for local-auth
+    /// accounts (unlike SSO users, whose Roles are re-derived from JWT claims on every login).</summary>
+    Task UpdateRolesAsync(int tenantId, int id, string[] roles, CancellationToken ct = default);
     /// <summary>Returns true if any active master admin user (TenantId=0) exists.</summary>
     Task<bool> MasterAdminExistsAsync(CancellationToken ct = default);
     ClaimsPrincipal? ValidateLocalToken(string token);
@@ -193,6 +196,19 @@ public sealed class LocalAuthService : ILocalAuthService
             ?? throw new KeyNotFoundException($"LocalUser {id} not found in tenant {tenantId}");
 
         user.IsActive = isActive;
+        await db.SaveChangesAsync(ct);
+    }
+
+    // ── Update roles ────────────────────────────────────────
+
+    public async Task UpdateRolesAsync(int tenantId, int id, string[] roles, CancellationToken ct = default)
+    {
+        using var db = _db.CreateDbContext(TenantContext.System(tenantId));
+        var user = await db.LocalUsers
+            .FirstOrDefaultAsync(u => u.TenantId == tenantId && u.Id == id, ct)
+            ?? throw new KeyNotFoundException($"LocalUser {id} not found in tenant {tenantId}");
+
+        user.Roles = roles;
         await db.SaveChangesAsync(ct);
     }
 

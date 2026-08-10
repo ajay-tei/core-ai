@@ -4,6 +4,43 @@
 
 ---
 
+## [2026-08-10] Feature: tenant admins can edit local users' roles
+
+`LocalUsersPanel.tsx` (Settings → local username/password accounts) could set roles at *creation*
+time only — `ILocalAuthService` had no update path, only `CreateUserAsync` (roles), `DeleteUserAsync`,
+`ResetPasswordAsync`, and `SetActiveAsync`. Roles were shown as read-only badges with no way to
+change them for an existing user.
+
+**Backend**: `ILocalAuthService.UpdateRolesAsync(tenantId, id, roles, ct)` + `PUT
+/api/auth/local-users/{id}/roles` (`[RequireTenantAdmin]`), mirroring the existing
+`reset-password`/`SetActiveAsync` pattern. Local users are the right place to start: their `Roles`
+are the actual source of truth (unlike SSO users — see note below), so this takes effect immediately
+on the user's next login.
+
+**Frontend**: new "Edit roles" icon button per row (shield icon, alongside reset-password/delete) opening a small
+checkbox dialog reusing the same `availableRoles` prop as the Create form, calling
+`api.updateLocalUserRoles`.
+
+**Investigated but deliberately NOT changed**: the SSO-facing `UserProfiles.tsx` page
+(`settings/users`) also shows roles as read-only, sourced from `UserProfileEntity.Roles` — but that
+field is *unconditionally overwritten with fresh JWT claims on every login*
+(`UserProfileService.UpsertOnLoginAsync`: "Mirror latest claims from JWT on every login"). Adding an
+editable field there today would silently revert the next time that user signs in, and — unlike the
+existing `AgentAccessOverrides` field on the same entity, which *looks* like a precedent for this —
+confirmed via full-codebase search that `AgentAccessOverrides` is **only ever read by the admin UI's
+own display logic**, never consulted by `TenantContextMiddleware` when building the request's actual
+`TenantContext.AgentAccess`. So it would not be a real, enforced override either; it's a
+foundation-laid-but-never-wired field. Flagging this for the user rather than shipping a
+same-looking but non-functional "role override" for SSO accounts.
+
+**Verification**: `dotnet build` 0 errors, `dotnet test` 301/301 in `Diva.TenantAdmin.Tests` (only
+the known pre-existing `Diva.Agents.Tests.ContextWindowTests` failure remains), `tsc -b`/`eslint`
+clean. Per the prior entry's stale-build lesson, verified the deployed artifacts directly this time:
+`docker exec` grep on the API DLL confirms `UpdateRolesAsync`/`local-users` are present, and on the
+portal's JS bundle confirms the "Edit Roles" dialog string is present, before considering this done.
+
+---
+
 ## [2026-08-10] Deployment fix: "Save model config" 404'd — the API container was running a stale build
 
 Not a code bug — the new `PUT /api/agents/{id}/model-config` endpoint from the previous entry
