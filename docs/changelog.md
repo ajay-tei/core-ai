@@ -4,6 +4,33 @@
 
 ---
 
+## [2026-08-10] Refinement: environment-specific agents can still tune their own LLM config/model
+
+Amends the same-day non-default-environment edit lock. Which LLM config/model an agent uses is
+environment-specific infrastructure (e.g. Staging pointed at a cheaper/local model, Production at
+the real provider) rather than "agent config" that should stay pinned to whatever was promoted — so
+it needs its own carve-out from the read-only lock.
+
+**Backend**: new `PUT /api/agents/{id}/model-config` endpoint (`UpdateAgentModelConfigDto`,
+`LlmConfigId`/`ModelId` only) that intentionally bypasses `IsLockedForEditingAsync` — deliberately
+narrow (only these two fields, applied directly, no merge with a client-supplied full entity) so it
+can never be used as a backdoor to edit anything else on a locked agent.
+
+**Frontend** (`AgentBuilder.tsx`): the LLM Config and Model `<Select>` fields are no longer inside
+any disabled `<fieldset>`, so they stay interactive even on a read-only agent. A small inline banner
++ "Save model config" button appears next to them (only when read-only) that calls the new endpoint
+directly via `api.updateAgentModelConfig`, independent of the main Save/Draft/Publish actions.
+Restructured the single form-wide fieldset into five narrower ones (Identity tab; Temperature/Max
+Iterations; System Prompt onward; Tools tab; Advanced tab) so only the LLM Config/Model exception
+falls outside a lock — everything else in the "Model & Prompt" tab remains fully read-only.
+
+**Verification**: `dotnet build` 0 errors, `dotnet test` 301/301 in `Diva.TenantAdmin.Tests` (only
+the known pre-existing `Diva.Agents.Tests.ContextWindowTests` failure remains), `tsc -b`/`eslint`
+clean, API and admin-portal both rebuilt and redeployed (API force-recreated to confirm the fresh
+build was actually running, since compose reported it unchanged on the first pass).
+
+---
+
 ## [2026-08-10] Fix-up: read-only agents could no longer switch tabs to view other settings
 
 Follow-up to the same-day non-default-environment edit lock. The `<fieldset disabled>` wrapper was

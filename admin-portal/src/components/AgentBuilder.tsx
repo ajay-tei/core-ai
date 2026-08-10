@@ -1069,6 +1069,7 @@ export function AgentBuilder() {
   const [promptHistory, setPromptHistory] = useState<AgentPromptHistoryEntry[]>([]);
   const [credentials, setCredentials] = useState<McpCredential[]>([]);
   const [importOpen, setImportOpen] = useState(false);
+  const [savingModelConfig, setSavingModelConfig] = useState(false);
 
   // Agents are meant to be authored in the tenant's default environment and promoted outward —
   // editing a non-default-environment copy directly would let it drift from what was actually
@@ -1151,6 +1152,20 @@ export function AgentBuilder() {
       executionMode: form.executionMode || "Full",
       status: form.status || "Draft",
     };
+  };
+
+  const handleSaveModelConfig = async () => {
+    if (!agentId) return;
+    setSavingModelConfig(true);
+    try {
+      const updated = await api.updateAgentModelConfig(agentId, { llmConfigId: form.llmConfigId, modelId: form.modelId });
+      setForm(updated);
+      toast.success("Model configuration saved for this environment");
+    } catch (e: unknown) {
+      toast.error("Failed to save model configuration", { description: String(e) });
+    } finally {
+      setSavingModelConfig(false);
+    }
   };
 
   const handleSave = async () => {
@@ -1335,8 +1350,8 @@ export function AgentBuilder() {
           </TabsTrigger>
         </TabsList>
 
-        <fieldset disabled={isReadOnly} className="contents">
         <TabsContent value="identity" className="mt-6 space-y-6">
+        <fieldset disabled={isReadOnly} className="contents">
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Agent Identity</CardTitle>
@@ -1430,6 +1445,7 @@ export function AgentBuilder() {
               />
             </CardContent>
           </Card>
+        </fieldset>
         </TabsContent>
 
         <TabsContent value="model" className="mt-6 space-y-6">
@@ -1485,6 +1501,19 @@ export function AgentBuilder() {
                 </Select>
               </div>
 
+              {isReadOnly && (
+                <div className="flex items-center justify-between gap-3 rounded-md border border-blue-600/40 bg-blue-500/10 px-3 py-2">
+                  <p className="text-xs text-muted-foreground">
+                    The rest of this agent is locked, but the LLM config/model can still be tuned
+                    per-environment.
+                  </p>
+                  <Button size="sm" variant="secondary" onClick={handleSaveModelConfig} disabled={savingModelConfig}>
+                    {savingModelConfig ? "Saving..." : "Save model config"}
+                  </Button>
+                </div>
+              )}
+
+              <fieldset disabled={isReadOnly} className="contents">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <Label>Temperature: {form.temperature.toFixed(1)}</Label>
@@ -1508,9 +1537,11 @@ export function AgentBuilder() {
                   <p className="text-xs text-muted-foreground">ReAct loop iterations</p>
                 </div>
               </div>
+              </fieldset>
             </CardContent>
           </Card>
 
+          <fieldset disabled={isReadOnly} className="contents">
           <Card>
             <CardHeader>
               <div className="flex items-start justify-between gap-4">
@@ -1688,9 +1719,11 @@ export function AgentBuilder() {
               </div>
             </DialogContent>
           </Dialog>
+          </fieldset>
         </TabsContent>
 
         <TabsContent value="tools" className="mt-6 space-y-6">
+          <fieldset disabled={isReadOnly} className="contents">
           <McpServerSelector
             value={form.mcpServerRefsJson}
             onChange={(json) => set("mcpServerRefsJson", json)}
@@ -1736,9 +1769,11 @@ export function AgentBuilder() {
               ))}
             </div>
           </div>
+          </fieldset>
         </TabsContent>
 
         <TabsContent value="advanced" className="mt-6 space-y-4">
+          <fieldset disabled={isReadOnly} className="contents">
           <AdvancedConfigPanel form={form} set={set} defaults={agentDefaults} isEditing={!!agentId} />
 
           <Card>
@@ -1787,8 +1822,8 @@ export function AgentBuilder() {
             environmentId={currentEnvironmentId ?? undefined}
             environmentName={environments.find((e) => e.id === currentEnvironmentId)?.displayName}
           />
+          </fieldset>
         </TabsContent>
-        </fieldset>
       </Tabs>
 
       <div className="flex items-center justify-end gap-3 border-t pt-4">

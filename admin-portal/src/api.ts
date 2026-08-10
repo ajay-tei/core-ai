@@ -1646,6 +1646,10 @@ export const api = {
   getAgent: (id: string) => request<AgentDefinition>(`/api/agents/${ id }`),
   createAgent: (dto: AgentDefinition) => request<AgentDefinition>("/api/agents", { method: "POST", body: JSON.stringify(dto) }),
   updateAgent: (id: string, dto: AgentDefinition) => request<AgentDefinition>(`/api/agents/${ id }`, { method: "PUT", body: JSON.stringify(dto) }),
+  // Narrow update allowed even on a read-only (non-default-environment) agent \u2014 which LLM
+  // config/model an agent uses is environment-specific infrastructure, not "agent config."
+  updateAgentModelConfig: (id: string, dto: { llmConfigId?: number; modelId?: string; }) =>
+    request<AgentDefinition>(`/api/agents/${ id }/model-config`, { method: "PUT", body: JSON.stringify(dto) }),
   improvePrompt: (id: string, instruction: string, currentPrompt?: string) =>
     request<{ improvedPrompt: string; }>(`/api/agents/${ id }/prompt/improve`, { method: "POST", body: JSON.stringify({ instruction, currentPrompt }) }),
   deleteAgent: (id: string) => request<void>(`/api/agents/${ id }`, { method: "DELETE" }),
