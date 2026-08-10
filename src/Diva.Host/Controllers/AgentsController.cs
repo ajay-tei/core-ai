@@ -257,6 +257,27 @@ public class AgentsController : ControllerBase
         return Ok(existing);
     }
 
+    // ── PUT /api/agents/{id}/model-config ──────────────────────────────────────
+    // Which LLM config/model an agent uses is an infrastructure concern that legitimately varies
+    // per environment (e.g. Staging pointed at a cheaper/local model, Production at the real
+    // provider) — unlike the rest of an agent's config (prompt, tools, capabilities), which should
+    // stay pinned to whatever was promoted. Deliberately NOT gated by IsLockedForEditingAsync, and
+    // deliberately narrow (only these two fields) so it can never be used as a backdoor to edit
+    // anything else on a non-default-environment agent.
+    [HttpPut("{id}/model-config")]
+    [RequireTenantAdmin]
+    public async Task<IActionResult> UpdateModelConfig(string id, [FromBody] UpdateAgentModelConfigDto dto, CancellationToken ct)
+    {
+        using var db = _db.CreateDbContext(Tenant);
+        var existing = await db.AgentDefinitions.FindAsync([id], ct);
+        if (existing is null) return NotFound();
+
+        existing.LlmConfigId = dto.LlmConfigId;
+        existing.ModelId = dto.ModelId;
+        await db.SaveChangesAsync(ct);
+        return Ok(existing);
+    }
+
     private static void ApplyAgentUpdate(AgentDefinitionEntity existing, AgentDefinitionEntity dto)
     {
         existing.Name = dto.Name;
@@ -930,6 +951,7 @@ public class AgentsController : ControllerBase
 
 // ── DTOs ──────────────────────────────────────────────────────────────────────
 public record AgentSummaryDto(string Id, string Name, string DisplayName, string AgentType, string Status, bool IsEnabled, DateTime CreatedAt, bool IsShared, int? GroupId, string? GroupName, int? LlmConfigId = null, bool IsActivated = false, string? OverlayGuid = null);
+public record UpdateAgentModelConfigDto(int? LlmConfigId, string? ModelId);
 public record GroupTemplateSummaryDto(string Id, string Name, string DisplayName, string? Description, string AgentType, int GroupId, string? GroupName, bool IsEnabled, bool IsActivated, string? OverlayGuid);
 public record SetOverlayEnabledDto(bool IsEnabled);
 public record AgentInvokeRequest(

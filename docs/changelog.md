@@ -4,6 +4,28 @@
 
 ---
 
+## [2026-08-10] Deployment fix: "Save model config" 404'd — the API container was running a stale build
+
+Not a code bug — the new `PUT /api/agents/{id}/model-config` endpoint from the previous entry
+genuinely wasn't present in the deployed container. `docker logs` confirmed it: "Request reached
+the end of the middleware pipeline without being handled by application code" (a true route-not-
+registered 404, not an auth/business-logic one). Verified directly by grepping the running
+container's compiled DLL — `docker exec core-ai-diva-api-1 sh -c "grep -a -c 'UpdateModelConfig'
+/app/Diva.Host.dll"` returned `0`, despite `dotnet build`/`dotnet test`/`docker compose up -d
+--build` all having reported success and the container showing healthy.
+
+**Fix**: rebuilt with `docker compose build --no-cache diva-api` + `up -d --force-recreate
+diva-api`. Re-grepped the DLL afterward and confirmed the strings are now present (count 1 for
+`model-config`, 2 for `UpdateModelConfig`).
+
+**Process change going forward**: for any brand-new backend route (not just edits to existing
+ones), grep the deployed container's DLL for a distinctive new symbol name before declaring the
+fix verified — "Built"/"Recreated"/"healthy" logs are not sufficient proof the new code is actually
+running. Saved to repo memory (`sqlserver-migration.md`) alongside the existing frontend-bundle
+verification lesson.
+
+---
+
 ## [2026-08-10] Refinement: environment-specific agents can still tune their own LLM config/model
 
 Amends the same-day non-default-environment edit lock. Which LLM config/model an agent uses is
