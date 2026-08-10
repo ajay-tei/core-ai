@@ -4,6 +4,22 @@
 
 ---
 
+## [2026-08-10] Fix-up: read-only agents could no longer switch tabs to view other settings
+
+Follow-up to the same-day non-default-environment edit lock. The `<fieldset disabled>` wrapper was
+placed around the entire `<Tabs>` element, including `<TabsList>` — since `TabsTrigger` renders as
+a native `<button>`, the fieldset's disabled-cascade also disabled tab switching itself, so a
+read-only agent got stuck on whichever tab it opened to instead of just losing the ability to edit.
+
+**Fix**: moved the `<fieldset disabled={isReadOnly}>` wrapper to start *after* `</TabsList>`,
+wrapping only the four `<TabsContent>` blocks. Tab navigation is now always clickable; only the
+actual form fields within each tab are disabled for a non-default-environment agent.
+
+**Verification**: `tsc -b` and `eslint` clean (only the pre-existing unrelated `AgentBuilder.tsx:759`
+warning remains), admin-portal rebuilt and redeployed.
+
+---
+
 ## [2026-08-10] Feature: agents outside the tenant's default environment can no longer be edited directly
 
 Per explicit request — agents are meant to be authored in the default environment and pushed

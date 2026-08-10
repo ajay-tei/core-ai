@@ -1316,7 +1316,6 @@ export function AgentBuilder() {
         />
       )}
 
-      <fieldset disabled={isReadOnly} className="contents">
       <Tabs defaultValue="identity">
         <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="identity" className="gap-1.5">
@@ -1336,6 +1335,7 @@ export function AgentBuilder() {
           </TabsTrigger>
         </TabsList>
 
+        <fieldset disabled={isReadOnly} className="contents">
         <TabsContent value="identity" className="mt-6 space-y-6">
           <Card>
             <CardHeader>
@@ -1788,8 +1788,8 @@ export function AgentBuilder() {
             environmentName={environments.find((e) => e.id === currentEnvironmentId)?.displayName}
           />
         </TabsContent>
+        </fieldset>
       </Tabs>
-      </fieldset>
 
       <div className="flex items-center justify-end gap-3 border-t pt-4">
         <Button variant="outline" onClick={() => navigate("/agents")}>
