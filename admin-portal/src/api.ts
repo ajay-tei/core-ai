@@ -1342,6 +1342,8 @@ export interface PromoteRequest
   toEnvironmentId: number;
   tenantId?: number;
   changeNote?: string;
+  /** Agent promotions only \u2014 explicitly sets the target environment's LlmConfigId; omit to keep whatever the target already has configured. */
+  targetLlmConfigId?: number;
 }
 
 export interface BulkPromoteRequest

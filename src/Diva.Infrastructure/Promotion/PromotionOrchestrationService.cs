@@ -63,7 +63,7 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
         return new PromotionPreview { CanPromote = true, WillPromote = deps };
     }
 
-    public async Task<PromotionResult> PromoteAsync(int tenantId, string objectType, Guid logicalId, int fromEnvironmentId, int toEnvironmentId, string? createdBy, string? changeNote, CancellationToken ct)
+    public async Task<PromotionResult> PromoteAsync(int tenantId, string objectType, Guid logicalId, int fromEnvironmentId, int toEnvironmentId, string? createdBy, string? changeNote, int? targetLlmConfigId, CancellationToken ct)
     {
         using var db = _db.CreateDbContext();
 
@@ -97,6 +97,10 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
                 continue;
             }
 
+            // Only the root object of this promotion (not cascade-pulled-in dependencies) is
+            // eligible for the LLM config override below.
+            var isRoot = ot == objectType && lid == logicalId;
+
             // Idempotent skip: target environment already has this exact content live.
             var targetDeployment = await db.EnvironmentDeployments.AsNoTracking()
                 .FirstOrDefaultAsync(d => d.LogicalId == lid && d.TenantId == tenantId && d.EnvironmentId == toEnvironmentId, ct);
@@ -105,12 +109,21 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
                 var liveVersion = await db.PromotableVersions.AsNoTracking().FirstOrDefaultAsync(v => v.Id == liveId, ct);
                 if (liveVersion is not null && liveVersion.SnapshotJson == snapshot.SnapshotJson)
                 {
+                    if (isRoot && ot == "Agent" && targetLlmConfigId is not null)
+                    {
+                        await ApplyLlmConfigOverrideAsync(db, tenantId, toEnvironmentId, lid, targetLlmConfigId.Value, ct);
+                    }
                     results.Add(new PromotedObjectResult(ot, lid, snapshot.Name, liveVersion.Id, liveVersion.Version, WasSkipped: true));
                     continue;
                 }
             }
 
             await serializer.MaterializeAsync(tenantId, toEnvironmentId, lid, snapshot.SnapshotJson, ct);
+
+            if (isRoot && ot == "Agent" && targetLlmConfigId is not null)
+            {
+                await ApplyLlmConfigOverrideAsync(db, tenantId, toEnvironmentId, lid, targetLlmConfigId.Value, ct);
+            }
 
             var sourceDeployment = await db.EnvironmentDeployments.AsNoTracking()
                 .FirstOrDefaultAsync(d => d.LogicalId == lid && d.TenantId == tenantId && d.EnvironmentId == fromEnvironmentId, ct);
@@ -141,6 +154,18 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
             run.Id, objectType, logicalId, fromEnvironmentId, toEnvironmentId, results.Count(r => !r.WasSkipped));
 
         return new PromotionResult { Success = true, RunId = run.Id, PromotedObjects = results };
+    }
+
+    /// <summary>Explicitly assigns which LLM config the just-materialized target-environment agent row uses — called only when the caller passed a non-null override (default is to leave the target's own existing LlmConfigId untouched, since it's excluded from the portable snapshot).</summary>
+    private static async Task ApplyLlmConfigOverrideAsync(Data.DivaDbContext db, int tenantId, int environmentId, Guid logicalId, int llmConfigId, CancellationToken ct)
+    {
+        var agent = await db.AgentDefinitions
+            .FirstOrDefaultAsync(a => a.TenantId == tenantId && a.EnvironmentId == environmentId && a.LogicalId == logicalId, ct);
+        if (agent is not null)
+        {
+            agent.LlmConfigId = llmConfigId;
+            await db.SaveChangesAsync(ct);
+        }
     }
 
     public async Task<PromotionResult> RollbackAsync(int tenantId, string objectType, Guid logicalId, int environmentId, int toVersionId, string? createdBy, CancellationToken ct)

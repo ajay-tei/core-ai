@@ -4,6 +4,42 @@
 
 ---
 
+## [2026-08-11] Feature: promote dialog — explicitly override or keep the target's LLM config
+
+**Context**: `LlmConfigId` is deliberately excluded from the portable agent snapshot (Phase G design —
+LLM configs are environment-specific infrastructure, never promoted content), so re-promoting an agent
+already leaves the target environment's own `LlmConfigId` untouched by default — this was previously
+only true "by accident of omission," never an explicit, visible choice.
+
+**Change**: `PromoteAsync` (single-target promotion only — a single config Id isn't portable across
+several different target environments in a bulk promote) gained an optional `targetLlmConfigId`. When
+provided, the just-promoted agent's row in the target environment is explicitly set to that config Id
+(via a new `ApplyLlmConfigOverrideAsync` helper, applied whether or not the promotion's content itself
+was an idempotent skip). When omitted (default), the target's existing `LlmConfigId` is left exactly as
+it was — explicit, not incidental.
+(`src/Diva.Core/Models/IPromotionOrchestrationService.cs`,
+`src/Diva.Infrastructure/Promotion/PromotionOrchestrationService.cs`)
+
+**API/UI**: `PromotionsController`'s `PromoteRequest` gained `TargetLlmConfigId`; `BulkPromoteRequest`
+intentionally did not. `PromotionDialog.tsx` shows an "LLM config in {target}" dropdown — "Keep the
+target's existing config" (default) or any config available in that specific target environment (fetched
+via the existing `listAvailableLlmConfigs(environmentId)`) — only for single-target Agent promotions.
+(`src/Diva.Host/Controllers/PromotionsController.cs`, `admin-portal/src/api.ts`,
+`admin-portal/src/components/PromotionDialog.tsx`)
+
+**Tests**: `PromoteAsync_TargetLlmConfigId_OverridesThePromotedAgentsConfigInTargetEnvironment` and
+`PromoteAsync_NoTargetLlmConfigId_KeepsTheTargetsExistingConfigUntouched` (re-promotes changed content
+over a target whose `LlmConfigId` was manually set post-promotion, confirms the config survives while
+the content itself updates).
+
+**Verification**: `dotnet build Diva.slnx` 0 errors; `dotnet test tests/Diva.TenantAdmin.Tests` 305/305
+(303 + 2 new). `tsc -b` clean, eslint clean on both touched frontend files. Deployed via
+`docker compose -f docker-compose.tei.yml -f docker-compose.sqlserver.yml up -d --build`; grep-verified
+`ApplyLlmConfigOverrideAsync`/`TargetLlmConfigId` in the deployed DLLs and "existing config" in the
+deployed portal JS bundle.
+
+---
+
 ## [2026-08-11] Bugfix + Feature: promotion read the wrong environment's content; added change-summary comments
 
 **Bug found during a design review of the promotion/versioning system**: `IPromotableSnapshotSerializer.

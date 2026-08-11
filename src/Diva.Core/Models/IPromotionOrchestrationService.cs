@@ -28,8 +28,9 @@ public interface IPromotionOrchestrationService
 {
     Task<PromotionPreview> PreviewAsync(int tenantId, string objectType, Guid logicalId, int fromEnvironmentId, int toEnvironmentId, CancellationToken ct);
 
-    /// <summary><paramref name="changeNote"/> is recorded on the resulting ledger version(s) in <paramref name="toEnvironmentId"/> (e.g. a user-supplied summary of what this promotion changes).</summary>
-    Task<PromotionResult> PromoteAsync(int tenantId, string objectType, Guid logicalId, int fromEnvironmentId, int toEnvironmentId, string? createdBy, string? changeNote, CancellationToken ct);
+    /// <summary><paramref name="changeNote"/> is recorded on the resulting ledger version(s) in <paramref name="toEnvironmentId"/> (e.g. a user-supplied summary of what this promotion changes).
+    /// <paramref name="targetLlmConfigId"/> (Agent promotions only) explicitly sets the promoted row's LlmConfigId in the target environment; when null, the target's own existing LlmConfigId is left untouched (LlmConfigId is deliberately excluded from the portable snapshot, so this is already the default "keep existing" behavior on re-promotion).</summary>
+    Task<PromotionResult> PromoteAsync(int tenantId, string objectType, Guid logicalId, int fromEnvironmentId, int toEnvironmentId, string? createdBy, string? changeNote, int? targetLlmConfigId, CancellationToken ct);
 
     /// <summary>Restores <paramref name="logicalId"/> in <paramref name="environmentId"/> to an older recorded version (Source="rollback").</summary>
     Task<PromotionResult> RollbackAsync(int tenantId, string objectType, Guid logicalId, int environmentId, int toVersionId, string? createdBy, CancellationToken ct);

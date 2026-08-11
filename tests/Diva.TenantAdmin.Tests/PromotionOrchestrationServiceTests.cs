@@ -80,6 +80,23 @@ public class PromotionOrchestrationServiceTests : IDisposable
         return server;
     }
 
+    private async Task<AgentDefinitionEntity> SeedAgentAsync(int environmentId, string name = "my-agent", int? llmConfigId = null)
+    {
+        using var db = new DivaDbContext(_options);
+        var agent = new AgentDefinitionEntity
+        {
+            TenantId = TenantId,
+            Name = name,
+            SystemPrompt = "You are helpful.",
+            LogicalId = Guid.NewGuid(),
+            EnvironmentId = environmentId,
+            LlmConfigId = llmConfigId,
+        };
+        db.AgentDefinitions.Add(agent);
+        await db.SaveChangesAsync();
+        return agent;
+    }
+
     [Fact]
     public async Task PreviewAsync_TargetRankNotHigher_Blocked()
     {
@@ -155,7 +172,7 @@ public class PromotionOrchestrationServiceTests : IDisposable
         var qaEnvId = await SeedEnvironmentAsync("qa", 1);
         var server = await SeedMcpServerAsync(devEnvId);
 
-        var result = await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, CancellationToken.None);
+        var result = await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, null, CancellationToken.None);
 
         Assert.True(result.Success);
         Assert.NotNull(result.RunId);
@@ -193,7 +210,7 @@ public class PromotionOrchestrationServiceTests : IDisposable
         await db.SaveChangesAsync();
 
         // The agent has never been promoted to qa — no live EnvironmentDeployments row for it there.
-        var result = await _orchestrator.PromoteAsync(TenantId, "ScheduledTask", task.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, CancellationToken.None);
+        var result = await _orchestrator.PromoteAsync(TenantId, "ScheduledTask", task.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, null, CancellationToken.None);
 
         Assert.False(result.Success);
         Assert.Contains("Agent", result.Error);
@@ -207,8 +224,8 @@ public class PromotionOrchestrationServiceTests : IDisposable
         var qaEnvId = await SeedEnvironmentAsync("qa", 1);
         var server = await SeedMcpServerAsync(devEnvId);
 
-        var first = await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, CancellationToken.None);
-        var second = await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, CancellationToken.None);
+        var first = await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, null, CancellationToken.None);
+        var second = await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, null, CancellationToken.None);
 
         Assert.False(first.PromotedObjects[0].WasSkipped);
         Assert.True(second.PromotedObjects[0].WasSkipped);
@@ -225,7 +242,7 @@ public class PromotionOrchestrationServiceTests : IDisposable
         var qaEnvId = await SeedEnvironmentAsync("qa", 1);
         var server = await SeedMcpServerAsync(devEnvId);
 
-        var v1Result = await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, CancellationToken.None);
+        var v1Result = await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, null, CancellationToken.None);
         var v1Id = v1Result.PromotedObjects[0].VersionId!.Value;
 
         using (var db = new DivaDbContext(_options))
@@ -234,7 +251,7 @@ public class PromotionOrchestrationServiceTests : IDisposable
             src.Description = "v2 description";
             await db.SaveChangesAsync();
         }
-        await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, CancellationToken.None);
+        await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, null, CancellationToken.None);
 
         using (var db = new DivaDbContext(_options))
         {
@@ -265,7 +282,7 @@ public class PromotionOrchestrationServiceTests : IDisposable
         var prodEnvId = await SeedEnvironmentAsync("prod", 2);
         var server = await SeedMcpServerAsync(devEnvId); // lowest Id — created first, in dev
 
-        await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, devEnvId, stagingEnvId, "alice", null, CancellationToken.None);
+        await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, devEnvId, stagingEnvId, "alice", null, null, CancellationToken.None);
 
         // Dev keeps evolving after staging's promotion — its row now holds different content.
         using (var db = new DivaDbContext(_options))
@@ -275,7 +292,7 @@ public class PromotionOrchestrationServiceTests : IDisposable
             await db.SaveChangesAsync();
         }
 
-        var result = await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, stagingEnvId, prodEnvId, "alice", null, CancellationToken.None);
+        var result = await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, stagingEnvId, prodEnvId, "alice", null, null, CancellationToken.None);
         Assert.True(result.Success);
 
         using var verify = new DivaDbContext(_options);
@@ -290,11 +307,62 @@ public class PromotionOrchestrationServiceTests : IDisposable
         var qaEnvId = await SeedEnvironmentAsync("qa", 1);
         var server = await SeedMcpServerAsync(devEnvId);
 
-        var result = await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, devEnvId, qaEnvId, "alice", "Fixed the endpoint URL", CancellationToken.None);
+        var result = await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, devEnvId, qaEnvId, "alice", "Fixed the endpoint URL", null, CancellationToken.None);
 
         Assert.True(result.Success);
         var history = await _ledger.GetHistoryAsync(TenantId, server.LogicalId!.Value, CancellationToken.None);
         Assert.Single(history);
         Assert.Equal("Fixed the endpoint URL", history[0].ChangeNote);
+    }
+
+    [Fact]
+    public async Task PromoteAsync_TargetLlmConfigId_OverridesThePromotedAgentsConfigInTargetEnvironment()
+    {
+        var devEnvId = await SeedEnvironmentAsync("dev", 0, isDefault: true);
+        var qaEnvId = await SeedEnvironmentAsync("qa", 1);
+        var agent = await SeedAgentAsync(devEnvId, llmConfigId: 1); // source's own config — should NOT carry over
+
+        var result = await _orchestrator.PromoteAsync(TenantId, "Agent", agent.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, 99, CancellationToken.None);
+
+        Assert.True(result.Success);
+        using var db = new DivaDbContext(_options);
+        var target = await db.AgentDefinitions.SingleAsync(a => a.EnvironmentId == qaEnvId);
+        Assert.Equal(99, target.LlmConfigId);
+    }
+
+    [Fact]
+    public async Task PromoteAsync_NoTargetLlmConfigId_KeepsTheTargetsExistingConfigUntouched()
+    {
+        // LlmConfigId is deliberately excluded from the portable snapshot (Phase G design), so a
+        // re-promotion with no explicit override must never clobber whatever the target
+        // environment's own agent already has configured (e.g. set manually via the model-config
+        // endpoint after a prior promotion).
+        var devEnvId = await SeedEnvironmentAsync("dev", 0, isDefault: true);
+        var qaEnvId = await SeedEnvironmentAsync("qa", 1);
+        var agent = await SeedAgentAsync(devEnvId);
+
+        await _orchestrator.PromoteAsync(TenantId, "Agent", agent.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, null, CancellationToken.None);
+        using (var db = new DivaDbContext(_options))
+        {
+            var target = await db.AgentDefinitions.SingleAsync(a => a.EnvironmentId == qaEnvId);
+            target.LlmConfigId = 7; // simulates an admin manually picking qa's own config afterward
+            target.SystemPrompt = "Old prompt, about to be re-promoted over.";
+            await db.SaveChangesAsync();
+        }
+
+        using (var db = new DivaDbContext(_options))
+        {
+            var dev = await db.AgentDefinitions.SingleAsync(a => a.Id == agent.Id);
+            dev.SystemPrompt = "New prompt from dev.";
+            await db.SaveChangesAsync();
+        }
+
+        var result = await _orchestrator.PromoteAsync(TenantId, "Agent", agent.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, null, CancellationToken.None);
+
+        Assert.True(result.Success);
+        using var verify = new DivaDbContext(_options);
+        var final = await verify.AgentDefinitions.SingleAsync(a => a.EnvironmentId == qaEnvId);
+        Assert.Equal("New prompt from dev.", final.SystemPrompt); // content re-promoted
+        Assert.Equal(7, final.LlmConfigId); // but qa's own LLM config choice survives untouched
     }
 }

@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { api, type BulkPromoteResultItem, type PromotionPreview } from "@/api";
+import { api, type AvailableLlmConfig, type BulkPromoteResultItem, type PromotionPreview } from "@/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertTriangle, ArrowRight, CheckCircle2, Loader2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useEnvironment } from "@/hooks/useEnvironment";
@@ -49,10 +50,12 @@ export function PromotionDialog({ open, onOpenChange, objectType, logicalId, dis
   const [promoting, setPromoting] = useState(false);
   const [bulkResults, setBulkResults] = useState<BulkPromoteResultItem[] | null>(null);
   const [changeNote, setChangeNote] = useState("");
+  const [llmConfigs, setLlmConfigs] = useState<AvailableLlmConfig[]>([]);
+  const [llmConfigOverride, setLlmConfigOverride] = useState("keep");
 
   useEffect(() =>
   {
-    if (!open) { setSelectedIds([]); setPreview(null); setConfirmed(false); setBulkResults(null); setChangeNote(""); }
+    if (!open) { setSelectedIds([]); setPreview(null); setConfirmed(false); setBulkResults(null); setChangeNote(""); setLlmConfigOverride("keep"); }
   }, [open]);
 
   useEffect(() =>
@@ -84,6 +87,15 @@ export function PromotionDialog({ open, onOpenChange, objectType, logicalId, dis
   const canConfirm = selectedIds.length > 0
     && (!needsConfirmCheckbox || confirmed)
     && (isBulk || !!preview?.canPromote);
+  const showLlmConfigPicker = objectType === "Agent" && !isBulk && selectedIds.length === 1;
+
+  useEffect(() =>
+  {
+    if (!open || !showLlmConfigPicker) { setLlmConfigs([]); return; }
+    setLlmConfigOverride("keep");
+    api.listAvailableLlmConfigs(undefined, selectedIds[0]).then(setLlmConfigs).catch(() => setLlmConfigs([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, showLlmConfigPicker, selectedIds[0]]);
 
   const handlePromote = async () =>
   {
@@ -93,7 +105,11 @@ export function PromotionDialog({ open, onOpenChange, objectType, logicalId, dis
     {
       if (!isBulk)
       {
-        const result = await api.promote({ objectType, logicalId, fromEnvironmentId, toEnvironmentId: selectedIds[0], changeNote: changeNote.trim() || undefined });
+        const result = await api.promote({
+          objectType, logicalId, fromEnvironmentId, toEnvironmentId: selectedIds[0],
+          changeNote: changeNote.trim() || undefined,
+          targetLlmConfigId: showLlmConfigPicker && llmConfigOverride !== "keep" ? Number(llmConfigOverride) : undefined,
+        });
         if (result.success)
         {
           toast.success(`Promoted "${displayName}" — ${result.promotedObjects.length} object(s) updated`);
@@ -235,6 +251,27 @@ export function PromotionDialog({ open, onOpenChange, objectType, logicalId, dis
                 <Label className="text-sm">
                   I understand this affects live traffic in {selectedEnvs.filter((e) => e.rank === maxRank).map((e) => e.displayName).join(", ")}.
                 </Label>
+              </div>
+            )}
+
+            {showLlmConfigPicker && (
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">LLM config in {selectedEnvs[0]?.displayName}</Label>
+                <Select value={llmConfigOverride} onValueChange={setLlmConfigOverride}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="keep">Keep the target's existing config</SelectItem>
+                    {llmConfigs.map((c) => (
+                      <SelectItem key={c.id} value={String(c.id)}>{c.displayName}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Promoted content never carries an LLM config with it — pick one here only to explicitly
+                  change what {selectedEnvs[0]?.displayName} uses, otherwise its current choice is left untouched.
+                </p>
               </div>
             )}
 

@@ -49,7 +49,7 @@ public class PromotionsController : ControllerBase
         var tid = EffectiveTenantId(req.TenantId);
         var ctx = HttpContext.TryGetTenantContext();
         var result = await _orchestrator.PromoteAsync(
-            tid, req.ObjectType, req.LogicalId, req.FromEnvironmentId, req.ToEnvironmentId, ctx?.UserId, req.ChangeNote, ct);
+            tid, req.ObjectType, req.LogicalId, req.FromEnvironmentId, req.ToEnvironmentId, ctx?.UserId, req.ChangeNote, req.TargetLlmConfigId, ct);
         return result.Success ? Ok(result) : BadRequest(result);
     }
 
@@ -57,6 +57,8 @@ public class PromotionsController : ControllerBase
     // in one call (e.g. rolling an agent out to every client's Play environment at once).
     // Each target is independent: one failing (e.g. a missing LLM config in that client's
     // environment) does not stop the others — inspect each entry's own Success/Error.
+    // No LLM config override here — a single config Id isn't portable across several different
+    // target environments; use the single-target Promote endpoint for that.
     [HttpPost("bulk")]
     public async Task<IActionResult> BulkPromote([FromBody] BulkPromoteRequest req, CancellationToken ct)
     {
@@ -66,7 +68,7 @@ public class PromotionsController : ControllerBase
         foreach (var toEnvironmentId in req.ToEnvironmentIds.Distinct())
         {
             var result = await _orchestrator.PromoteAsync(
-                tid, req.ObjectType, req.LogicalId, req.FromEnvironmentId, toEnvironmentId, ctx?.UserId, req.ChangeNote, ct);
+                tid, req.ObjectType, req.LogicalId, req.FromEnvironmentId, toEnvironmentId, ctx?.UserId, req.ChangeNote, null, ct);
             results.Add(new BulkPromoteResultItem(toEnvironmentId, result));
         }
         return Ok(results);
@@ -111,7 +113,7 @@ public class PromotionsController : ControllerBase
     }
 }
 
-public record PromoteRequest(string ObjectType, Guid LogicalId, int FromEnvironmentId, int ToEnvironmentId, int TenantId = 1, string? ChangeNote = null);
+public record PromoteRequest(string ObjectType, Guid LogicalId, int FromEnvironmentId, int ToEnvironmentId, int TenantId = 1, string? ChangeNote = null, int? TargetLlmConfigId = null);
 
 public record BulkPromoteRequest(string ObjectType, Guid LogicalId, int FromEnvironmentId, int[] ToEnvironmentIds, int TenantId = 1, string? ChangeNote = null);
 
