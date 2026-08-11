@@ -13,6 +13,7 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
 {
     private readonly IDatabaseProviderFactory _db;
     private readonly IPromotionLedgerService _ledger;
+    private readonly IEntityDraftService _drafts;
     private readonly IReadOnlyDictionary<string, IPromotableSnapshotSerializer> _serializers;
     private readonly IReadOnlyDictionary<string, IPromotionDependencyResolver> _resolvers;
     private readonly ILogger<PromotionOrchestrationService> _logger;
@@ -20,12 +21,14 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
     public PromotionOrchestrationService(
         IDatabaseProviderFactory db,
         IPromotionLedgerService ledger,
+        IEntityDraftService drafts,
         IEnumerable<IPromotableSnapshotSerializer> serializers,
         IEnumerable<IPromotionDependencyResolver> resolvers,
         ILogger<PromotionOrchestrationService> logger)
     {
         _db = db;
         _ledger = ledger;
+        _drafts = drafts;
         _serializers = serializers.ToDictionary(s => s.ObjectType);
         _resolvers = resolvers.ToDictionary(r => r.ObjectType);
         _logger = logger;
@@ -255,6 +258,20 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
             }
 
             closure.Add((ot, lid));
+
+            // Draft isolation (Phase C): a pending, unpublished draft means the live row is NOT
+            // yet what the admin last edited — promoting it would silently ship stale content and
+            // give false confidence that "what I just edited" went out. Block until published or discarded.
+            var draft = await _drafts.GetDraftAsync(tenantId, ot, lid, fromEnvironmentId, ct);
+            if (draft is not null)
+            {
+                var draftName = await db.PromotableObjects.AsNoTracking()
+                    .Where(o => o.TenantId == tenantId && o.LogicalId == lid)
+                    .Select(o => o.Name)
+                    .FirstOrDefaultAsync(ct);
+                var label = string.IsNullOrEmpty(draftName) ? $"{ot} ({lid})" : $"{ot} '{draftName}'";
+                forwardErrors.Add($"{label} has unpublished draft changes — publish or discard the draft before promoting.");
+            }
 
             if (!_resolvers.TryGetValue(ot, out var resolver))
             {

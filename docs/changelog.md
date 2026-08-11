@@ -4,6 +4,45 @@
 
 ---
 
+## [2026-08-11] Bugfix + Feature: direct "Save Changes" left the source environment's version stale; drafts now block promotion
+
+**Bug reported**: after publishing an agent's latest edits and promoting to another environment, the
+*source* (e.g. Dev) environment's own version pointer still showed a previous version instead of the
+one that was actually live. Root cause: `AgentsController.Update` ("Save Changes" — the direct-write
+path used outside the Save Draft/Publish flow) applied the edit straight onto the live row but never
+called `IPromotionLedgerService.RecordVersionAsync`, unlike `Publish`. The live row's content was
+always current, but the version ledger (and therefore Version History / the `v{N}` badge) silently
+fell behind it — `PromotableVersionEntity.Source` already listed `"manual"` as a valid value for
+exactly this case, it was simply never wired up.
+
+**Fix**: `Update` now records a ledger version (`Source="manual"`) the same way `Publish` does,
+whenever the agent has environment/logical identity. (`src/Diva.Host/Controllers/AgentsController.cs`)
+
+**Feature**: "if [an] agent is in draft mode, it should not be promoted to any environment" — an
+unpublished draft means the live row is not what was last edited; promoting it would silently ship
+stale content. `PromotionOrchestrationService.BuildClosureAsync` (shared by both `PreviewAsync` and
+`PromoteAsync`) now checks every object in the promotion's dependency closure for a pending
+`IEntityDraftService` draft in the source environment and hard-blocks with a clear per-object error
+if found — publishing or discarding the draft unblocks it again. No frontend changes were needed:
+`PromotionDialog.tsx` already renders `preview.blockingError` and disables the confirm button when
+`canPromote` is false, so this surfaces automatically for single-target promotions. Bulk promote
+(which skips the up-front preview) still gets the same hard block per-target from the server, shown
+in the existing per-target result list.
+(`src/Diva.Infrastructure/Promotion/PromotionOrchestrationService.cs`)
+
+**Tests**: `PreviewAndPromoteAsync_UnpublishedDraftInSourceEnvironment_Blocked` (both endpoints reject
+with a "draft" error while a draft exists; promotion succeeds normally once the draft is cleared).
+
+**Verification**: `dotnet build Diva.slnx` 0 errors; `dotnet test Diva.slnx` — `Diva.TenantAdmin.Tests`
+306/306 (305 + 1 new), `Diva.Tools.Tests` 78/78, `DivaFsMcpServer.Tests` 14/14, `Diva.Agents.Tests`
+347/348 (pre-existing unrelated `ContextWindowTests` failure). Deployed via `docker compose -f
+docker-compose.tei.yml -f docker-compose.sqlserver.yml up -d --build`; grep-verified `GetDraftAsync`
+present in both deployed DLLs (a method-name check — a literal error-message substring gave a false
+"stale deploy" signal first since .NET string literals are UTF-16 and a plain ASCII grep can't see
+them; see repo memory for the corrected technique).
+
+---
+
 ## [2026-08-11] Feature: promote dialog — explicitly override or keep the target's LLM config
 
 **Context**: `LlmConfigId` is deliberately excluded from the portable agent snapshot (Phase G design —

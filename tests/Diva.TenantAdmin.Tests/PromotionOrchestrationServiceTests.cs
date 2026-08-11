@@ -22,6 +22,7 @@ public class PromotionOrchestrationServiceTests : IDisposable
     private readonly SqliteConnection _connection;
     private readonly DbContextOptions<DivaDbContext> _options;
     private readonly PromotionLedgerService _ledger;
+    private readonly EntityDraftService _drafts;
     private readonly PromotionOrchestrationService _orchestrator;
 
     public PromotionOrchestrationServiceTests()
@@ -34,6 +35,7 @@ public class PromotionOrchestrationServiceTests : IDisposable
 
         var factory = new DirectDbFactory(_options);
         _ledger = new PromotionLedgerService(factory, NullLogger<PromotionLedgerService>.Instance);
+        _drafts = new EntityDraftService(factory);
         var exportService = new AgentExportService(factory, NullLogger<AgentExportService>.Instance);
 
         IEnumerable<IPromotableSnapshotSerializer> serializers =
@@ -51,7 +53,7 @@ public class PromotionOrchestrationServiceTests : IDisposable
             new AgentGroupPromotionDependencyResolver(factory),
         ];
 
-        _orchestrator = new PromotionOrchestrationService(factory, _ledger, serializers, resolvers, NullLogger<PromotionOrchestrationService>.Instance);
+        _orchestrator = new PromotionOrchestrationService(factory, _ledger, _drafts, serializers, resolvers, NullLogger<PromotionOrchestrationService>.Instance);
     }
 
     public void Dispose() => _connection.Dispose();
@@ -364,5 +366,31 @@ public class PromotionOrchestrationServiceTests : IDisposable
         var final = await verify.AgentDefinitions.SingleAsync(a => a.EnvironmentId == qaEnvId);
         Assert.Equal("New prompt from dev.", final.SystemPrompt); // content re-promoted
         Assert.Equal(7, final.LlmConfigId); // but qa's own LLM config choice survives untouched
+    }
+
+    [Fact]
+    public async Task PreviewAndPromoteAsync_UnpublishedDraftInSourceEnvironment_Blocked()
+    {
+        var devEnvId = await SeedEnvironmentAsync("dev", 0, isDefault: true);
+        var qaEnvId = await SeedEnvironmentAsync("qa", 1);
+        var agent = await SeedAgentAsync(devEnvId);
+
+        await _drafts.SaveDraftAsync(TenantId, "Agent", agent.LogicalId!.Value, devEnvId, "{}", "alice", CancellationToken.None);
+
+        var preview = await _orchestrator.PreviewAsync(TenantId, "Agent", agent.LogicalId!.Value, devEnvId, qaEnvId, CancellationToken.None);
+        Assert.False(preview.CanPromote);
+        Assert.Contains("draft", preview.BlockingError, StringComparison.OrdinalIgnoreCase);
+
+        var result = await _orchestrator.PromoteAsync(TenantId, "Agent", agent.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, null, CancellationToken.None);
+        Assert.False(result.Success);
+        Assert.Contains("draft", result.Error, StringComparison.OrdinalIgnoreCase);
+
+        using var verify = new DivaDbContext(_options);
+        Assert.False(await verify.AgentDefinitions.AnyAsync(a => a.EnvironmentId == qaEnvId)); // nothing materialized
+
+        // Publishing (clearing the draft) unblocks promotion again.
+        await _drafts.ClearDraftAsync(TenantId, "Agent", agent.LogicalId!.Value, devEnvId, CancellationToken.None);
+        var afterPublish = await _orchestrator.PromoteAsync(TenantId, "Agent", agent.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, null, CancellationToken.None);
+        Assert.True(afterPublish.Success);
     }
 }
