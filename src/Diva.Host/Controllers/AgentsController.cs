@@ -172,10 +172,25 @@ public class AgentsController : ControllerBase
         var ownAgentsQuery = db.AgentDefinitions.AsQueryable();
         if (environmentId is > 0)
             ownAgentsQuery = ownAgentsQuery.Where(a => a.EnvironmentId == environmentId || a.EnvironmentId == null);
-        var ownAgents = await ownAgentsQuery
+        var ownAgentRows = await ownAgentsQuery
             .OrderByDescending(a => a.CreatedAt)
-            .Select(a => new AgentSummaryDto(a.Id, a.Name, a.DisplayName, a.AgentType, a.Status, a.IsEnabled, a.CreatedAt, false, null, null, a.LlmConfigId))
+            .Select(a => new { a.Id, a.Name, a.DisplayName, a.AgentType, a.Status, a.IsEnabled, a.CreatedAt, a.LlmConfigId, a.LogicalId, a.EnvironmentId })
             .ToListAsync(ct);
+
+        // Live ledger version per agent (Phase B/D) — one bulk query instead of a per-row lookup.
+        var logicalIds = ownAgentRows.Where(a => a.LogicalId.HasValue).Select(a => a.LogicalId!.Value).ToList();
+        var versionMap = logicalIds.Count == 0
+            ? new Dictionary<(Guid, int), int>()
+            : (await db.EnvironmentDeployments
+                .Where(d => d.TenantId == tenant.TenantId && logicalIds.Contains(d.LogicalId) && d.LiveVersionId != null)
+                .Join(db.PromotableVersions, d => d.LiveVersionId, v => v.Id, (d, v) => new { d.LogicalId, d.EnvironmentId, v.Version })
+                .ToListAsync(ct))
+                .ToDictionary(x => (x.LogicalId, x.EnvironmentId), x => x.Version);
+
+        var ownAgents = ownAgentRows
+            .Select(a => new AgentSummaryDto(a.Id, a.Name, a.DisplayName, a.AgentType, a.Status, a.IsEnabled, a.CreatedAt, false, null, null, a.LlmConfigId,
+                Version: a.LogicalId is { } lid && a.EnvironmentId is { } eid && versionMap.TryGetValue((lid, eid), out var v) ? v : null))
+            .ToList();
 
         // Merge shared group templates (read-only — the tenant cannot edit these)
         var groupTemplates = await _groups.GetAgentTemplatesForTenantAsync(tenant.TenantId, ct);
@@ -987,7 +1002,7 @@ public class AgentsController : ControllerBase
 }
 
 // ── DTOs ──────────────────────────────────────────────────────────────────────
-public record AgentSummaryDto(string Id, string Name, string DisplayName, string AgentType, string Status, bool IsEnabled, DateTime CreatedAt, bool IsShared, int? GroupId, string? GroupName, int? LlmConfigId = null, bool IsActivated = false, string? OverlayGuid = null);
+public record AgentSummaryDto(string Id, string Name, string DisplayName, string AgentType, string Status, bool IsEnabled, DateTime CreatedAt, bool IsShared, int? GroupId, string? GroupName, int? LlmConfigId = null, bool IsActivated = false, string? OverlayGuid = null, int? Version = null);
 public record UpdateAgentModelConfigDto(int? LlmConfigId, string? ModelId);
 public record GroupTemplateSummaryDto(string Id, string Name, string DisplayName, string? Description, string AgentType, int GroupId, string? GroupName, bool IsEnabled, bool IsActivated, string? OverlayGuid);
 public record SetOverlayEnabledDto(bool IsEnabled);

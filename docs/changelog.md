@@ -4,6 +4,31 @@
 
 ---
 
+## [2026-08-11] Feature: Agent List grid shows each agent's live ledger version
+
+`AgentList.tsx` had no visibility into which ledger version (Phase B/D) an agent is currently on —
+only the per-agent `AgentBuilder.tsx` page (via the Version History panel) showed it.
+
+**Backend**: `AgentsController.ListPaged` (backing the Agent List grid specifically — the unpaged
+`GET /api/agents` used by ~9 dropdown/selector components is unchanged) now resolves each own agent's
+live version in one bulk query — `EnvironmentDeployments` joined to `PromotableVersions` keyed by
+`(LogicalId, EnvironmentId)` — instead of a per-row lookup. `AgentSummaryDto` gained an optional
+trailing `Version` field (backward compatible with existing positional call sites). Shared group
+templates are a separate, unrelated concept (`TenantGroupEntity`) with no ledger version, so they
+render with `Version = null`. (`src/Diva.Host/Controllers/AgentsController.cs`)
+
+**Frontend**: `AgentSummary.version` (optional) + a new "Version" column in the grid rendering a
+`v{N}` outline badge, or "—" for agents/templates with no recorded version yet.
+(`admin-portal/src/api.ts`, `admin-portal/src/components/AgentList.tsx`)
+
+**Verification**: `dotnet build Diva.slnx` 0 errors, `dotnet test tests/Diva.TenantAdmin.Tests`
+308/308 (no regressions). `tsc -b` clean, eslint clean on both touched frontend files. Deployed via
+`docker compose -f docker-compose.tei.yml -f docker-compose.sqlserver.yml up -d --build`;
+grep-verified the new `EnvironmentDeployments` join in the deployed `Diva.Host.dll` and confirmed the
+DLL's mtime was ~1.5 minutes old (freshly built).
+
+---
+
 ## [2026-08-11] Bugfix: promoting unchanged agent content to a new environment always minted a new version number
 
 **Bug reported**: "why does promoting to every environment create a new version number? I'd expect a

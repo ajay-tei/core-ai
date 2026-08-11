@@ -59,6 +59,8 @@ export interface AgentSummary
   isEnabled: boolean;
   createdAt: string;
   llmConfigId?: number;
+  /** Live ledger version (Phase B/D) in the agent's own environment — undefined for shared group templates. */
+  version?: number;
   // Shared from a tenant group (read-only)
   isShared?: boolean;
   groupId?: number;

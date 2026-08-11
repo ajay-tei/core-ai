@@ -305,6 +305,7 @@ export function AgentList() {
                   <TableHead className="w-12"></TableHead>
                   <TableHead>Name</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Version</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead className="w-12"></TableHead>
                 </TableRow>
@@ -339,6 +340,9 @@ export function AgentList() {
                     </TableCell>
                     <TableCell>
                       <StatusBadge agent={agent} />
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {agent.version != null ? <Badge variant="outline">v{agent.version}</Badge> : "—"}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {new Date(agent.createdAt).toLocaleDateString(undefined, {
