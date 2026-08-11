@@ -42,10 +42,27 @@ public class AgentExportServiceTests : IAsyncDisposable
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
+    private async Task<int> SeedEnvironmentAsync(string slug, int rank, bool isDefault = false)
+    {
+        using var db = new DivaDbContext(_dbOptions, currentTenantId: 1);
+        var env = new TenantEnvironmentEntity
+        {
+            TenantId = 1,
+            Slug = slug,
+            DisplayName = slug,
+            Rank = rank,
+            IsDefault = isDefault,
+        };
+        db.TenantEnvironments.Add(env);
+        await db.SaveChangesAsync();
+        return env.Id;
+    }
+
     private async Task<AgentDefinitionEntity> SeedAgentAsync(
         string id = "agent-1",
         string name = "my-agent",
-        string? delegateIds = null)
+        string? delegateIds = null,
+        int? environmentId = null)
     {
         using var db = new DivaDbContext(_dbOptions, currentTenantId: 1);
         var agent = new AgentDefinitionEntity
@@ -60,6 +77,7 @@ public class AgentExportServiceTests : IAsyncDisposable
             Temperature = 0.7,
             MaxIterations = 10,
             DelegateAgentIdsJson = delegateIds,
+            EnvironmentId = environmentId,
         };
         db.AgentDefinitions.Add(agent);
         await db.SaveChangesAsync();
@@ -223,6 +241,78 @@ public class AgentExportServiceTests : IAsyncDisposable
 
         Assert.Single(result.Warnings);
         Assert.Contains("ghost-agent", result.Warnings[0]);
+    }
+
+    [Fact]
+    public async Task ImportAsync_ScopesDelegateResolution_ToTargetEnvironment_WhenSameNameExistsInMultipleEnvironments()
+    {
+        // Same delegate Name promoted to two environments — Dev (1) and COT Play (2) — as two
+        // distinct physical rows, mirroring a real sub-agent promotion scenario.
+        var devEnvId = await SeedEnvironmentAsync("dev", 0, isDefault: true);
+        var cotPlayEnvId = await SeedEnvironmentAsync("cot-play", 1);
+        await SeedAgentAsync("agent-dev-weather", "weather-agent", environmentId: devEnvId);
+        await SeedAgentAsync("agent-cotplay-weather", "weather-agent", environmentId: cotPlayEnvId);
+
+        var bundle = new AgentExportBundle
+        {
+            SchemaVersion = "1.0",
+            SourceTenantId = 1,
+            Agent = new AgentExportDefinition
+            {
+                Name = "analytics-cot",
+                AgentType = "generic",
+                ExecutionMode = "Full",
+                DelegateAgentNames = ["weather-agent"],
+            },
+            Rules = [],
+        };
+
+        var result = await _svc.ImportAsync(
+            bundle, _tenant,
+            new AgentImportOptions { DelegateEnvironmentId = cotPlayEnvId },
+            CancellationToken.None);
+
+        Assert.Empty(result.Warnings);
+
+        using var db = new DivaDbContext(_dbOptions, currentTenantId: 1);
+        var agent = await db.AgentDefinitions.FindAsync(result.AgentId);
+        Assert.NotNull(agent);
+        var delegateIds = System.Text.Json.JsonSerializer.Deserialize<List<string>>(agent!.DelegateAgentIdsJson!);
+        Assert.NotNull(delegateIds);
+        Assert.Single(delegateIds!);
+        Assert.Equal("agent-cotplay-weather", delegateIds![0]);
+    }
+
+    [Fact]
+    public async Task ImportAsync_FallsBackToTenantWideDelegateResolution_WhenEnvironmentNotSpecified()
+    {
+        // Only one physical row for this Name — legacy tenant-wide matching (no environment
+        // scoping requested) must still resolve it, since most tenants don't use environments.
+        await SeedAgentAsync("agent-peer", "peer-agent", environmentId: null);
+
+        var bundle = new AgentExportBundle
+        {
+            SchemaVersion = "1.0",
+            SourceTenantId = 1,
+            Agent = new AgentExportDefinition
+            {
+                Name = "agent-with-delegates",
+                AgentType = "generic",
+                ExecutionMode = "Full",
+                DelegateAgentNames = ["peer-agent"],
+            },
+            Rules = [],
+        };
+
+        var result = await _svc.ImportAsync(
+            bundle, _tenant, new AgentImportOptions(), CancellationToken.None);
+
+        Assert.Empty(result.Warnings);
+
+        using var db = new DivaDbContext(_dbOptions, currentTenantId: 1);
+        var agent = await db.AgentDefinitions.FindAsync(result.AgentId);
+        var delegateIds = System.Text.Json.JsonSerializer.Deserialize<List<string>>(agent!.DelegateAgentIdsJson!);
+        Assert.Equal(["agent-peer"], delegateIds);
     }
 
     [Fact]

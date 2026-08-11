@@ -639,10 +639,15 @@ public class AgentsController : ControllerBase
             return BadRequest(new { error = "Invalid export bundle." });
 
         var tenant = Tenant;
+        // Imports always land in the tenant's default environment (see ImportAsync's isNew branch)
+        // — scope delegate-agent name re-linking to that same environment, not tenant-wide, so a
+        // delegate whose Name exists in multiple environments resolves to the default one's copy.
+        var defaultEnv = await _environments.GetDefaultAsync(tenant.TenantId, ct);
         var options = new AgentImportOptions
         {
             OverwriteExisting = overwrite,
             ImportRules = importRules,
+            DelegateEnvironmentId = defaultEnv?.Id,
         };
 
         var result = await _agentExport.ImportAsync(bundle, tenant, options, ct);

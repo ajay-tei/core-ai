@@ -77,10 +77,14 @@ public sealed class AgentSnapshotSerializer : IPromotableSnapshotSerializer
         // When no row exists yet for this specific (tenant, environment, logicalId), force a
         // genuine CREATE (OverwriteExisting = false) — otherwise ImportAsync's fallback by-Name
         // search would still find and overwrite whichever OTHER environment's same-named agent
-        // happens to exist (typically the source's own row on a first promotion).
+        // happens to exist (typically the source's own row on a first promotion). DelegateEnvironmentId
+        // scopes delegate-agent name re-linking to THIS environment too — otherwise a delegate whose
+        // Name exists in multiple environments (e.g. a sub-agent already promoted elsewhere) could
+        // silently resolve to the wrong environment's copy, with its own (possibly misconfigured for
+        // this environment) MCP credentials.
         var options = targetAgentId is { Length: > 0 }
-            ? new AgentImportOptions { OverwriteExisting = true, ImportRules = true, TargetAgentId = targetAgentId }
-            : new AgentImportOptions { OverwriteExisting = false, ImportRules = true };
+            ? new AgentImportOptions { OverwriteExisting = true, ImportRules = true, TargetAgentId = targetAgentId, DelegateEnvironmentId = environmentId }
+            : new AgentImportOptions { OverwriteExisting = false, ImportRules = true, DelegateEnvironmentId = environmentId };
 
         var result = await _export.ImportAsync(bundle, TenantContext.System(tenantId), options, ct);
 

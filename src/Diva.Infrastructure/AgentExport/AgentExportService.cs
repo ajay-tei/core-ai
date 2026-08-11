@@ -69,9 +69,11 @@ public sealed class AgentExportService : IAgentExportService
             ? n
             : bundle.Agent.Name;
 
-        // Resolve delegate agent IDs from names in the target tenant
+        // Resolve delegate agent IDs from names in the target tenant — scoped to the target
+        // environment when known (promotion), so a delegate whose Name exists in multiple
+        // environments resolves to THIS agent's own environment's copy, not an arbitrary one.
         var delegateIdsJson = await ResolveDelegateIdsJsonAsync(
-            db, bundle.Agent.DelegateAgentNames, warnings, ct);
+            db, bundle.Agent.DelegateAgentNames, options.DelegateEnvironmentId, warnings, ct);
 
         // Overwrite or create
         AgentDefinitionEntity existing = options.TargetAgentId is { Length: > 0 } targetId
@@ -304,16 +306,30 @@ public sealed class AgentExportService : IAgentExportService
     private static async Task<string?> ResolveDelegateIdsJsonAsync(
         DivaDbContext db,
         IReadOnlyList<string> names,
+        int? environmentId,
         List<string> warnings,
         CancellationToken ct)
     {
         if (names.Count == 0) return null;
 
         var nameList = names.ToList();
-        var found = await db.AgentDefinitions
-            .Where(a => nameList.Contains(a.Name))
-            .Select(a => new { a.Id, a.Name })
+        var candidatesQuery = db.AgentDefinitions.Where(a => nameList.Contains(a.Name));
+        if (environmentId is { } envId)
+        {
+            candidatesQuery = candidatesQuery.Where(a => a.EnvironmentId == envId || a.EnvironmentId == null);
+        }
+        var candidates = await candidatesQuery
+            .Select(a => new { a.Id, a.Name, a.EnvironmentId })
             .ToListAsync(ct);
+
+        // Even when scoped, prefer an exact environment match over an untagged (legacy) row if
+        // both happen to exist for the same Name — avoids picking the wrong one arbitrarily.
+        var found = candidates
+            .GroupBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(g => environmentId is { } eid
+                ? g.OrderByDescending(c => c.EnvironmentId == eid).First()
+                : g.First())
+            .ToList();
 
         var foundNames = found.Select(f => f.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var name in nameList.Where(n => !foundNames.Contains(n)))

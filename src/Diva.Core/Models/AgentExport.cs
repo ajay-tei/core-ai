@@ -113,6 +113,15 @@ public sealed record AgentImportOptions
     /// by-Name matching.
     /// </summary>
     public string? TargetAgentId { get; init; }
+
+    /// <summary>
+    /// Which environment to scope DelegateAgentNames \u2192 DelegateAgentIdsJson resolution to. Same
+    /// ambiguity as TargetAgentId: a delegate agent's Name can exist as multiple per-environment
+    /// rows, and re-linking by Name alone (tenant-wide) can silently pick the wrong environment's
+    /// copy \u2014 e.g. a promoted parent delegating to another environment's mis-configured MCP
+    /// credentials instead of its own. Null falls back to tenant-wide matching (legacy behavior).
+    /// </summary>
+    public int? DelegateEnvironmentId { get; init; }
 }
 
 /// <summary>Result returned after a successful import.</summary>

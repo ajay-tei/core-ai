@@ -553,7 +553,7 @@ public class AgentSnapshotSerializerTests : IDisposable
         return env.Id;
     }
 
-    private async Task<AgentDefinitionEntity> SeedAgentAsync(int environmentId, string name = "my-agent")
+    private async Task<AgentDefinitionEntity> SeedAgentAsync(int environmentId, string name = "my-agent", string? delegateIds = null)
     {
         using var db = new DivaDbContext(_options);
         var agent = new AgentDefinitionEntity
@@ -566,6 +566,7 @@ public class AgentSnapshotSerializerTests : IDisposable
             SystemPrompt = "You are helpful.",
             LogicalId = Guid.NewGuid(),
             EnvironmentId = environmentId,
+            DelegateAgentIdsJson = delegateIds,
         };
         db.AgentDefinitions.Add(agent);
         await db.SaveChangesAsync();
@@ -651,4 +652,34 @@ public class AgentSnapshotSerializerTests : IDisposable
 
         Assert.Equal(first!.SnapshotJson, second!.SnapshotJson);
     }
+
+    [Fact]
+    public async Task MaterializeAsync_ReResolvesDelegateAgent_ScopedToTargetEnvironment()
+    {
+        // Pins a real production incident: a parent agent ("analytics-cot") with a sub-agent
+        // delegate ("weather-agent") that had ALREADY been promoted to the target environment
+        // (qa) as its own independent physical row. Promoting the parent from dev must re-link
+        // its delegate to QA's own copy — not dev's — otherwise the parent ends up invoking the
+        // wrong environment's agent (and thus its wrong/misconfigured MCP credentials) even
+        // though calling the delegate directly in QA works fine.
+        var sourceEnvId = await SeedEnvironmentAsync("dev", 0, isDefault: true);
+        var targetEnvId = await SeedEnvironmentAsync("qa", 1);
+
+        var devWeather = await SeedAgentAsync(sourceEnvId, name: "weather-agent");
+        var qaWeather = await SeedAgentAsync(targetEnvId, name: "weather-agent");
+        var parent = await SeedAgentAsync(
+            sourceEnvId, name: "analytics-cot",
+            delegateIds: JsonSerializer.Serialize(new[] { devWeather.Id }));
+
+        var snapshot = await _serializer.SerializeAsync(TenantId, sourceEnvId, parent.LogicalId!.Value, CancellationToken.None);
+        await _serializer.MaterializeAsync(TenantId, targetEnvId, parent.LogicalId!.Value, snapshot!.SnapshotJson, CancellationToken.None);
+
+        using var db = new DivaDbContext(_options);
+        var target = await db.AgentDefinitions.SingleAsync(a => a.EnvironmentId == targetEnvId && a.Name == "analytics-cot");
+        var delegateIds = JsonSerializer.Deserialize<List<string>>(target.DelegateAgentIdsJson!);
+        Assert.NotNull(delegateIds);
+        Assert.Single(delegateIds!);
+        Assert.Equal(qaWeather.Id, delegateIds![0]); // QA's own copy — not dev's
+    }
 }
+

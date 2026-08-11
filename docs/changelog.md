@@ -4,6 +4,53 @@
 
 ---
 
+## [2026-08-11] Bug fix: promoted parent agents could delegate to the WRONG environment's sub-agent
+
+**Problem** (real production incident): "Analytics - COT" promoted to COT Play delegated to its
+sub-agent "Weather Agent - Global" using a bad MCP credential — even though calling that same
+sub-agent directly worked fine. Root cause: `AgentExportService.ResolveDelegateIdsJsonAsync`
+(invoked during promotion materialization to re-link a parent's `DelegateAgentNames` back to
+`DelegateAgentIdsJson`) matched by Name **tenant-wide**, with no environment filter. Once a delegate
+agent's Name exists as more than one physical row (normal after that delegate has itself been
+promoted to any environment), the parent's re-materialized `DelegateAgentIdsJson` could end up
+containing another environment's row — carrying that row's own (wrong, for this environment) MCP
+server/credential configuration. `AgentImportOptions.TargetAgentId` already had a doc comment
+acknowledging this exact ambiguity class for the *parent* agent's own row match — it was never
+extended to delegate name resolution.
+
+**Fix**: `AgentImportOptions` gains `DelegateEnvironmentId`. `ResolveDelegateIdsJsonAsync` now
+filters candidate rows to `EnvironmentId == DelegateEnvironmentId || EnvironmentId == null` when
+set, and de-duplicates per Name (preferring an exact environment match) even when unset — so a
+Name is never resolved to more than one Id.
+`AgentSnapshotSerializer.MaterializeAsync` (promotion path) passes its own target `environmentId`
+through. `AgentsController.Import` (plain "Import Agent" feature) passes the tenant's default
+environment, matching where `ImportAsync` already lands newly-created imported agents.
+(`src/Diva.Core/Models/AgentExport.cs`, `src/Diva.Infrastructure/AgentExport/AgentExportService.cs`,
+`src/Diva.Infrastructure/Promotion/AgentSnapshotSerializer.cs`, `src/Diva.Host/Controllers/AgentsController.cs`)
+
+**Note**: this fixes the bug for future promotions. An agent already promoted with a corrupted
+multi-ID `DelegateAgentIdsJson` (e.g. the live "Analytics - COT" in COT Play) needs to be
+re-promoted (Save Changes on the parent, then re-promote to COT Play) to pick up the corrected,
+single-Id, environment-scoped value — the code fix alone does not retroactively repair already-
+written rows.
+
+**Tests**: added `ImportAsync_ScopesDelegateResolution_ToTargetEnvironment_WhenSameNameExistsInMultipleEnvironments`
+and `ImportAsync_FallsBackToTenantWideDelegateResolution_WhenEnvironmentNotSpecified`
+(`tests/Diva.Agents.Tests/AgentExportServiceTests.cs`), plus an end-to-end promotion-level test
+`MaterializeAsync_ReResolvesDelegateAgent_ScopedToTargetEnvironment`
+(`tests/Diva.TenantAdmin.Tests/PromotionSnapshotSerializerTests.cs`) reproducing the exact incident:
+a delegate Name existing in both the source and target environments, asserting the promoted
+parent's `DelegateAgentIdsJson` links to the target environment's own copy.
+
+**Verification**: `dotnet build Diva.slnx` 0 errors; `dotnet test Diva.slnx` — `Diva.TenantAdmin.Tests`
+311/311 (310 + 1 new), `Diva.Tools.Tests` 78/78, `DivaFsMcpServer.Tests` 14/14, `Diva.Agents.Tests`
+349/350 (348 + 2 new, same single pre-existing unrelated failure tolerated). Deployed via
+`docker compose -f docker-compose.tei.yml -f docker-compose.sqlserver.yml up -d --build`; confirmed
+the deployed `Diva.Core.dll` contains the new `DelegateEnvironmentId` symbol and `Diva.Infrastructure.dll`'s
+mtime was ~3 minutes old.
+
+---
+
 ## [2026-08-11] Feature: "mutable HEAD until shipped" — editing no longer burns a new version per save
 
 **Problem**: every distinct-content Save Changes/Publish minted a new global version number, so
