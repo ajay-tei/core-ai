@@ -74,6 +74,7 @@ export interface AgentListParams
   page?: number;
   pageSize?: number;
   environmentId?: number;
+  accessGroupId?: string;
 }
 
 export interface AgentDefinition
@@ -1641,6 +1642,7 @@ export const api = {
     if (params.page) qs.set("page", String(params.page));
     if (params.pageSize) qs.set("pageSize", String(params.pageSize));
     if (params.environmentId) qs.set("environmentId", String(params.environmentId));
+    if (params.accessGroupId) qs.set("accessGroupId", params.accessGroupId);
     return request<PagedResult<AgentSummary>>(`/api/agents/paged?${ qs }`);
   },
   getAgent: (id: string) => request<AgentDefinition>(`/api/agents/${ id }`),

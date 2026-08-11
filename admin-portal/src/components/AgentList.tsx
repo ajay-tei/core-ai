@@ -16,7 +16,7 @@ import {
   ToggleRight,
   Upload,
 } from "lucide-react";
-import { api, type AgentSummary, type AgentListParams, type AgentImportResult } from "@/api";
+import { api, type AgentSummary, type AgentListParams, type AgentImportResult, type AgentGroup } from "@/api";
 import { usePagedList } from "@/hooks/usePagedList";
 import { useEnvironment } from "@/hooks/useEnvironment";
 import { auth } from "@/lib/auth";
@@ -107,6 +107,17 @@ export function AgentList() {
   const [selectedGroupId, setSelectedGroupId] = useState<string>("");
   const [publishing, setPublishing] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+
+  // Agent Access Groups filter (Phase 28) — scoped to the current environment, distinct from
+  // the "publish to shared group" `groups`/`selectedGroupId` state above.
+  const [accessGroups, setAccessGroups] = useState<AgentGroup[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    api.listAgentGroups(undefined, currentEnvironmentId || undefined)
+      .then(list => { if (!cancelled) setAccessGroups(list); })
+      .catch(() => { if (!cancelled) setAccessGroups([]); });
+    return () => { cancelled = true; };
+  }, [currentEnvironmentId]);
 
   const handleActivate = async (agent: AgentSummary) => {
     try {
@@ -232,7 +243,22 @@ export function AgentList() {
         pageSize={params.pageSize}
         onPageSizeChange={pageSize => update({ pageSize })}
         pageSizeOptions={[25, 50, 100]}
-      />
+      >
+        <Select
+          value={params.accessGroupId || "all"}
+          onValueChange={v => update({ accessGroupId: v === "all" ? undefined : v })}
+        >
+          <SelectTrigger className="w-56">
+            <SelectValue placeholder="All access groups" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All access groups</SelectItem>
+            {accessGroups.map(g => (
+              <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </ListToolbar>
 
       <Card>
         <CardHeader className="px-4 py-3 flex flex-row items-center justify-between">

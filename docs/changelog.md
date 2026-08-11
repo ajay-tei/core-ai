@@ -4,6 +4,29 @@
 
 ---
 
+## [2026-08-11] Feature: Agent List — filter by Agent Access Group
+
+`AgentList.tsx` had no way to narrow the list to agents belonging to a specific Agent Access Group
+(`AgentGroupEntity`, Phase 28 — restricts which users may invoke a set of agents; distinct from
+`TenantGroupEntity`'s "shared/publish to group" concept already used elsewhere on this page).
+
+**Backend**: `AgentsController.List`/`ListPaged` gained an optional `accessGroupId` query param.
+When present, a new private helper `ResolveAccessGroupMemberIdsAsync` loads the `AgentGroupEntity`
+via the existing `IAgentGroupService.GetAsync`, deserializes its `AgentIdsJson` member list, and
+the result set is filtered to just those agent IDs. Filtering happens server-side (after the
+existing own/shared-template merge and non-admin denied-agent filtering) so pagination stays
+correct. (`src/Diva.Host/Controllers/AgentsController.cs`)
+
+**Frontend**: `api.ts` — `AgentListParams` gained `accessGroupId`; `listAgentsPaged` appends it to
+the query string. `AgentList.tsx` fetches the tenant's Agent Access Groups (scoped to the current
+environment via `api.listAgentGroups`) and renders a "All access groups" `Select` filter in the
+`ListToolbar`'s filter slot, wired to `usePagedList`'s `update()`.
+
+Files: `src/Diva.Host/Controllers/AgentsController.cs`, `admin-portal/src/api.ts`,
+`admin-portal/src/components/AgentList.tsx`.
+
+---
+
 ## [2026-08-10] Feature: tenant admins can edit local users' roles
 
 `LocalUsersPanel.tsx` (Settings → local username/password accounts) could set roles at *creation*

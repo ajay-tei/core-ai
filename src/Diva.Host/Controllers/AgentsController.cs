@@ -100,9 +100,17 @@ public class AgentsController : ControllerBase
     })
     { StatusCode = StatusCodes.Status403Forbidden };
 
+    private async Task<HashSet<string>> ResolveAccessGroupMemberIdsAsync(int tenantId, string accessGroupId, CancellationToken ct)
+    {
+        var group = await _agentGroups.GetAsync(tenantId, accessGroupId, ct);
+        if (group is null || string.IsNullOrEmpty(group.AgentIdsJson)) return [];
+        try { return JsonSerializer.Deserialize<string[]>(group.AgentIdsJson)?.ToHashSet() ?? []; }
+        catch (JsonException) { return []; }
+    }
+
     // ── GET /api/agents?environmentId= ───────────────────────────────────────
     [HttpGet]
-    public async Task<IActionResult> List([FromQuery] int? environmentId = null, CancellationToken ct = default)
+    public async Task<IActionResult> List([FromQuery] int? environmentId = null, [FromQuery] string? accessGroupId = null, CancellationToken ct = default)
     {
         var tenant = Tenant;
         using var db = _db.CreateDbContext(tenant);
@@ -137,6 +145,12 @@ public class AgentsController : ControllerBase
             all = all.Where(a => !denied.Contains(a.Id));
         }
 
+        if (!string.IsNullOrWhiteSpace(accessGroupId))
+        {
+            var memberIds = await ResolveAccessGroupMemberIdsAsync(tenant.TenantId, accessGroupId, ct);
+            all = all.Where(a => memberIds.Contains(a.Id));
+        }
+
         return Ok(all);
     }
 
@@ -150,6 +164,7 @@ public class AgentsController : ControllerBase
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 25,
         [FromQuery] int? environmentId = null,
+        [FromQuery] string? accessGroupId = null,
         CancellationToken ct = default)
     {
         var tenant = Tenant;
@@ -183,6 +198,12 @@ public class AgentsController : ControllerBase
         {
             var denied = await _agentGroups.GetDeniedAgentIdsAsync(tenant, ct);
             all = all.Where(a => !denied.Contains(a.Id));
+        }
+
+        if (!string.IsNullOrWhiteSpace(accessGroupId))
+        {
+            var memberIds = await ResolveAccessGroupMemberIdsAsync(tenant.TenantId, accessGroupId, ct);
+            all = all.Where(a => memberIds.Contains(a.Id));
         }
 
         if (!string.IsNullOrWhiteSpace(search))
