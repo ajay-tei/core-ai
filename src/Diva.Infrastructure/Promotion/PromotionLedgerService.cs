@@ -70,7 +70,28 @@ public sealed class PromotionLedgerService : IPromotionLedgerService
         var wasNew = false;
         if (latest is not null && latest.ContentHash == hash)
         {
+            // Pure dedup — identical to the latest recorded content regardless of which
+            // environment(s) already use it (e.g. promoting unchanged content to a new environment).
             version = latest;
+        }
+        else if (latest is not null && (source is "manual" or "publish")
+            && !await db.EnvironmentDeployments.AnyAsync(d => d.TenantId == tenantId && d.LogicalId == logicalId
+                && d.LiveVersionId == latest.Id && d.EnvironmentId != environmentId, ct))
+        {
+            // Routine edit in the object's own environment, and no OTHER environment currently
+            // relies on this exact version (never promoted/rolled-back-to elsewhere) — update it
+            // in place instead of burning a new version number. Version numbers are reserved for
+            // content that's actually been shipped somewhere; unlimited same-environment tinkering
+            // in between costs nothing. Promotion/rollback never take this branch — they always
+            // reflect a real, distinct, auditable checkpoint.
+            latest.SnapshotJson = snapshotJson;
+            latest.ContentHash = hash;
+            latest.Source = source;
+            latest.CreatedBy = createdBy;
+            latest.ChangeNote = changeNote;
+            latest.CreatedAt = DateTime.UtcNow;
+            version = latest;
+            wasNew = true; // content did change, just not via a new row
         }
         else
         {

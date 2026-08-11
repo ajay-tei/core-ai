@@ -77,11 +77,14 @@ public class PromotionLedgerServiceTests : IDisposable
     [Fact]
     public async Task RecordVersionAsync_ChangedContent_CreatesVersion2_AndAdvancesLiveVersionPointer()
     {
+        // Uses source="promotion" deliberately: unlike "manual"/"publish" (which now mutate an
+        // unshipped version in place), promotion/rollback always create a distinct, auditable
+        // version on content change, regardless of whether anything else depends on the old one.
         var envId = await SeedEnvironmentAsync();
         var logicalId = Guid.NewGuid();
-        await _ledger.RecordVersionAsync(TenantId, logicalId, "McpServer", "weather-api", envId, "{\"v\":1}", "manual", null, "alice", null, CancellationToken.None);
+        await _ledger.RecordVersionAsync(TenantId, logicalId, "McpServer", "weather-api", envId, "{\"v\":1}", "promotion", null, "alice", null, CancellationToken.None);
 
-        var second = await _ledger.RecordVersionAsync(TenantId, logicalId, "McpServer", "weather-api", envId, "{\"v\":2}", "manual", null, "alice", null, CancellationToken.None);
+        var second = await _ledger.RecordVersionAsync(TenantId, logicalId, "McpServer", "weather-api", envId, "{\"v\":2}", "promotion", null, "alice", null, CancellationToken.None);
 
         Assert.True(second.WasNew);
         Assert.Equal(2, second.Version.Version);
@@ -95,9 +98,9 @@ public class PromotionLedgerServiceTests : IDisposable
     {
         var envId = await SeedEnvironmentAsync();
         var logicalId = Guid.NewGuid();
-        await _ledger.RecordVersionAsync(TenantId, logicalId, "McpServer", "weather-api", envId, "{\"v\":1}", "manual", null, "alice", null, CancellationToken.None);
-        await _ledger.RecordVersionAsync(TenantId, logicalId, "McpServer", "weather-api", envId, "{\"v\":2}", "manual", null, "alice", null, CancellationToken.None);
-        await _ledger.RecordVersionAsync(TenantId, logicalId, "McpServer", "weather-api", envId, "{\"v\":3}", "manual", null, "alice", null, CancellationToken.None);
+        await _ledger.RecordVersionAsync(TenantId, logicalId, "McpServer", "weather-api", envId, "{\"v\":1}", "promotion", null, "alice", null, CancellationToken.None);
+        await _ledger.RecordVersionAsync(TenantId, logicalId, "McpServer", "weather-api", envId, "{\"v\":2}", "promotion", null, "alice", null, CancellationToken.None);
+        await _ledger.RecordVersionAsync(TenantId, logicalId, "McpServer", "weather-api", envId, "{\"v\":3}", "promotion", null, "alice", null, CancellationToken.None);
 
         var history = await _ledger.GetHistoryAsync(TenantId, logicalId, CancellationToken.None);
 
@@ -112,8 +115,8 @@ public class PromotionLedgerServiceTests : IDisposable
     {
         var envId = await SeedEnvironmentAsync();
         var logicalId = Guid.NewGuid();
-        var v1 = await _ledger.RecordVersionAsync(TenantId, logicalId, "McpServer", "weather-api", envId, "{\"description\":\"v1\"}", "manual", null, "alice", null, CancellationToken.None);
-        var v2 = await _ledger.RecordVersionAsync(TenantId, logicalId, "McpServer", "weather-api", envId, "{\"description\":\"v2\"}", "manual", null, "alice", null, CancellationToken.None);
+        var v1 = await _ledger.RecordVersionAsync(TenantId, logicalId, "McpServer", "weather-api", envId, "{\"description\":\"v1\"}", "promotion", null, "alice", null, CancellationToken.None);
+        var v2 = await _ledger.RecordVersionAsync(TenantId, logicalId, "McpServer", "weather-api", envId, "{\"description\":\"v2\"}", "promotion", null, "alice", null, CancellationToken.None);
 
         var diffs = await _ledger.DiffVersionsAsync(TenantId, v1.Version.Id, v2.Version.Id, CancellationToken.None);
 
@@ -132,5 +135,65 @@ public class PromotionLedgerServiceTests : IDisposable
         using var db = new DivaDbContext(_options);
         var obj = await db.PromotableObjects.SingleAsync(o => o.LogicalId == logicalId);
         Assert.Equal("new-name", obj.Name);
+    }
+
+    [Fact]
+    public async Task RecordVersionAsync_ManualSource_ChangedContent_NotYetShipped_MutatesInPlace()
+    {
+        // Routine editing (Save Changes/Publish) in the object's own environment, with nothing
+        // else depending on the current version yet, should NOT burn a new version number on
+        // every edit — it updates the same version's content in place.
+        var envId = await SeedEnvironmentAsync();
+        var logicalId = Guid.NewGuid();
+        var first = await _ledger.RecordVersionAsync(TenantId, logicalId, "McpServer", "weather-api", envId, "{\"v\":1}", "manual", null, "alice", null, CancellationToken.None);
+
+        var second = await _ledger.RecordVersionAsync(TenantId, logicalId, "McpServer", "weather-api", envId, "{\"v\":2}", "manual", null, "bob", "tweak", CancellationToken.None);
+        var third = await _ledger.RecordVersionAsync(TenantId, logicalId, "McpServer", "weather-api", envId, "{\"v\":3}", "publish", null, "bob", "another tweak", CancellationToken.None);
+
+        Assert.True(second.WasNew); // content changed — just not via a new row
+        Assert.Equal(1, second.Version.Version);
+        Assert.Equal(first.Version.Id, second.Version.Id); // same row, mutated in place
+        Assert.Equal(1, third.Version.Version);
+        Assert.Equal(first.Version.Id, third.Version.Id);
+
+        using var db = new DivaDbContext(_options);
+        Assert.Equal(1, await db.PromotableVersions.CountAsync(v => v.LogicalId == logicalId)); // one row total
+        var row = await db.PromotableVersions.SingleAsync(v => v.LogicalId == logicalId);
+        Assert.Equal("{\"v\":3}", row.SnapshotJson);
+        Assert.Equal("publish", row.Source); // reflects the most recent edit
+        Assert.Equal("bob", row.CreatedBy);
+        Assert.Equal("another tweak", row.ChangeNote);
+    }
+
+    [Fact]
+    public async Task RecordVersionAsync_ManualSource_VersionAlreadyLiveInAnotherEnvironment_CreatesNewVersionInstead()
+    {
+        // Once a version has been shipped to (is live in) another environment, editing the
+        // source environment again must NOT mutate it in place — that would silently change
+        // what the other environment is serving. A new version is required instead.
+        var devEnvId = await SeedEnvironmentAsync();
+        int qaEnvId;
+        using (var envDb = new DivaDbContext(_options))
+        {
+            qaEnvId = (await PromotionTestHelpers.CreateEnvironmentAsync(envDb, TenantId, "qa", 1)).Id;
+        }
+        var logicalId = Guid.NewGuid();
+        var v1 = await _ledger.RecordVersionAsync(TenantId, logicalId, "McpServer", "weather-api", devEnvId, "{\"v\":1}", "manual", null, "alice", null, CancellationToken.None);
+        // Simulate promotion: the same content also goes live in qa (dedup reuses v1).
+        await _ledger.RecordVersionAsync(TenantId, logicalId, "McpServer", "weather-api", qaEnvId, "{\"v\":1}", "promotion", v1.Version.Id, "alice", null, CancellationToken.None);
+
+        var afterEdit = await _ledger.RecordVersionAsync(TenantId, logicalId, "McpServer", "weather-api", devEnvId, "{\"v\":2}", "manual", null, "alice", null, CancellationToken.None);
+
+        Assert.True(afterEdit.WasNew);
+        Assert.Equal(2, afterEdit.Version.Version);
+        Assert.NotEqual(v1.Version.Id, afterEdit.Version.Id);
+
+        using var db = new DivaDbContext(_options);
+        Assert.Equal(2, await db.PromotableVersions.CountAsync(v => v.LogicalId == logicalId));
+        // qa's own deployment still points at the original (unmutated) v1 content.
+        var qaDeployment = await db.EnvironmentDeployments.SingleAsync(d => d.LogicalId == logicalId && d.EnvironmentId == qaEnvId);
+        Assert.Equal(v1.Version.Id, qaDeployment.LiveVersionId);
+        var qaLiveVersion = await db.PromotableVersions.SingleAsync(v => v.Id == qaDeployment.LiveVersionId);
+        Assert.Equal("{\"v\":1}", qaLiveVersion.SnapshotJson);
     }
 }

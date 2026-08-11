@@ -4,6 +4,44 @@
 
 ---
 
+## [2026-08-11] Feature: "mutable HEAD until shipped" — editing no longer burns a new version per save
+
+**Problem**: every distinct-content Save Changes/Publish minted a new global version number, so
+routine iteration on a prompt (10 tweaks before ever promoting) produced v1→v10 with no signal about
+what was actually meaningful. Precedent already existed in this codebase for "don't version every
+edit" (the separate `AgentPromptHistoryEntity` only records on AI-Optimizer-applied changes, never
+on manual edits) — this generalizes that principle to the promotion ledger.
+
+**New rule**: a version becomes immutable only once something else actually depends on it — i.e.
+once it's live in a *second* environment (via promotion or rollback). Until then, `"manual"`
+(Save Changes) and `"publish"` edits in the object's own environment update that same version's
+content in place — no new number. `"promotion"` and `"rollback"` are unaffected and always behave as
+before (reuse-if-identical-hash, else create a new, distinctly-numbered, auditable checkpoint) —
+shipping content to another environment is inherently a meaningful event worth its own version
+regardless of how the previous promotion into that same target looked.
+(`src/Diva.Infrastructure/Promotion/PromotionLedgerService.cs`)
+
+**Safety**: mutation is gated on `EnvironmentDeployments` — a version is only mutable if no
+*other* environment currently has it as `LiveVersionId`. The instant a version is promoted/rolled
+back to elsewhere, it freezes; the next same-environment edit creates a new version instead of
+silently changing what the other environment is serving.
+
+**Tests**: updated 3 existing `PromotionLedgerServiceTests` (source changed `"manual"` →
+`"promotion"` to keep testing the always-increment invariant that still applies to that source).
+Added `RecordVersionAsync_ManualSource_ChangedContent_NotYetShipped_MutatesInPlace` (3 consecutive
+manual/publish edits with different content all land on version 1, same row, fields reflect the
+latest edit) and `RecordVersionAsync_ManualSource_VersionAlreadyLiveInAnotherEnvironment_CreatesNewVersionInstead`
+(once a version is live in a second environment, the next edit creates v2, and the other
+environment's deployment still points at the original, unmutated content).
+
+**Verification**: `dotnet build Diva.slnx` 0 errors; `dotnet test Diva.slnx` — `Diva.TenantAdmin.Tests`
+310/310 (308 + 2 new, explicitly re-confirmed by name), `Diva.Tools.Tests` 78/78,
+`DivaFsMcpServer.Tests` 14/14, `Diva.Agents.Tests` 347/348 (pre-existing unrelated failure). Deployed
+via `docker compose -f docker-compose.tei.yml -f docker-compose.sqlserver.yml up -d --build`;
+confirmed the deployed `Diva.Infrastructure.dll`'s mtime was ~1 minute old.
+
+---
+
 ## [2026-08-11] Feature: Agent List grid shows each agent's live ledger version
 
 `AgentList.tsx` had no visibility into which ledger version (Phase B/D) an agent is currently on —
