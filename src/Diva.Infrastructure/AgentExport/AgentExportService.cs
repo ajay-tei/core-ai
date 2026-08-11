@@ -84,7 +84,7 @@ public sealed class AgentExportService : IAgentExportService
 
         var isNew = string.IsNullOrEmpty(existing.Id) || existing.Id == existing.Id && existing.TenantId == 0;
 
-        ApplyAgentFields(existing, bundle.Agent, effectiveName, tenant.TenantId, delegateIdsJson);
+        ApplyAgentFields(existing, bundle.Agent, effectiveName, tenant.TenantId, delegateIdsJson, isNew);
 
         if (isNew)
         {
@@ -201,7 +201,8 @@ public sealed class AgentExportService : IAgentExportService
         AgentExportDefinition src,
         string effectiveName,
         int tenantId,
-        string? delegateIdsJson)
+        string? delegateIdsJson,
+        bool isNewRow)
     {
         target.Name = effectiveName;
         target.DisplayName = src.DisplayName;
@@ -218,7 +219,15 @@ public sealed class AgentExportService : IAgentExportService
         target.VerificationMode = src.VerificationMode;
         target.ContextWindowJson = src.ContextWindowJson;
         target.OptimizationOverrideJson = src.OptimizationOverrideJson;
-        target.CustomVariablesJson = src.CustomVariablesJson;
+        // Custom variables are environment-specific customization (e.g. company_name/disclaimer
+        // text may legitimately differ per environment) — like LlmConfigId, they're editable
+        // directly on an already-promoted agent (PUT /api/agents/{id}/custom-variables) and must
+        // not be silently reset by a later re-promotion. Only a brand-new row (first promotion)
+        // inherits the source's starting value.
+        if (isNewRow)
+        {
+            target.CustomVariablesJson = src.CustomVariablesJson;
+        }
         target.MaxContinuations = src.MaxContinuations;
         target.MaxToolResultChars = src.MaxToolResultChars;
         target.MaxOutputTokens = src.MaxOutputTokens;

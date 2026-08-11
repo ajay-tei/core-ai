@@ -62,7 +62,8 @@ public class AgentExportServiceTests : IAsyncDisposable
         string id = "agent-1",
         string name = "my-agent",
         string? delegateIds = null,
-        int? environmentId = null)
+        int? environmentId = null,
+        string? customVariablesJson = null)
     {
         using var db = new DivaDbContext(_dbOptions, currentTenantId: 1);
         var agent = new AgentDefinitionEntity
@@ -78,6 +79,7 @@ public class AgentExportServiceTests : IAsyncDisposable
             MaxIterations = 10,
             DelegateAgentIdsJson = delegateIds,
             EnvironmentId = environmentId,
+            CustomVariablesJson = customVariablesJson,
         };
         db.AgentDefinitions.Add(agent);
         await db.SaveChangesAsync();
@@ -217,6 +219,64 @@ public class AgentExportServiceTests : IAsyncDisposable
         Assert.NotNull(agent);
         Assert.Equal("Updated", agent.DisplayName);
         Assert.True(agent.Version > 1);
+    }
+
+    [Fact]
+    public async Task ImportAsync_CreatesNewAgent_InheritsSourceCustomVariables()
+    {
+        var bundle = new AgentExportBundle
+        {
+            SchemaVersion = "1.0",
+            SourceTenantId = 1,
+            Agent = new AgentExportDefinition
+            {
+                Name = "imported-agent",
+                AgentType = "generic",
+                ExecutionMode = "Full",
+                CustomVariablesJson = "{\"company_name\":\"Acme\"}",
+            },
+            Rules = [],
+        };
+
+        var result = await _svc.ImportAsync(bundle, _tenant, new AgentImportOptions(), CancellationToken.None);
+
+        using var db = new DivaDbContext(_dbOptions, currentTenantId: 1);
+        var agent = await db.AgentDefinitions.FindAsync(result.AgentId);
+        Assert.Equal("{\"company_name\":\"Acme\"}", agent!.CustomVariablesJson);
+    }
+
+    [Fact]
+    public async Task ImportAsync_OverwritesExistingAgent_PreservesExistingCustomVariables()
+    {
+        // Pins a real feature: custom variables are editable directly on a promoted agent (PUT
+        // /api/agents/{id}/custom-variables) and must survive the next re-promotion/re-import from
+        // source — unlike the rest of an agent's config, which is meant to stay pinned to whatever
+        // was promoted. Only a brand-new row inherits the source's starting value (see the sibling
+        // test above); an already-existing row keeps its own value untouched.
+        await SeedAgentAsync("agent-1", "my-agent", customVariablesJson: "{\"region\":\"cot-play\"}");
+
+        var bundle = new AgentExportBundle
+        {
+            SchemaVersion = "1.0",
+            SourceTenantId = 1,
+            Agent = new AgentExportDefinition
+            {
+                Name = "my-agent",
+                AgentType = "generic",
+                ExecutionMode = "Full",
+                CustomVariablesJson = "{\"region\":\"dev\"}",
+            },
+            Rules = [],
+        };
+
+        var result = await _svc.ImportAsync(
+            bundle, _tenant,
+            new AgentImportOptions { OverwriteExisting = true, ImportRules = false },
+            CancellationToken.None);
+
+        using var db = new DivaDbContext(_dbOptions, currentTenantId: 1);
+        var agent = await db.AgentDefinitions.FindAsync(result.AgentId);
+        Assert.Equal("{\"region\":\"cot-play\"}", agent!.CustomVariablesJson); // kept, not overwritten by source's "dev"
     }
 
     [Fact]

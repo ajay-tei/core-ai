@@ -4,6 +4,45 @@
 
 ---
 
+## [2026-08-11] Feature: Custom Variables editable directly on a promoted agent
+
+A promoted (non-default-environment) agent is otherwise entirely read-only in AgentBuilder — but
+Custom Variables (used for `{{variable_name}}` substitution in the system prompt, e.g.
+`company_name`/`disclaimer_text`) are legitimately environment-specific, like `LlmConfigId` already
+was (`PUT /api/agents/{id}/model-config`, added earlier). Extended the same carve-out to Custom
+Variables.
+
+**Backend**: `AgentExportService.ApplyAgentFields` now only applies the bundle's
+`CustomVariablesJson` to a brand-new row (first promotion) — an already-existing row keeps its own
+current value, so a later re-promotion/re-import from source no longer silently resets it. New
+narrow `PUT /api/agents/{id}/custom-variables` endpoint (`UpdateAgentCustomVariablesDto`), same
+shape as the existing model-config endpoint — deliberately bypasses the read-only lock and touches
+only this one field. (`src/Diva.Infrastructure/AgentExport/AgentExportService.cs`,
+`src/Diva.Host/Controllers/AgentsController.cs`)
+
+**Frontend**: extracted the Custom Variables key/value editor out of the (fully locked)
+`AdvancedConfigPanel` collapsible into its own standalone `CustomVariablesEditor`, rendered outside
+the Advanced tab's `<fieldset disabled={isReadOnly}>`. Shows the same "rest of this agent is
+locked, but X can still be tuned per-environment" note + a dedicated "Save custom variables"
+button (calling the new endpoint) when read-only — otherwise flows through the normal Save/Draft/
+Publish actions unchanged. (`admin-portal/src/api.ts`, `admin-portal/src/components/AgentBuilder.tsx`)
+
+**Tests**: `ImportAsync_CreatesNewAgent_InheritsSourceCustomVariables` (first promotion still
+carries the source's value onto a brand-new row) and
+`ImportAsync_OverwritesExistingAgent_PreservesExistingCustomVariables` (re-promotion/re-import
+keeps the existing row's value instead of overwriting it with source's) —
+(`tests/Diva.Agents.Tests/AgentExportServiceTests.cs`).
+
+**Verification**: `dotnet build Diva.slnx` 0 errors; `dotnet test Diva.slnx` — `Diva.TenantAdmin.Tests`
+311/311, `Diva.Tools.Tests` 78/78, `DivaFsMcpServer.Tests` 14/14, `Diva.Agents.Tests` 351/352 (349 +
+2 new, same single pre-existing unrelated failure tolerated). `tsc -b` clean; eslint clean (no new
+issues in touched files, pre-existing baseline unchanged). Deployed via `docker compose -f
+docker-compose.tei.yml -f docker-compose.sqlserver.yml up -d --build`; confirmed the deployed
+`Diva.Host.dll` contains `UpdateCustomVariables`/`custom-variables` and `Diva.Infrastructure.dll`'s
+mtime was ~2 minutes old.
+
+---
+
 ## [2026-08-11] Bug fix: promoted parent agents could delegate to the WRONG environment's sub-agent
 
 **Problem** (real production incident): "Analytics - COT" promoted to COT Play delegated to its

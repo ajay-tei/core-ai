@@ -261,6 +261,75 @@ function ConversationStartersEditor({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Custom Variables Editor
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Manages the agent's customVariablesJson — a JSON Dictionary<string,string> used for
+// {{variable_name}} substitution in the system prompt. Rendered outside the Advanced
+// Configuration fieldset (and its own read-only lock) so it stays editable — via its own bypass
+// save — on a promoted (non-default-environment) agent, matching the LLM config/model carve-out.
+function CustomVariablesEditor({
+  value,
+  onChange,
+}: {
+  value?: string;
+  onChange: (json: string | undefined) => void;
+}) {
+  const customVars = parseJson<Record<string, string>>(value, {});
+  const [newVarKey, setNewVarKey] = useState("");
+
+  const setVar = (key: string, val: string) => {
+    onChange(JSON.stringify({ ...customVars, [key]: val }));
+  };
+  const removeVar = (key: string) => {
+    const next = { ...customVars }; delete next[key];
+    onChange(Object.keys(next).length > 0 ? JSON.stringify(next) : undefined);
+  };
+
+  return (
+    <div className="space-y-2">
+      <Label>Custom Variables</Label>
+      <div className="space-y-2">
+        {Object.entries(customVars).map(([key, val]) => (
+          <div key={key} className="flex items-center gap-2">
+            <span className="w-32 font-mono text-sm text-muted-foreground shrink-0">{key}</span>
+            <Input
+              value={val}
+              onChange={(e) => setVar(key, e.target.value)}
+              className="font-mono text-sm"
+            />
+            <Button variant="ghost" size="icon" className="size-8 shrink-0" onClick={() => removeVar(key)}>
+              <X className="size-3" />
+            </Button>
+          </div>
+        ))}
+        <div className="flex gap-2">
+          <Input
+            value={newVarKey}
+            onChange={(e) => setNewVarKey(e.target.value)}
+            placeholder="variable_name"
+            className="font-mono text-sm w-48"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && newVarKey.trim()) {
+                setVar(newVarKey.trim(), "");
+                setNewVarKey("");
+              }
+            }}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => { if (newVarKey.trim()) { setVar(newVarKey.trim(), ""); setNewVarKey(""); } }}
+          >
+            <Plus className="mr-1 size-3" /> Add
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // MCP Binding Editor
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -742,7 +811,6 @@ function AdvancedConfigPanel({
   isEditing?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const [newVarKey, setNewVarKey] = useState("");
 
   // Auto-expand when editing an agent that already has advanced config values
   const hasAdvancedConfig = !!(
@@ -754,7 +822,6 @@ function AdvancedConfigPanel({
     form.enableExtendedThinking != null ||
     form.thinkingBudgetTokens != null ||
     form.contextWindowJson ||
-    form.customVariablesJson ||
     form.pipelineStagesJson ||
     form.toolFilterJson ||
     form.stageInstructionsJson
@@ -763,7 +830,6 @@ function AdvancedConfigPanel({
 
   const contextWindow = parseJson<Record<string, number>>(form.contextWindowJson, {});
   const optimizationOverride = parseJson<Record<string, number>>(form.optimizationOverrideJson, {});
-  const customVars = parseJson<Record<string, string>>(form.customVariablesJson, {});
   const toolFilter = parseJson<{ mode?: string; tools?: string[] }>(form.toolFilterJson, {});
 
   const setContextWindow = (key: string, val: number | undefined) => {
@@ -780,13 +846,6 @@ function AdvancedConfigPanel({
     set("optimizationOverrideJson", Object.keys(next).length > 0 ? JSON.stringify(next) : undefined);
   };
 
-  const setCustomVar = (key: string, val: string) => {
-    set("customVariablesJson", JSON.stringify({ ...customVars, [key]: val }));
-  };
-  const removeCustomVar = (key: string) => {
-    const next = { ...customVars }; delete next[key];
-    set("customVariablesJson", Object.keys(next).length > 0 ? JSON.stringify(next) : undefined);
-  };
   const setToolFilter = (mode: string, tools: string[]) => {
     if (!mode) { set("toolFilterJson", undefined); return; }
     set("toolFilterJson", JSON.stringify({ mode, tools }));
@@ -971,46 +1030,6 @@ function AdvancedConfigPanel({
         </div>
 
         <div className="space-y-2">
-          <Label>Custom Variables</Label>
-          <div className="space-y-2">
-            {Object.entries(customVars).map(([key, val]) => (
-              <div key={key} className="flex items-center gap-2">
-                <span className="w-32 font-mono text-sm text-muted-foreground shrink-0">{key}</span>
-                <Input
-                  value={val}
-                  onChange={(e) => setCustomVar(key, e.target.value)}
-                  className="font-mono text-sm"
-                />
-                <Button variant="ghost" size="icon" className="size-8 shrink-0" onClick={() => removeCustomVar(key)}>
-                  <X className="size-3" />
-                </Button>
-              </div>
-            ))}
-            <div className="flex gap-2">
-              <Input
-                value={newVarKey}
-                onChange={(e) => setNewVarKey(e.target.value)}
-                placeholder="variable_name"
-                className="font-mono text-sm w-48"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && newVarKey.trim()) {
-                    setCustomVar(newVarKey.trim(), "");
-                    setNewVarKey("");
-                  }
-                }}
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => { if (newVarKey.trim()) { setCustomVar(newVarKey.trim(), ""); setNewVarKey(""); } }}
-              >
-                <Plus className="mr-1 size-3" /> Add
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-2">
           <Label>Tool Filter</Label>
           <div className="flex items-center gap-3">
             <Select
@@ -1073,6 +1092,7 @@ export function AgentBuilder() {
   const [credentials, setCredentials] = useState<McpCredential[]>([]);
   const [importOpen, setImportOpen] = useState(false);
   const [savingModelConfig, setSavingModelConfig] = useState(false);
+  const [savingCustomVariables, setSavingCustomVariables] = useState(false);
   const [versionHistoryOpen, setVersionHistoryOpen] = useState(false);
   const [liveVersion, setLiveVersion] = useState<LiveVersionInfo | null>(null);
 
@@ -1181,6 +1201,20 @@ export function AgentBuilder() {
       toast.error("Failed to save model configuration", { description: String(e) });
     } finally {
       setSavingModelConfig(false);
+    }
+  };
+
+  const handleSaveCustomVariables = async () => {
+    if (!agentId) return;
+    setSavingCustomVariables(true);
+    try {
+      const updated = await api.updateAgentCustomVariables(agentId, { customVariablesJson: form.customVariablesJson });
+      setForm(updated);
+      toast.success("Custom variables saved for this environment");
+    } catch (e: unknown) {
+      toast.error("Failed to save custom variables", { description: String(e) });
+    } finally {
+      setSavingCustomVariables(false);
     }
   };
 
@@ -1809,6 +1843,22 @@ export function AgentBuilder() {
         </TabsContent>
 
         <TabsContent value="advanced" className="mt-6 space-y-4">
+          <CustomVariablesEditor
+            value={form.customVariablesJson}
+            onChange={(json) => set("customVariablesJson", json)}
+          />
+          {isReadOnly && (
+            <div className="flex items-center justify-between gap-3 rounded-md border border-blue-600/40 bg-blue-500/10 px-3 py-2">
+              <p className="text-xs text-muted-foreground">
+                The rest of this agent is locked, but custom variables can still be tuned
+                per-environment.
+              </p>
+              <Button size="sm" variant="secondary" onClick={handleSaveCustomVariables} disabled={savingCustomVariables}>
+                {savingCustomVariables ? "Saving..." : "Save custom variables"}
+              </Button>
+            </div>
+          )}
+
           <fieldset disabled={isReadOnly} className="contents">
           <AdvancedConfigPanel form={form} set={set} defaults={agentDefaults} isEditing={!!agentId} />
 

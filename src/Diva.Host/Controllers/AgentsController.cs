@@ -330,6 +330,26 @@ public class AgentsController : ControllerBase
         return Ok(existing);
     }
 
+    // ── PUT /api/agents/{id}/custom-variables ───────────────────────────────────
+    // Custom variables ({{variable}} substitution in the system prompt) are environment-specific
+    // customization, like LlmConfigId above — editable directly on a promoted (non-default-
+    // environment) agent without unlocking the rest of its config. Deliberately narrow (only this
+    // field) so it can never be used as a backdoor to edit anything else on a locked agent.
+    // AgentExportService preserves an existing row's CustomVariablesJson across re-promotion, so
+    // a value saved here survives the next time this agent is promoted/rolled back.
+    [HttpPut("{id}/custom-variables")]
+    [RequireTenantAdmin]
+    public async Task<IActionResult> UpdateCustomVariables(string id, [FromBody] UpdateAgentCustomVariablesDto dto, CancellationToken ct)
+    {
+        using var db = _db.CreateDbContext(Tenant);
+        var existing = await db.AgentDefinitions.FindAsync([id], ct);
+        if (existing is null) return NotFound();
+
+        existing.CustomVariablesJson = dto.CustomVariablesJson;
+        await db.SaveChangesAsync(ct);
+        return Ok(existing);
+    }
+
     private static void ApplyAgentUpdate(AgentDefinitionEntity existing, AgentDefinitionEntity dto)
     {
         existing.Name = dto.Name;
@@ -1009,6 +1029,7 @@ public class AgentsController : ControllerBase
 // ── DTOs ──────────────────────────────────────────────────────────────────────
 public record AgentSummaryDto(string Id, string Name, string DisplayName, string AgentType, string Status, bool IsEnabled, DateTime CreatedAt, bool IsShared, int? GroupId, string? GroupName, int? LlmConfigId = null, bool IsActivated = false, string? OverlayGuid = null, int? Version = null);
 public record UpdateAgentModelConfigDto(int? LlmConfigId, string? ModelId);
+public record UpdateAgentCustomVariablesDto(string? CustomVariablesJson);
 public record GroupTemplateSummaryDto(string Id, string Name, string DisplayName, string? Description, string AgentType, int GroupId, string? GroupName, bool IsEnabled, bool IsActivated, string? OverlayGuid);
 public record SetOverlayEnabledDto(bool IsEnabled);
 public record AgentInvokeRequest(

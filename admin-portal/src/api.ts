@@ -1664,6 +1664,8 @@ export const api = {
   // config/model an agent uses is environment-specific infrastructure, not "agent config."
   updateAgentModelConfig: (id: string, dto: { llmConfigId?: number; modelId?: string; }) =>
     request<AgentDefinition>(`/api/agents/${ id }/model-config`, { method: "PUT", body: JSON.stringify(dto) }),
+  updateAgentCustomVariables: (id: string, dto: { customVariablesJson?: string; }) =>
+    request<AgentDefinition>(`/api/agents/${ id }/custom-variables`, { method: "PUT", body: JSON.stringify(dto) }),
   improvePrompt: (id: string, instruction: string, currentPrompt?: string) =>
     request<{ improvedPrompt: string; }>(`/api/agents/${ id }/prompt/improve`, { method: "POST", body: JSON.stringify({ instruction, currentPrompt }) }),
   deleteAgent: (id: string) => request<void>(`/api/agents/${ id }`, { method: "DELETE" }),
