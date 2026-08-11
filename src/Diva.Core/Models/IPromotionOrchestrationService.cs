@@ -28,7 +28,8 @@ public interface IPromotionOrchestrationService
 {
     Task<PromotionPreview> PreviewAsync(int tenantId, string objectType, Guid logicalId, int fromEnvironmentId, int toEnvironmentId, CancellationToken ct);
 
-    Task<PromotionResult> PromoteAsync(int tenantId, string objectType, Guid logicalId, int fromEnvironmentId, int toEnvironmentId, string? createdBy, CancellationToken ct);
+    /// <summary><paramref name="changeNote"/> is recorded on the resulting ledger version(s) in <paramref name="toEnvironmentId"/> (e.g. a user-supplied summary of what this promotion changes).</summary>
+    Task<PromotionResult> PromoteAsync(int tenantId, string objectType, Guid logicalId, int fromEnvironmentId, int toEnvironmentId, string? createdBy, string? changeNote, CancellationToken ct);
 
     /// <summary>Restores <paramref name="logicalId"/> in <paramref name="environmentId"/> to an older recorded version (Source="rollback").</summary>
     Task<PromotionResult> RollbackAsync(int tenantId, string objectType, Guid logicalId, int environmentId, int toVersionId, string? createdBy, CancellationToken ct);

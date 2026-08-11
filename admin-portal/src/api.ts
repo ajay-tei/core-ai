@@ -1341,6 +1341,7 @@ export interface PromoteRequest
   fromEnvironmentId: number;
   toEnvironmentId: number;
   tenantId?: number;
+  changeNote?: string;
 }
 
 export interface BulkPromoteRequest
@@ -1350,6 +1351,7 @@ export interface BulkPromoteRequest
   fromEnvironmentId: number;
   toEnvironmentIds: number[];
   tenantId?: number;
+  changeNote?: string;
 }
 
 export interface BulkPromoteResultItem

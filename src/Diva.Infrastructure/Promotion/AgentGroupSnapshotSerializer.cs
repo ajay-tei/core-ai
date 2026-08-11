@@ -32,11 +32,11 @@ public sealed class AgentGroupSnapshotSerializer : IPromotableSnapshotSerializer
         _logger = logger;
     }
 
-    public async Task<SerializedSnapshot?> SerializeAsync(int tenantId, Guid logicalId, CancellationToken ct)
+    public async Task<SerializedSnapshot?> SerializeAsync(int tenantId, int environmentId, Guid logicalId, CancellationToken ct)
     {
         using var db = _db.CreateDbContext();
         var group = await db.AgentGroups.AsNoTracking()
-            .FirstOrDefaultAsync(g => g.TenantId == tenantId && g.LogicalId == logicalId, ct);
+            .FirstOrDefaultAsync(g => g.TenantId == tenantId && g.EnvironmentId == environmentId && g.LogicalId == logicalId, ct);
         if (group is null)
         {
             return null;

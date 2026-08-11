@@ -223,7 +223,7 @@ public class SchedulerController : ControllerBase
         catch (ArgumentException e) { return BadRequest(new { error = e.Message }); }
 
         var ctx = HttpContext.TryGetTenantContext();
-        var snapshot = await _snapshotSerializer.SerializeAsync(tid, logicalId, ct);
+        var snapshot = await _snapshotSerializer.SerializeAsync(tid, environmentId, logicalId, ct);
         if (snapshot is not null)
         {
             await _ledger.RecordVersionAsync(

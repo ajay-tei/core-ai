@@ -105,8 +105,8 @@ public class AgentGroupSnapshotSerializerTests : IDisposable
     [Fact]
     public async Task SerializeAsync_NoMatchingRow_ReturnsNull()
     {
-        await SeedEnvironmentAsync("dev", 0, isDefault: true);
-        var result = await _serializer.SerializeAsync(TenantId, Guid.NewGuid(), CancellationToken.None);
+        var envId = await SeedEnvironmentAsync("dev", 0, isDefault: true);
+        var result = await _serializer.SerializeAsync(TenantId, envId, Guid.NewGuid(), CancellationToken.None);
         Assert.Null(result);
     }
 
@@ -116,7 +116,7 @@ public class AgentGroupSnapshotSerializerTests : IDisposable
         var envId = await SeedEnvironmentAsync("dev", 0, isDefault: true);
         var (group, agent) = await SeedGroupWithMemberAgentAsync(envId, withAllowedUserIds: true);
 
-        var snapshot = await _serializer.SerializeAsync(TenantId, group.LogicalId!.Value, CancellationToken.None);
+        var snapshot = await _serializer.SerializeAsync(TenantId, envId, group.LogicalId!.Value, CancellationToken.None);
 
         Assert.NotNull(snapshot);
         Assert.Equal("finance", snapshot!.Name);
@@ -133,7 +133,7 @@ public class AgentGroupSnapshotSerializerTests : IDisposable
         var targetEnvId = await SeedEnvironmentAsync("qa", 1);
         var (group, _) = await SeedGroupWithMemberAgentAsync(sourceEnvId);
 
-        var snapshot = await _serializer.SerializeAsync(TenantId, group.LogicalId!.Value, CancellationToken.None);
+        var snapshot = await _serializer.SerializeAsync(TenantId, sourceEnvId, group.LogicalId!.Value, CancellationToken.None);
         await _serializer.MaterializeAsync(TenantId, targetEnvId, group.LogicalId!.Value, snapshot!.SnapshotJson, CancellationToken.None);
 
         using var db = new DivaDbContext(_options);
@@ -199,7 +199,7 @@ public class AgentGroupSnapshotSerializerTests : IDisposable
         var targetEnvId = await SeedEnvironmentAsync("qa", 1);
         var (group, _) = await SeedGroupWithMemberAgentAsync(sourceEnvId, withAllowedUserIds: true, withUserGroupLink: true);
 
-        var snapshot = await _serializer.SerializeAsync(TenantId, group.LogicalId!.Value, CancellationToken.None);
+        var snapshot = await _serializer.SerializeAsync(TenantId, sourceEnvId, group.LogicalId!.Value, CancellationToken.None);
         await _serializer.MaterializeAsync(TenantId, targetEnvId, group.LogicalId!.Value, snapshot!.SnapshotJson, CancellationToken.None);
 
         using var db = new DivaDbContext(_options);
@@ -262,8 +262,8 @@ public class McpServerSnapshotSerializerTests : IDisposable
     [Fact]
     public async Task SerializeAsync_NoMatchingRow_ReturnsNull()
     {
-        await SeedEnvironmentAsync("dev", 0, isDefault: true);
-        var result = await _serializer.SerializeAsync(TenantId, Guid.NewGuid(), CancellationToken.None);
+        var envId = await SeedEnvironmentAsync("dev", 0, isDefault: true);
+        var result = await _serializer.SerializeAsync(TenantId, envId, Guid.NewGuid(), CancellationToken.None);
         Assert.Null(result);
     }
 
@@ -274,7 +274,7 @@ public class McpServerSnapshotSerializerTests : IDisposable
         var targetEnvId = await SeedEnvironmentAsync("qa", 1);
         var server = await SeedServerAsync(sourceEnvId);
 
-        var snapshot = await _serializer.SerializeAsync(TenantId, server.LogicalId!.Value, CancellationToken.None);
+        var snapshot = await _serializer.SerializeAsync(TenantId, sourceEnvId, server.LogicalId!.Value, CancellationToken.None);
         Assert.NotNull(snapshot);
         await _serializer.MaterializeAsync(TenantId, targetEnvId, server.LogicalId!.Value, snapshot!.SnapshotJson, CancellationToken.None);
 
@@ -296,7 +296,7 @@ public class McpServerSnapshotSerializerTests : IDisposable
         var mappings = JsonSerializer.Serialize(new[] { new { apiKeyId = 12, credentialRef = "acme-key" } });
         var server = await SeedServerAsync(sourceEnvId, apiKeyMappings: mappings);
 
-        var snapshot = await _serializer.SerializeAsync(TenantId, server.LogicalId!.Value, CancellationToken.None);
+        var snapshot = await _serializer.SerializeAsync(TenantId, sourceEnvId, server.LogicalId!.Value, CancellationToken.None);
         Assert.DoesNotContain("apiKeyId", snapshot!.SnapshotJson);
         await _serializer.MaterializeAsync(TenantId, targetEnvId, server.LogicalId!.Value, snapshot.SnapshotJson, CancellationToken.None);
 
@@ -316,7 +316,7 @@ public class McpServerSnapshotSerializerTests : IDisposable
         var targetEnvId = await SeedEnvironmentAsync("qa", 1);
         var server = await SeedServerAsync(sourceEnvId);
 
-        var snapshot = await _serializer.SerializeAsync(TenantId, server.LogicalId!.Value, CancellationToken.None);
+        var snapshot = await _serializer.SerializeAsync(TenantId, sourceEnvId, server.LogicalId!.Value, CancellationToken.None);
         await _serializer.MaterializeAsync(TenantId, targetEnvId, server.LogicalId!.Value, snapshot!.SnapshotJson, CancellationToken.None);
 
         using var db = new DivaDbContext(_options);
@@ -396,7 +396,7 @@ public class ScheduledTaskSnapshotSerializerTests : IDisposable
         var agent = await SeedAgentAsync(envId);
         var task = await SeedTaskAsync(envId, agent.Id);
 
-        var snapshot = await _serializer.SerializeAsync(TenantId, task.LogicalId!.Value, CancellationToken.None);
+        var snapshot = await _serializer.SerializeAsync(TenantId, envId, task.LogicalId!.Value, CancellationToken.None);
 
         Assert.NotNull(snapshot);
         Assert.Contains(agent.Name, snapshot!.SnapshotJson);
@@ -411,7 +411,7 @@ public class ScheduledTaskSnapshotSerializerTests : IDisposable
         var agent = await SeedAgentAsync(sourceEnvId);
         var task = await SeedTaskAsync(sourceEnvId, agent.Id);
 
-        var snapshot = await _serializer.SerializeAsync(TenantId, task.LogicalId!.Value, CancellationToken.None);
+        var snapshot = await _serializer.SerializeAsync(TenantId, sourceEnvId, task.LogicalId!.Value, CancellationToken.None);
         await _serializer.MaterializeAsync(TenantId, targetEnvId, task.LogicalId!.Value, snapshot!.SnapshotJson, CancellationToken.None);
 
         using var db = new DivaDbContext(_options);
@@ -428,7 +428,7 @@ public class ScheduledTaskSnapshotSerializerTests : IDisposable
         var agent = await SeedAgentAsync(sourceEnvId);
         var task = await SeedTaskAsync(sourceEnvId, agent.Id, runAsUserId: "alice");
 
-        var snapshot = await _serializer.SerializeAsync(TenantId, task.LogicalId!.Value, CancellationToken.None);
+        var snapshot = await _serializer.SerializeAsync(TenantId, sourceEnvId, task.LogicalId!.Value, CancellationToken.None);
         Assert.DoesNotContain("alice", snapshot!.SnapshotJson);
         await _serializer.MaterializeAsync(TenantId, targetEnvId, task.LogicalId!.Value, snapshot.SnapshotJson, CancellationToken.None);
 
@@ -449,7 +449,7 @@ public class ScheduledTaskSnapshotSerializerTests : IDisposable
         var targetEnvId = await SeedEnvironmentAsync("qa", 1);
         var agent = await SeedAgentAsync(sourceEnvId, name: "temp-agent");
         var task = await SeedTaskAsync(sourceEnvId, agent.Id);
-        var snapshot = await _serializer.SerializeAsync(TenantId, task.LogicalId!.Value, CancellationToken.None);
+        var snapshot = await _serializer.SerializeAsync(TenantId, sourceEnvId, task.LogicalId!.Value, CancellationToken.None);
 
         // Remove the agent entirely before materializing — simulates promoting a task whose agent
         // was never promoted first (the orchestrator blocks this in practice via its forward-
@@ -575,8 +575,8 @@ public class AgentSnapshotSerializerTests : IDisposable
     [Fact]
     public async Task SerializeAsync_NoMatchingRow_ReturnsNull()
     {
-        await SeedEnvironmentAsync("dev", 0, isDefault: true);
-        var result = await _serializer.SerializeAsync(TenantId, Guid.NewGuid(), CancellationToken.None);
+        var envId = await SeedEnvironmentAsync("dev", 0, isDefault: true);
+        var result = await _serializer.SerializeAsync(TenantId, envId, Guid.NewGuid(), CancellationToken.None);
         Assert.Null(result);
     }
 
@@ -587,7 +587,7 @@ public class AgentSnapshotSerializerTests : IDisposable
         var targetEnvId = await SeedEnvironmentAsync("qa", 1);
         var agent = await SeedAgentAsync(sourceEnvId);
 
-        var snapshot = await _serializer.SerializeAsync(TenantId, agent.LogicalId!.Value, CancellationToken.None);
+        var snapshot = await _serializer.SerializeAsync(TenantId, sourceEnvId, agent.LogicalId!.Value, CancellationToken.None);
         Assert.NotNull(snapshot);
         await _serializer.MaterializeAsync(TenantId, targetEnvId, agent.LogicalId!.Value, snapshot!.SnapshotJson, CancellationToken.None);
 
@@ -625,7 +625,7 @@ public class AgentSnapshotSerializerTests : IDisposable
             await db.SaveChangesAsync();
         }
 
-        var snapshot = await _serializer.SerializeAsync(TenantId, agent.LogicalId!.Value, CancellationToken.None);
+        var snapshot = await _serializer.SerializeAsync(TenantId, sourceEnvId, agent.LogicalId!.Value, CancellationToken.None);
         await _serializer.MaterializeAsync(TenantId, targetEnvId, agent.LogicalId!.Value, snapshot!.SnapshotJson, CancellationToken.None);
 
         using var verify = new DivaDbContext(_options);

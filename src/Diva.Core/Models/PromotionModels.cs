@@ -88,8 +88,8 @@ public interface IPromotableSnapshotSerializer
 {
     string ObjectType { get; }
 
-    /// <summary>Null if no live row exists for (tenantId, logicalId).</summary>
-    Task<SerializedSnapshot?> SerializeAsync(int tenantId, Guid logicalId, CancellationToken ct);
+    /// <summary>Null if no live row exists for (tenantId, environmentId, logicalId).</summary>
+    Task<SerializedSnapshot?> SerializeAsync(int tenantId, int environmentId, Guid logicalId, CancellationToken ct);
 
     /// <summary>
     /// Creates or updates the live row for (tenantId, environmentId) from the snapshot, matched by

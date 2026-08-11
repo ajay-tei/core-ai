@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
 import { AlertTriangle, ArrowRight, CheckCircle2, Loader2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useEnvironment } from "@/hooks/useEnvironment";
@@ -47,10 +48,11 @@ export function PromotionDialog({ open, onOpenChange, objectType, logicalId, dis
   const [confirmed, setConfirmed] = useState(false);
   const [promoting, setPromoting] = useState(false);
   const [bulkResults, setBulkResults] = useState<BulkPromoteResultItem[] | null>(null);
+  const [changeNote, setChangeNote] = useState("");
 
   useEffect(() =>
   {
-    if (!open) { setSelectedIds([]); setPreview(null); setConfirmed(false); setBulkResults(null); }
+    if (!open) { setSelectedIds([]); setPreview(null); setConfirmed(false); setBulkResults(null); setChangeNote(""); }
   }, [open]);
 
   useEffect(() =>
@@ -91,7 +93,7 @@ export function PromotionDialog({ open, onOpenChange, objectType, logicalId, dis
     {
       if (!isBulk)
       {
-        const result = await api.promote({ objectType, logicalId, fromEnvironmentId, toEnvironmentId: selectedIds[0] });
+        const result = await api.promote({ objectType, logicalId, fromEnvironmentId, toEnvironmentId: selectedIds[0], changeNote: changeNote.trim() || undefined });
         if (result.success)
         {
           toast.success(`Promoted "${displayName}" — ${result.promotedObjects.length} object(s) updated`);
@@ -105,7 +107,7 @@ export function PromotionDialog({ open, onOpenChange, objectType, logicalId, dis
       }
       else
       {
-        const results = await api.bulkPromote({ objectType, logicalId, fromEnvironmentId, toEnvironmentIds: selectedIds });
+        const results = await api.bulkPromote({ objectType, logicalId, fromEnvironmentId, toEnvironmentIds: selectedIds, changeNote: changeNote.trim() || undefined });
         setBulkResults(results);
         const succeeded = results.filter((r) => r.result.success).length;
         if (succeeded === results.length) toast.success(`Promoted "${displayName}" to all ${results.length} targets`);
@@ -235,6 +237,21 @@ export function PromotionDialog({ open, onOpenChange, objectType, logicalId, dis
                 </Label>
               </div>
             )}
+
+            <div className="space-y-1.5">
+              <Label htmlFor="promotion-change-note" className="text-xs text-muted-foreground">
+                Change summary (optional)
+              </Label>
+              <Textarea
+                id="promotion-change-note"
+                placeholder="What changed in this version?"
+                value={changeNote}
+                onChange={(e) => setChangeNote(e.target.value)}
+                rows={2}
+                className="text-sm"
+              />
+              <p className="text-xs text-muted-foreground">Saved on the version history entry created by this promotion.</p>
+            </div>
           </div>
         )}
 

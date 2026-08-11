@@ -52,7 +52,7 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
         {
             if (_serializers.TryGetValue(ot, out var serializer))
             {
-                var snap = await serializer.SerializeAsync(tenantId, lid, ct);
+                var snap = await serializer.SerializeAsync(tenantId, fromEnvironmentId, lid, ct);
                 if (snap is not null)
                 {
                     deps.Add(new PromotableDependency(ot, lid, snap.Name));
@@ -63,7 +63,7 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
         return new PromotionPreview { CanPromote = true, WillPromote = deps };
     }
 
-    public async Task<PromotionResult> PromoteAsync(int tenantId, string objectType, Guid logicalId, int fromEnvironmentId, int toEnvironmentId, string? createdBy, CancellationToken ct)
+    public async Task<PromotionResult> PromoteAsync(int tenantId, string objectType, Guid logicalId, int fromEnvironmentId, int toEnvironmentId, string? createdBy, string? changeNote, CancellationToken ct)
     {
         using var db = _db.CreateDbContext();
 
@@ -91,7 +91,7 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
                 continue;
             }
 
-            var snapshot = await serializer.SerializeAsync(tenantId, lid, ct);
+            var snapshot = await serializer.SerializeAsync(tenantId, fromEnvironmentId, lid, ct);
             if (snapshot is null)
             {
                 continue;
@@ -117,7 +117,7 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
 
             var recorded = await _ledger.RecordVersionAsync(
                 tenantId, lid, ot, snapshot.Name, toEnvironmentId,
-                snapshot.SnapshotJson, "promotion", sourceDeployment?.LiveVersionId, createdBy, null, ct);
+                snapshot.SnapshotJson, "promotion", sourceDeployment?.LiveVersionId, createdBy, changeNote, ct);
 
             results.Add(new PromotedObjectResult(ot, lid, snapshot.Name, recorded.Version.Id, recorded.Version.Version, WasSkipped: !recorded.WasNew));
         }

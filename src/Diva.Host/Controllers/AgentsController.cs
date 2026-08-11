@@ -416,7 +416,7 @@ public class AgentsController : ControllerBase
         ApplyAgentUpdate(existing, dto);
         await db.SaveChangesAsync(ct);
 
-        var snapshot = await _snapshotSerializer.SerializeAsync(tenant.TenantId, logicalId, ct);
+        var snapshot = await _snapshotSerializer.SerializeAsync(tenant.TenantId, environmentId, logicalId, ct);
         if (snapshot is not null)
         {
             await _ledger.RecordVersionAsync(

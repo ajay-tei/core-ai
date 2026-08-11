@@ -32,11 +32,11 @@ public sealed class ScheduledTaskSnapshotSerializer : IPromotableSnapshotSeriali
         _logger = logger;
     }
 
-    public async Task<SerializedSnapshot?> SerializeAsync(int tenantId, Guid logicalId, CancellationToken ct)
+    public async Task<SerializedSnapshot?> SerializeAsync(int tenantId, int environmentId, Guid logicalId, CancellationToken ct)
     {
         using var db = _db.CreateDbContext();
         var task = await db.ScheduledTasks.AsNoTracking()
-            .FirstOrDefaultAsync(t => t.TenantId == tenantId && t.LogicalId == logicalId, ct);
+            .FirstOrDefaultAsync(t => t.TenantId == tenantId && t.EnvironmentId == environmentId && t.LogicalId == logicalId, ct);
         if (task is null)
         {
             return null;

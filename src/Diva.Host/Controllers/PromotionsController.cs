@@ -49,7 +49,7 @@ public class PromotionsController : ControllerBase
         var tid = EffectiveTenantId(req.TenantId);
         var ctx = HttpContext.TryGetTenantContext();
         var result = await _orchestrator.PromoteAsync(
-            tid, req.ObjectType, req.LogicalId, req.FromEnvironmentId, req.ToEnvironmentId, ctx?.UserId, ct);
+            tid, req.ObjectType, req.LogicalId, req.FromEnvironmentId, req.ToEnvironmentId, ctx?.UserId, req.ChangeNote, ct);
         return result.Success ? Ok(result) : BadRequest(result);
     }
 
@@ -66,7 +66,7 @@ public class PromotionsController : ControllerBase
         foreach (var toEnvironmentId in req.ToEnvironmentIds.Distinct())
         {
             var result = await _orchestrator.PromoteAsync(
-                tid, req.ObjectType, req.LogicalId, req.FromEnvironmentId, toEnvironmentId, ctx?.UserId, ct);
+                tid, req.ObjectType, req.LogicalId, req.FromEnvironmentId, toEnvironmentId, ctx?.UserId, req.ChangeNote, ct);
             results.Add(new BulkPromoteResultItem(toEnvironmentId, result));
         }
         return Ok(results);
@@ -111,9 +111,9 @@ public class PromotionsController : ControllerBase
     }
 }
 
-public record PromoteRequest(string ObjectType, Guid LogicalId, int FromEnvironmentId, int ToEnvironmentId, int TenantId = 1);
+public record PromoteRequest(string ObjectType, Guid LogicalId, int FromEnvironmentId, int ToEnvironmentId, int TenantId = 1, string? ChangeNote = null);
 
-public record BulkPromoteRequest(string ObjectType, Guid LogicalId, int FromEnvironmentId, int[] ToEnvironmentIds, int TenantId = 1);
+public record BulkPromoteRequest(string ObjectType, Guid LogicalId, int FromEnvironmentId, int[] ToEnvironmentIds, int TenantId = 1, string? ChangeNote = null);
 
 public record BulkPromoteResultItem(int ToEnvironmentId, PromotionResult Result);
 

@@ -155,7 +155,7 @@ public class PromotionOrchestrationServiceTests : IDisposable
         var qaEnvId = await SeedEnvironmentAsync("qa", 1);
         var server = await SeedMcpServerAsync(devEnvId);
 
-        var result = await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, devEnvId, qaEnvId, "alice", CancellationToken.None);
+        var result = await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, CancellationToken.None);
 
         Assert.True(result.Success);
         Assert.NotNull(result.RunId);
@@ -193,7 +193,7 @@ public class PromotionOrchestrationServiceTests : IDisposable
         await db.SaveChangesAsync();
 
         // The agent has never been promoted to qa — no live EnvironmentDeployments row for it there.
-        var result = await _orchestrator.PromoteAsync(TenantId, "ScheduledTask", task.LogicalId!.Value, devEnvId, qaEnvId, "alice", CancellationToken.None);
+        var result = await _orchestrator.PromoteAsync(TenantId, "ScheduledTask", task.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, CancellationToken.None);
 
         Assert.False(result.Success);
         Assert.Contains("Agent", result.Error);
@@ -207,8 +207,8 @@ public class PromotionOrchestrationServiceTests : IDisposable
         var qaEnvId = await SeedEnvironmentAsync("qa", 1);
         var server = await SeedMcpServerAsync(devEnvId);
 
-        var first = await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, devEnvId, qaEnvId, "alice", CancellationToken.None);
-        var second = await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, devEnvId, qaEnvId, "alice", CancellationToken.None);
+        var first = await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, CancellationToken.None);
+        var second = await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, CancellationToken.None);
 
         Assert.False(first.PromotedObjects[0].WasSkipped);
         Assert.True(second.PromotedObjects[0].WasSkipped);
@@ -225,7 +225,7 @@ public class PromotionOrchestrationServiceTests : IDisposable
         var qaEnvId = await SeedEnvironmentAsync("qa", 1);
         var server = await SeedMcpServerAsync(devEnvId);
 
-        var v1Result = await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, devEnvId, qaEnvId, "alice", CancellationToken.None);
+        var v1Result = await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, CancellationToken.None);
         var v1Id = v1Result.PromotedObjects[0].VersionId!.Value;
 
         using (var db = new DivaDbContext(_options))
@@ -234,7 +234,7 @@ public class PromotionOrchestrationServiceTests : IDisposable
             src.Description = "v2 description";
             await db.SaveChangesAsync();
         }
-        await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, devEnvId, qaEnvId, "alice", CancellationToken.None);
+        await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, CancellationToken.None);
 
         using (var db = new DivaDbContext(_options))
         {
@@ -251,5 +251,50 @@ public class PromotionOrchestrationServiceTests : IDisposable
         var history = await _ledger.GetHistoryAsync(TenantId, server.LogicalId!.Value, CancellationToken.None);
         Assert.Equal(3, history.Count); // v1 (promotion), v2 (promotion), v3 (rollback)
         Assert.Equal("rollback", history[0].Source);
+    }
+
+    [Fact]
+    public async Task PromoteAsync_FromNonDefaultEnvironment_ReadsThatEnvironmentsOwnContent_NotAnUnrelatedRow()
+    {
+        // Regression test: SerializeAsync used to ignore which environment a promotion was FROM
+        // and just grab whichever physical row happened to match the LogicalId first (no ORDER
+        // BY — in practice the oldest/lowest-id row). Proves "promote staging->prod" now reads
+        // staging's own content, even after dev (the oldest row) has since diverged further.
+        var devEnvId = await SeedEnvironmentAsync("dev", 0, isDefault: true);
+        var stagingEnvId = await SeedEnvironmentAsync("staging", 1);
+        var prodEnvId = await SeedEnvironmentAsync("prod", 2);
+        var server = await SeedMcpServerAsync(devEnvId); // lowest Id — created first, in dev
+
+        await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, devEnvId, stagingEnvId, "alice", null, CancellationToken.None);
+
+        // Dev keeps evolving after staging's promotion — its row now holds different content.
+        using (var db = new DivaDbContext(_options))
+        {
+            var dev = await db.TenantMcpServers.SingleAsync(s => s.Id == server.Id);
+            dev.Endpoint = "https://dev-changed.example.com/mcp";
+            await db.SaveChangesAsync();
+        }
+
+        var result = await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, stagingEnvId, prodEnvId, "alice", null, CancellationToken.None);
+        Assert.True(result.Success);
+
+        using var verify = new DivaDbContext(_options);
+        var prod = await verify.TenantMcpServers.SingleAsync(s => s.EnvironmentId == prodEnvId);
+        Assert.Equal("https://weather.example.com/mcp", prod.Endpoint); // staging's original endpoint, not dev's later change
+    }
+
+    [Fact]
+    public async Task PromoteAsync_ChangeNote_IsRecordedOnTheLedgerVersion()
+    {
+        var devEnvId = await SeedEnvironmentAsync("dev", 0, isDefault: true);
+        var qaEnvId = await SeedEnvironmentAsync("qa", 1);
+        var server = await SeedMcpServerAsync(devEnvId);
+
+        var result = await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, devEnvId, qaEnvId, "alice", "Fixed the endpoint URL", CancellationToken.None);
+
+        Assert.True(result.Success);
+        var history = await _ledger.GetHistoryAsync(TenantId, server.LogicalId!.Value, CancellationToken.None);
+        Assert.Single(history);
+        Assert.Equal("Fixed the endpoint URL", history[0].ChangeNote);
     }
 }

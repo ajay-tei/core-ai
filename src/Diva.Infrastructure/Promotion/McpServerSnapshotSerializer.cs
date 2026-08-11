@@ -28,11 +28,11 @@ public sealed class McpServerSnapshotSerializer : IPromotableSnapshotSerializer
         _db = db;
     }
 
-    public async Task<SerializedSnapshot?> SerializeAsync(int tenantId, Guid logicalId, CancellationToken ct)
+    public async Task<SerializedSnapshot?> SerializeAsync(int tenantId, int environmentId, Guid logicalId, CancellationToken ct)
     {
         using var db = _db.CreateDbContext();
         var server = await db.TenantMcpServers.AsNoTracking()
-            .FirstOrDefaultAsync(s => s.TenantId == tenantId && s.LogicalId == logicalId, ct);
+            .FirstOrDefaultAsync(s => s.TenantId == tenantId && s.EnvironmentId == environmentId && s.LogicalId == logicalId, ct);
         if (server is null)
         {
             return null;

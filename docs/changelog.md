@@ -4,6 +4,57 @@
 
 ---
 
+## [2026-08-11] Bugfix + Feature: promotion read the wrong environment's content; added change-summary comments
+
+**Bug found during a design review of the promotion/versioning system**: `IPromotableSnapshotSerializer.
+SerializeAsync` and all 4 `IPromotionDependencyResolver` implementations never filtered by environment —
+`SerializeAsync(tenantId, logicalId, ct)` had no `environmentId` parameter at all, so every read of "what
+content should this promotion push" just grabbed whichever physical row matched `(TenantId, LogicalId)`
+first (no `ORDER BY` — in practice usually the oldest/lowest-id row). This "accidentally" looked correct
+as long as promotions always originated from the single oldest/default environment, but promoting from
+any OTHER environment (e.g. Staging→Production, which the UI already allows) could silently push the
+wrong environment's content once that environment's row had diverged from the oldest one.
+
+**Fix**: `SerializeAsync` now takes `(tenantId, environmentId, logicalId, ct)` and filters by
+`EnvironmentId` in all 4 serializers (`AgentSnapshotSerializer`, `McpServerSnapshotSerializer`,
+`ScheduledTaskSnapshotSerializer`, `AgentGroupSnapshotSerializer`). All 5 real-query
+`GetCascadeDependenciesAsync`/`GetForwardDependenciesAsync`/`GetBlockingSecretDependenciesAsync`
+implementations in `PromotionDependencyResolvers.cs` now actually use the `environmentId` parameter they
+already received instead of ignoring it. `PromotionOrchestrationService` threads `fromEnvironmentId`
+through both `PreviewAsync` and `PromoteAsync`'s serializer calls. The 4 Publish-flow controllers
+(`AgentsController`, `AgentGroupsController`, `McpServersController`, `SchedulerController`) — which also
+call `SerializeAsync` to record a ledger version on in-place publish — were fixed the same way, using the
+`environmentId` already resolved from the entity being published.
+(`src/Diva.Core/Models/PromotionModels.cs`, `src/Diva.Infrastructure/Promotion/*SnapshotSerializer.cs`,
+`src/Diva.Infrastructure/Promotion/PromotionDependencyResolvers.cs`,
+`src/Diva.Infrastructure/Promotion/PromotionOrchestrationService.cs`,
+`src/Diva.Host/Controllers/{Agents,AgentGroups,McpServers,Scheduler}Controller.cs`)
+
+**Feature**: promoting now accepts an optional `changeNote` (a user-typed summary of what changed),
+recorded on the resulting ledger version(s). `IPromotionOrchestrationService.PromoteAsync` gained a
+`string? changeNote` parameter; `PromotionsController`'s `PromoteRequest`/`BulkPromoteRequest` gained a
+matching `ChangeNote` field. `PromotionDialog.tsx` gained a "Change summary (optional)" textarea shown
+before confirming, wired into both the single-target and bulk-promote calls.
+(`src/Diva.Core/Models/IPromotionOrchestrationService.cs`, `src/Diva.Host/Controllers/PromotionsController.cs`,
+`admin-portal/src/api.ts`, `admin-portal/src/components/PromotionDialog.tsx`)
+
+**Tests**: fixed all 21 existing call sites across `PromotionSnapshotSerializerTests.cs` (15) and
+`PromotionOrchestrationServiceTests.cs` (6) for the new signatures. Added 2 new regression tests:
+`PromoteAsync_FromNonDefaultEnvironment_ReadsThatEnvironmentsOwnContent_NotAnUnrelatedRow` (promotes
+Dev→Staging, mutates Dev further, then promotes Staging→Production and asserts Production gets Staging's
+original content, not Dev's later change — fails without the fix) and
+`PromoteAsync_ChangeNote_IsRecordedOnTheLedgerVersion`.
+
+**Verification**: `dotnet build Diva.slnx` 0 errors; `dotnet test Diva.slnx` — `Diva.TenantAdmin.Tests`
+303/303 (301 existing + 2 new), `Diva.Tools.Tests` 78/78, `DivaFsMcpServer.Tests` 14/14,
+`Diva.Agents.Tests` 347/348 (the 1 failure is the documented pre-existing
+`ContextWindowTests.RunAsync_CallsMaybeCompactAnthropicBeforeLlmCall`, unrelated). `tsc -b` clean, eslint
+clean on both touched frontend files. Deployed via `docker compose -f docker-compose.tei.yml -f
+docker-compose.sqlserver.yml up -d --build`; grep-verified `GetLiveVersionAsync`/`ChangeNote` present in
+the deployed `Diva.Host.dll` and "Change summary" present in the deployed portal JS bundle.
+
+---
+
 ## [2026-08-11] Feature: Agent Builder — Version History panel (view + diff + rollback)
 
 Phase D/B's promotion ledger (`PromotableObjectEntity`/`PromotableVersionEntity`/

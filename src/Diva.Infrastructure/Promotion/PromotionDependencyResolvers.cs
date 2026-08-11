@@ -25,7 +25,7 @@ public sealed class AgentPromotionDependencyResolver : IPromotionDependencyResol
     {
         using var db = _db.CreateDbContext();
         var agent = await db.AgentDefinitions.AsNoTracking()
-            .FirstOrDefaultAsync(a => a.TenantId == tenantId && a.LogicalId == logicalId, ct);
+            .FirstOrDefaultAsync(a => a.TenantId == tenantId && a.EnvironmentId == environmentId && a.LogicalId == logicalId, ct);
         if (agent is null)
         {
             return [];
@@ -65,7 +65,7 @@ public sealed class AgentPromotionDependencyResolver : IPromotionDependencyResol
     {
         using var db = _db.CreateDbContext();
         var agent = await db.AgentDefinitions.AsNoTracking()
-            .FirstOrDefaultAsync(a => a.TenantId == tenantId && a.LogicalId == logicalId, ct);
+            .FirstOrDefaultAsync(a => a.TenantId == tenantId && a.EnvironmentId == environmentId && a.LogicalId == logicalId, ct);
         if (agent?.LlmConfigId is not { } configId)
         {
             return [];
@@ -129,7 +129,7 @@ public sealed class McpServerPromotionDependencyResolver : IPromotionDependencyR
     {
         using var db = _db.CreateDbContext();
         var server = await db.TenantMcpServers.AsNoTracking()
-            .FirstOrDefaultAsync(s => s.TenantId == tenantId && s.LogicalId == logicalId, ct);
+            .FirstOrDefaultAsync(s => s.TenantId == tenantId && s.EnvironmentId == environmentId && s.LogicalId == logicalId, ct);
 
         return server?.DefaultCredentialRef is { Length: > 0 } credRef
             ? [new BlockingSecretDependency("McpCredential", credRef)]
@@ -160,7 +160,7 @@ public sealed class ScheduledTaskPromotionDependencyResolver : IPromotionDepende
     {
         using var db = _db.CreateDbContext();
         var task = await db.ScheduledTasks.AsNoTracking()
-            .FirstOrDefaultAsync(t => t.TenantId == tenantId && t.LogicalId == logicalId, ct);
+            .FirstOrDefaultAsync(t => t.TenantId == tenantId && t.EnvironmentId == environmentId && t.LogicalId == logicalId, ct);
         if (task is null)
         {
             return [];
@@ -197,7 +197,7 @@ public sealed class AgentGroupPromotionDependencyResolver : IPromotionDependency
     {
         using var db = _db.CreateDbContext();
         var group = await db.AgentGroups.AsNoTracking()
-            .FirstOrDefaultAsync(g => g.TenantId == tenantId && g.LogicalId == logicalId, ct);
+            .FirstOrDefaultAsync(g => g.TenantId == tenantId && g.EnvironmentId == environmentId && g.LogicalId == logicalId, ct);
         if (group is null || string.IsNullOrWhiteSpace(group.AgentIdsJson) || group.AgentIdsJson.Trim() == "[]")
         {
             return [];
