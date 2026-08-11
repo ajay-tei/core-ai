@@ -393,4 +393,27 @@ public class PromotionOrchestrationServiceTests : IDisposable
         var afterPublish = await _orchestrator.PromoteAsync(TenantId, "Agent", agent.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, null, CancellationToken.None);
         Assert.True(afterPublish.Success);
     }
+
+    [Fact]
+    public async Task PromoteAsync_SameUnchangedAgentContent_ToDifferentEnvironments_ReusesTheSameVersionNumber()
+    {
+        // Regression test: AgentExportBundle.ExportedAt used to be stamped fresh on every
+        // SerializeAsync call and was embedded in the hashed SnapshotJson, so promoting identical,
+        // unchanged agent content to a SECOND environment always minted a brand-new version number
+        // instead of reusing the one already recorded for the first environment.
+        var devEnvId = await SeedEnvironmentAsync("dev", 0, isDefault: true);
+        var stagingEnvId = await SeedEnvironmentAsync("staging", 1);
+        var prodEnvId = await SeedEnvironmentAsync("prod", 2);
+        var agent = await SeedAgentAsync(devEnvId);
+
+        var toStaging = await _orchestrator.PromoteAsync(TenantId, "Agent", agent.LogicalId!.Value, devEnvId, stagingEnvId, "alice", null, null, CancellationToken.None);
+        var toProd = await _orchestrator.PromoteAsync(TenantId, "Agent", agent.LogicalId!.Value, devEnvId, prodEnvId, "alice", null, null, CancellationToken.None);
+
+        Assert.True(toStaging.Success);
+        Assert.True(toProd.Success);
+        Assert.Equal(toStaging.PromotedObjects[0].Version, toProd.PromotedObjects[0].Version);
+
+        var history = await _ledger.GetHistoryAsync(TenantId, agent.LogicalId!.Value, CancellationToken.None);
+        Assert.Single(history); // one recorded version, reused across both environments
+    }
 }

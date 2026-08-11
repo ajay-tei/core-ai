@@ -44,7 +44,14 @@ public sealed class AgentSnapshotSerializer : IPromotableSnapshotSerializer
         }
 
         var bundle = await _export.ExportAsync(agent.Id, TenantContext.System(tenantId), ct);
-        var json = JsonSerializer.Serialize(bundle, JsonOptions);
+
+        // Normalize volatile export metadata before hashing/storing — ExportAsync stamps a fresh
+        // ExportedAt on every call (fine for the standalone "download as JSON" feature this method
+        // is shared with), but the ledger's content-hash dedup (PromotionLedgerService) hashes this
+        // exact JSON, so an ever-changing timestamp would mint a brand-new version on every single
+        // promotion/publish even when the agent's actual configuration hasn't changed at all.
+        var normalized = bundle with { ExportedAt = default, SourceTenantId = 0 };
+        var json = JsonSerializer.Serialize(normalized, JsonOptions);
         return new SerializedSnapshot { SnapshotJson = json, Name = bundle.Agent.Name };
     }
 

@@ -4,6 +4,53 @@
 
 ---
 
+## [2026-08-11] Bugfix: promoting unchanged agent content to a new environment always minted a new version number
+
+**Bug reported**: "why does promoting to every environment create a new version number? I'd expect a
+new version only when content actually changes in the default environment — other environments
+should just sync to that same version." Confirmed as a real bug, not by design.
+
+**Root cause**: `AgentExportBundle` (the wrapper used both by the standalone "download as JSON"
+export feature and, via `AgentSnapshotSerializer`, by the promotion ledger's content snapshot)
+stamps `ExportedAt = DateTime.UtcNow` fresh on every single call. The ledger's content-hash dedup
+(`PromotionLedgerService.RecordVersionAsync`) hashes the *entire* snapshot JSON, so two calls could
+never produce a matching hash even when the agent's actual configuration was byte-for-byte
+identical — promoting the same unchanged agent to a second environment always looked like "new
+content" and minted a new version number. Agent-specific: the other 3 promotable types' snapshot
+DTOs (`McpServerSnapshot`/`ScheduledTaskSnapshot`/`AgentGroupSnapshot`) have no timestamp field.
+
+**Fix**: normalize the volatile `ExportedAt`/`SourceTenantId` fields to fixed values before hashing/
+storing in `AgentSnapshotSerializer.SerializeAsync` (`bundle with { ExportedAt = default,
+SourceTenantId = 0 }`). The standalone JSON-download export feature is unaffected — it calls
+`IAgentExportService.ExportAsync` directly and still gets a real timestamp.
+(`src/Diva.Infrastructure/Promotion/AgentSnapshotSerializer.cs`)
+
+**Tests**: `SerializeAsync_CalledTwiceWithNoChanges_ProducesIdenticalSnapshotJson` (pins the exact
+mechanism) and `PromoteAsync_SameUnchangedAgentContent_ToDifferentEnvironments_ReusesTheSameVersionNumber`
+(end-to-end: promotes to Staging then Production, asserts both get the same version number and the
+ledger has only one recorded entry, not two).
+
+**Unrelated but required to verify this**: nuget.org was mid-rollout of the .NET 10 August patch
+(`10.0.11`) — `Microsoft.Extensions.*`/`Microsoft.Data.Sqlite.*` had already published it but
+`Microsoft.EntityFrameworkCore.*` hadn't yet, and this repo's floating `Version="10.0.*"` package
+references (14 across 6 `.csproj` files) jumped straight to the incomplete patch, breaking every
+build with `NU1103`. Pinned all 14 to the last confirmed-consistent `10.0.10` (verified directly
+against nuget.org's index for every affected package first) to unblock verification — safe to float
+again (or bump to `10.0.11`+) once Microsoft finishes publishing the full family.
+(`src/Diva.Core/Diva.Core.csproj`, `src/Diva.Host/Diva.Host.csproj`,
+`src/Diva.Infrastructure/Diva.Infrastructure.csproj`,
+`src/Diva.Infrastructure.SqlServer/Diva.Infrastructure.SqlServer.csproj`,
+`src/Diva.Sso/Diva.Sso.csproj`, `tools/DbFix/DbFix.csproj`)
+
+**Verification**: `dotnet build Diva.slnx` 0 errors; `dotnet test Diva.slnx` — `Diva.TenantAdmin.Tests`
+308/308 (306 + 2 new, both explicitly re-run by name and confirmed passing), `Diva.Tools.Tests`
+78/78, `DivaFsMcpServer.Tests` 14/14, `Diva.Agents.Tests` 347/348 (pre-existing unrelated
+`ContextWindowTests` failure). Deployed via `docker compose -f docker-compose.tei.yml -f
+docker-compose.sqlserver.yml up -d --build`; confirmed the deployed `Diva.Infrastructure.dll`'s
+mtime was ~2 minutes old (freshly built, not stale).
+
+---
+
 ## [2026-08-11] Bugfix + Feature: direct "Save Changes" left the source environment's version stale; drafts now block promotion
 
 **Bug reported**: after publishing an agent's latest edits and promoting to another environment, the

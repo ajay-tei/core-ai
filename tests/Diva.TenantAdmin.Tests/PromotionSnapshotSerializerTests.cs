@@ -634,4 +634,21 @@ public class AgentSnapshotSerializerTests : IDisposable
         Assert.Single(rules);
         Assert.Equal("Be concise.", rules[0].PromptInjection);
     }
+
+    [Fact]
+    public async Task SerializeAsync_CalledTwiceWithNoChanges_ProducesIdenticalSnapshotJson()
+    {
+        // Pins the exact mechanism behind a real bug: AgentExportBundle.ExportedAt used to be
+        // stamped fresh (DateTime.UtcNow) on every call and was embedded in the serialized JSON,
+        // so the ledger's content-hash dedup never matched two calls for the same unchanged agent
+        // — minting a brand-new version every time it was promoted/published, even to a second
+        // environment with byte-identical content.
+        var envId = await SeedEnvironmentAsync("dev", 0, isDefault: true);
+        var agent = await SeedAgentAsync(envId);
+
+        var first = await _serializer.SerializeAsync(TenantId, envId, agent.LogicalId!.Value, CancellationToken.None);
+        var second = await _serializer.SerializeAsync(TenantId, envId, agent.LogicalId!.Value, CancellationToken.None);
+
+        Assert.Equal(first!.SnapshotJson, second!.SnapshotJson);
+    }
 }
