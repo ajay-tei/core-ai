@@ -4,6 +4,50 @@
 
 ---
 
+## [2026-08-11] Feature: Agent Builder — Version History panel (view + diff + rollback)
+
+Phase D/B's promotion ledger (`PromotableObjectEntity`/`PromotableVersionEntity`/
+`EnvironmentDeploymentEntity`) and its `GET /promotions/history`/`/diff` + `POST /promotions/rollback`
+endpoints have existed since 2026-07-30, with `api.ts` client methods already in place — but zero
+admin-portal UI ever called them, and the agent's live ledger version was never surfaced anywhere in
+the UI (confirmed by review: only a narrower, prompt-text-only "System Prompt History" existed).
+
+**Backend**: added `IPromotionLedgerService.GetLiveVersionAsync(tenantId, logicalId, environmentId, ct)`
+(+ `PromotionLedgerService` implementation, + `LiveVersionInfo(VersionId, Version)` record in
+`PromotionModels.cs`) — resolves which ledger version is currently live in a specific environment via
+`EnvironmentDeploymentEntity.LiveVersionId`, since a single `PromotableVersionEntity` has no
+environment column of its own (content can be identical/deduped across environments). New endpoint
+`GET /api/admin/promotions/live-version?logicalId=&environmentId=&tenantId=`.
+(`src/Diva.Core/Models/PromotionModels.cs`, `src/Diva.Infrastructure/Promotion/PromotionLedgerService.cs`,
+`src/Diva.Host/Controllers/PromotionsController.cs`)
+
+**Frontend**: new `VersionHistoryDialog.tsx` — lists the full ledger (newest first), each row shows a
+`v{N}` badge, a color-coded Source badge (Published/Promoted/Rolled back), a "Live here" badge for
+whichever version matches the current environment's live pointer, and an expandable "Changes" panel
+diffing that version against the immediately-previous one (`getPromotionDiff`, a classic changelog
+reading — not diffed against "live", which uses a separate confirm-gated "Rollback to this version"
+action instead). Rollback re-confirms via a nested dialog before calling `rollbackPromotion`, then
+refreshes both the history list and the parent's agent form/live-version badge.
+`AgentBuilder.tsx` gained a "Version History" button (next to "Promote") and a small `v{N}` badge next
+to the page title, sourced from the new `getLiveVersion` call and refreshed after Publish/Rollback.
+Named/iconed distinctly from the pre-existing "History" (prompt-only) button to avoid confusion.
+(`admin-portal/src/components/VersionHistoryDialog.tsx` — new,
+`admin-portal/src/components/AgentBuilder.tsx`, `admin-portal/src/api.ts`)
+
+**Scope note**: only wired into `AgentBuilder.tsx` (Agents). MCP Servers/Scheduled Tasks/Agent Groups
+already have the same draft/publish backend endpoints but still have zero draft/publish/promote/history
+UI at all — unchanged, pre-existing gap, not addressed by this change.
+
+**Verification**: `dotnet build Diva.slnx` 0 errors, `dotnet test tests/Diva.TenantAdmin.Tests` 301/301,
+`tsc -b` clean, eslint clean on all 3 touched files (confirmed via `Select-String -SimpleMatch` finding
+zero references to any of them in the full lint output). Deployed via
+`docker compose -f docker-compose.tei.yml -f docker-compose.sqlserver.yml up -d --build`; grep-verified
+`GetLiveVersionAsync` present in `Diva.Host.dll`/`Diva.Infrastructure.dll`/`Diva.Core.dll` and
+"Version History" present in the deployed portal JS bundle; `GET .../live-version` returns 401
+unauthenticated (route reachable, auth-gated as expected).
+
+---
+
 ## [2026-08-11] Feature: Agent List — filter by Agent Access Group
 
 `AgentList.tsx` had no way to narrow the list to agents belonging to a specific Agent Access Group

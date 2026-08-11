@@ -1388,6 +1388,12 @@ export interface SnapshotFieldDiff
   newValue?: string;
 }
 
+export interface LiveVersionInfo
+{
+  versionId: number;
+  version: number;
+}
+
 // ── Scheduler types ───────────────────────────────────────────────────────────
 
 export interface ScheduledTask
@@ -2318,6 +2324,8 @@ export const api = {
     request<BulkPromoteResultItem[]>("/api/admin/promotions/bulk", { method: "POST", body: JSON.stringify(req) }),
   getPromotionHistory: (logicalId: string, tenantId = 1) =>
     request<PromotableVersion[]>(`/api/admin/promotions/history?logicalId=${ logicalId }&tenantId=${ tenantId }`),
+  getLiveVersion: (logicalId: string, environmentId: number, tenantId = 1) =>
+    request<LiveVersionInfo | null>(`/api/admin/promotions/live-version?logicalId=${ logicalId }&environmentId=${ environmentId }&tenantId=${ tenantId }`),
   getPromotionDiff: (fromVersionId: number, toVersionId: number, tenantId = 1) =>
     request<SnapshotFieldDiff[]>(`/api/admin/promotions/diff?fromVersionId=${ fromVersionId }&toVersionId=${ toVersionId }&tenantId=${ tenantId }`),
   rollbackPromotion: (req: RollbackRequest) =>

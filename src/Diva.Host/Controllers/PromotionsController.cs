@@ -81,6 +81,15 @@ public class PromotionsController : ControllerBase
         return Ok(history);
     }
 
+    // GET /api/admin/promotions/live-version?tenantId=1&logicalId=...&environmentId=...
+    [HttpGet("live-version")]
+    public async Task<IActionResult> LiveVersion([FromQuery] Guid logicalId, [FromQuery] int environmentId, [FromQuery] int tenantId = 1, CancellationToken ct = default)
+    {
+        var tid = EffectiveTenantId(tenantId);
+        var info = await _ledger.GetLiveVersionAsync(tid, logicalId, environmentId, ct);
+        return Ok(info);
+    }
+
     // GET /api/admin/promotions/diff?tenantId=1&fromVersionId=1&toVersionId=2
     [HttpGet("diff")]
     public async Task<IActionResult> Diff([FromQuery] int fromVersionId, [FromQuery] int toVersionId, [FromQuery] int tenantId = 1, CancellationToken ct = default)

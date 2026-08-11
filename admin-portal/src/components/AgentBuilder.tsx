@@ -5,6 +5,7 @@ import {
   Bot,
   ChevronDown,
   ChevronRight,
+  Clock,
   Code2,
   Cpu,
   Download,
@@ -24,6 +25,7 @@ import { AgentAssistantDrawer } from "@/components/AgentAssistantDrawer";
 import { AgentImportDialog } from "@/components/AgentImportDialog";
 import { PromptQuickFixDialog } from "@/components/PromptQuickFixDialog";
 import { PromotionDialog } from "@/components/PromotionDialog";
+import { VersionHistoryDialog } from "@/components/VersionHistoryDialog";
 import { useEnvironment } from "@/hooks/useEnvironment";
 import {
   api,
@@ -33,6 +35,7 @@ import {
   type AgentImportResult,
   type AgentPromptHistoryEntry,
   type AvailableLlmConfig,
+  type LiveVersionInfo,
   type LlmConfig,
   type McpCredential,
   type McpToolBinding,
@@ -1070,6 +1073,8 @@ export function AgentBuilder() {
   const [credentials, setCredentials] = useState<McpCredential[]>([]);
   const [importOpen, setImportOpen] = useState(false);
   const [savingModelConfig, setSavingModelConfig] = useState(false);
+  const [versionHistoryOpen, setVersionHistoryOpen] = useState(false);
+  const [liveVersion, setLiveVersion] = useState<LiveVersionInfo | null>(null);
 
   // Agents are meant to be authored in the tenant's default environment and promoted outward —
   // editing a non-default-environment copy directly would let it drift from what was actually
@@ -1095,6 +1100,17 @@ export function AgentBuilder() {
       .then((d) => { setHasDraft(d.hasDraft); setDraftUpdatedAt(d.updatedAt); })
       .catch(() => {});
   }, [agentId]);
+
+  // Ledger version currently live in the environment being viewed (Phase B/D) — refetched after
+  // Publish/Rollback since both change what's live here.
+  const loadLiveVersion = () => {
+    if (!form.logicalId || !currentEnvironmentId) { setLiveVersion(null); return; }
+    api.getLiveVersion(form.logicalId, currentEnvironmentId).then(setLiveVersion).catch(() => setLiveVersion(null));
+  };
+  useEffect(() => {
+    loadLiveVersion();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.logicalId, currentEnvironmentId]);
 
   // When the agent's selected LLM config changes (user picks a config, or an agent with
   // a saved llmConfigId is loaded), refresh the model list from that config.
@@ -1220,6 +1236,7 @@ export function AgentBuilder() {
       toast.success("Draft published to live");
       setHasDraft(false);
       setForm(published);
+      loadLiveVersion();
     } catch (e: unknown) {
       toast.error("Failed to publish", { description: String(e) });
     } finally {
@@ -1250,8 +1267,9 @@ export function AgentBuilder() {
     <div className="space-y-6 max-w-4xl">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
+          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
             {agentId ? "Edit Agent" : "New Agent"}
+            {liveVersion && <Badge variant="outline">v{liveVersion.version}</Badge>}
           </h1>
           <p className="text-sm text-muted-foreground">
             {agentId ? `Editing: ${form.displayName || form.name || agentId}` : "Configure a new AI agent"}
@@ -1274,6 +1292,12 @@ export function AgentBuilder() {
             <Button variant="outline" size="sm" onClick={() => setPromotionOpen(true)} disabled={!currentEnvironmentId}>
               <GitBranch className="mr-2 size-4" />
               Promote
+            </Button>
+          )}
+          {agentId && form.logicalId && (
+            <Button variant="outline" size="sm" onClick={() => setVersionHistoryOpen(true)}>
+              <Clock className="mr-2 size-4" />
+              Version History
             </Button>
           )}
           <Button variant="outline" onClick={() => navigate("/agents")}>
@@ -1328,6 +1352,18 @@ export function AgentBuilder() {
           logicalId={form.logicalId}
           displayName={form.displayName || form.name}
           fromEnvironmentId={currentEnvironmentId}
+        />
+      )}
+
+      {agentId && form.logicalId && currentEnvironmentId && (
+        <VersionHistoryDialog
+          open={versionHistoryOpen}
+          onOpenChange={setVersionHistoryOpen}
+          objectType="Agent"
+          logicalId={form.logicalId}
+          displayName={form.displayName || form.name}
+          environmentId={currentEnvironmentId}
+          onRolledBack={() => { api.getAgent(agentId).then(setForm).catch(() => {}); loadLiveVersion(); }}
         />
       )}
 

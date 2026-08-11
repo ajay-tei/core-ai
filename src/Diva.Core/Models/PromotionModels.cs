@@ -28,6 +28,9 @@ public sealed record RecordVersionResult
 /// <summary>One changed/added/removed field between two snapshot JSON documents (dot-path field name).</summary>
 public sealed record SnapshotFieldDiff(string FieldPath, string? OldValue, string? NewValue);
 
+/// <summary>The version currently live in a specific environment, or null if never deployed there.</summary>
+public sealed record LiveVersionInfo(int VersionId, int Version);
+
 /// <summary>
 /// Records, retrieves, and diffs the append-only version history for promotable objects
 /// (agents, MCP servers, scheduled tasks, agent groups). The ledger itself is content-agnostic —
@@ -58,6 +61,9 @@ public interface IPromotionLedgerService
     Task<IReadOnlyList<PromotableVersionDto>> GetHistoryAsync(int tenantId, Guid logicalId, CancellationToken ct);
 
     Task<PromotableVersionDto?> GetVersionAsync(int tenantId, int versionId, CancellationToken ct);
+
+    /// <summary>Which version is currently live in a specific environment, or null if never deployed there.</summary>
+    Task<LiveVersionInfo?> GetLiveVersionAsync(int tenantId, Guid logicalId, int environmentId, CancellationToken ct);
 
     /// <summary>Field-level diff between two recorded versions' SnapshotJson.</summary>
     Task<IReadOnlyList<SnapshotFieldDiff>> DiffVersionsAsync(int tenantId, int fromVersionId, int toVersionId, CancellationToken ct);

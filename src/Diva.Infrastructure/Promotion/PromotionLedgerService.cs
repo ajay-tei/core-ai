@@ -134,6 +134,22 @@ public sealed class PromotionLedgerService : IPromotionLedgerService
         return versions.Select(ToDto).ToList();
     }
 
+    public async Task<LiveVersionInfo?> GetLiveVersionAsync(int tenantId, Guid logicalId, int environmentId, CancellationToken ct)
+    {
+        using var db = _db.CreateDbContext();
+        var liveVersionId = await db.EnvironmentDeployments.AsNoTracking()
+            .Where(d => d.LogicalId == logicalId && d.TenantId == tenantId && d.EnvironmentId == environmentId)
+            .Select(d => d.LiveVersionId)
+            .FirstOrDefaultAsync(ct);
+        if (liveVersionId is not { } versionId)
+        {
+            return null;
+        }
+
+        var version = await db.PromotableVersions.AsNoTracking().FirstOrDefaultAsync(v => v.Id == versionId, ct);
+        return version is null ? null : new LiveVersionInfo(version.Id, version.Version);
+    }
+
     public async Task<PromotableVersionDto?> GetVersionAsync(int tenantId, int versionId, CancellationToken ct)
     {
         using var db = _db.CreateDbContext();
