@@ -238,6 +238,39 @@ public class PromotionOrchestrationServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task PromoteAsync_TargetRowDeletedDirectly_RecreatesInsteadOfSkipping()
+    {
+        var devEnvId = await SeedEnvironmentAsync("dev", 0, isDefault: true);
+        var qaEnvId = await SeedEnvironmentAsync("qa", 1);
+        var server = await SeedMcpServerAsync(devEnvId);
+
+        var first = await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, null, CancellationToken.None);
+        Assert.False(first.PromotedObjects[0].WasSkipped);
+
+        // Simulate an admin deleting the promoted row directly in qa (not via promotion tooling) --
+        // the EnvironmentDeployments/PromotableVersions ledger rows are left behind, untouched.
+        using (var db = new DivaDbContext(_options))
+        {
+            var qaCopy = await db.TenantMcpServers.FirstAsync(s => s.LogicalId == server.LogicalId && s.EnvironmentId == qaEnvId);
+            db.TenantMcpServers.Remove(qaCopy);
+            await db.SaveChangesAsync();
+        }
+
+        // Re-promoting with no content changes must not trust the now-stale ledger match --
+        // it must notice the target row is gone and recreate it, not silently skip.
+        var second = await _orchestrator.PromoteAsync(TenantId, "McpServer", server.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, null, CancellationToken.None);
+
+        Assert.True(second.Success);
+        Assert.False(second.PromotedObjects[0].WasSkipped);
+
+        using (var db = new DivaDbContext(_options))
+        {
+            var recreated = await db.TenantMcpServers.FirstOrDefaultAsync(s => s.LogicalId == server.LogicalId && s.EnvironmentId == qaEnvId);
+            Assert.NotNull(recreated);
+        }
+    }
+
+    [Fact]
     public async Task RollbackAsync_RestoresOlderVersionContent()
     {
         var devEnvId = await SeedEnvironmentAsync("dev", 0, isDefault: true);

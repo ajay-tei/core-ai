@@ -4,6 +4,43 @@
 
 ---
 
+## [2026-08-12] Bug fix: re-promoting after manually deleting a target-environment agent silently promoted nothing
+
+**Problem**: user deleted all agents directly from COT Live, then re-promoted "Analytics - COT"
+(with its cascade of sub-agents and MCP servers) from COT Play — the promotion call returned
+success but recreated nothing (`"Promotion run 23: ... promoted 0 object(s)"`, every entry in
+`PromotedVersionsJson` had `WasSkipped: true`). Traced via `EnvironmentDeployments`/`PromotableVersions`:
+`AgentDefinitions` had 0 rows for the deleted agent in COT Live, yet its `EnvironmentDeployments`
+ledger row still pointed at a `PromotableVersions` snapshot. `PromotionOrchestrationService.PromoteAsync`'s
+"idempotent skip" check only compared that ledger snapshot's content against the current source
+content — it never verified the target row still physically existed, so deleting an agent
+out-of-band (rather than through promotion/rollback tooling) left a stale ledger pointer that made
+every future re-promotion of unchanged content a silent no-op, forever, until the content actually
+changed. A second, independent no-op existed one level down: even after fixing the orchestrator to
+call `MaterializeAsync` (which recreates the row), `IPromotionLedgerService.RecordVersionAsync`'s own
+content-hash dedup still reported `WasSkipped: true` for unchanged content, which would have kept
+the promotion dialog/logs misleadingly reporting "0 promoted" even though the row was in fact
+just recreated.
+
+**Fix**: the skip check in `PromoteAsync` now also calls the object's own
+`IPromotableSnapshotSerializer.SerializeAsync` against the target environment and only treats it as
+an idempotent skip when that ALSO returns non-null (row still exists) — otherwise it falls through
+to `MaterializeAsync` to recreate the row, and the result is explicitly reported as not-skipped
+(via a `recreatingMissingRow` flag overriding the ledger's own content-based `WasNew` dedup) so the
+promotion result accurately reflects that something was actually created.
+(`src/Diva.Infrastructure/Promotion/PromotionOrchestrationService.cs`)
+
+**Tests**: `PromoteAsync_TargetRowDeletedDirectly_RecreatesInsteadOfSkipping` (promote once, delete
+the target row directly, re-promote unchanged content — target row must be recreated and reported
+as not skipped, not silently no-op'd).
+(`tests/Diva.TenantAdmin.Tests/PromotionOrchestrationServiceTests.cs`)
+
+**Verification**: `dotnet build Diva.slnx` 0 errors; `dotnet test Diva.slnx` — `Diva.TenantAdmin.Tests`
+316/316 (315 + 1 new), `Diva.Tools.Tests` 78/78, `DivaFsMcpServer.Tests` 14/14, `Diva.Agents.Tests`
+355/356 (same single pre-existing unrelated `ContextWindowTests` failure tolerated).
+
+---
+
 ## [2026-08-12] Bug fix: an already-connected MCP client kept using a stale credential for up to 30 minutes, even after cache invalidation
 
 **Problem** (follow-up to the same-day credential-cache-invalidation and Edit-UI fixes — a third,

@@ -106,20 +106,31 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
             // eligible for the LLM config override below.
             var isRoot = ot == objectType && lid == logicalId;
 
-            // Idempotent skip: target environment already has this exact content live.
+            // Idempotent skip: target environment already has this exact content live. The ledger
+            // can go stale if the target row was deleted directly (not via promotion) -- confirm
+            // the row still physically exists before trusting the recorded content match, or a
+            // re-promotion after a manual delete would silently no-op instead of recreating it.
             var targetDeployment = await db.EnvironmentDeployments.AsNoTracking()
                 .FirstOrDefaultAsync(d => d.LogicalId == lid && d.TenantId == tenantId && d.EnvironmentId == toEnvironmentId, ct);
+            var recreatingMissingRow = false;
             if (targetDeployment?.LiveVersionId is int liveId)
             {
                 var liveVersion = await db.PromotableVersions.AsNoTracking().FirstOrDefaultAsync(v => v.Id == liveId, ct);
                 if (liveVersion is not null && liveVersion.SnapshotJson == snapshot.SnapshotJson)
                 {
-                    if (isRoot && ot == "Agent" && targetLlmConfigId is not null)
+                    if (await serializer.SerializeAsync(tenantId, toEnvironmentId, lid, ct) is not null)
                     {
-                        await ApplyLlmConfigOverrideAsync(db, tenantId, toEnvironmentId, lid, targetLlmConfigId.Value, ct);
+                        if (isRoot && ot == "Agent" && targetLlmConfigId is not null)
+                        {
+                            await ApplyLlmConfigOverrideAsync(db, tenantId, toEnvironmentId, lid, targetLlmConfigId.Value, ct);
+                        }
+                        results.Add(new PromotedObjectResult(ot, lid, snapshot.Name, liveVersion.Id, liveVersion.Version, WasSkipped: true));
+                        continue;
                     }
-                    results.Add(new PromotedObjectResult(ot, lid, snapshot.Name, liveVersion.Id, liveVersion.Version, WasSkipped: true));
-                    continue;
+                    // Ledger says this content is already live, but the row itself is gone --
+                    // MaterializeAsync must still run below, and the result must not be reported
+                    // as skipped even though RecordVersionAsync will dedup the unchanged content.
+                    recreatingMissingRow = true;
                 }
             }
 
@@ -137,7 +148,7 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
                 tenantId, lid, ot, snapshot.Name, toEnvironmentId,
                 snapshot.SnapshotJson, "promotion", sourceDeployment?.LiveVersionId, createdBy, changeNote, ct);
 
-            results.Add(new PromotedObjectResult(ot, lid, snapshot.Name, recorded.Version.Id, recorded.Version.Version, WasSkipped: !recorded.WasNew));
+            results.Add(new PromotedObjectResult(ot, lid, snapshot.Name, recorded.Version.Id, recorded.Version.Version, WasSkipped: !recorded.WasNew && !recreatingMissingRow));
         }
 
         var run = new Data.Entities.PromotionRunEntity
