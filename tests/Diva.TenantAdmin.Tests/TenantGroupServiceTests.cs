@@ -255,4 +255,36 @@ public class TenantGroupServiceTests : IDisposable
 
         _llmResolver.Received(1).InvalidateForTenant(7);
     }
+
+    // ── Available LLM configs picker ─────────────────────────────────────────
+
+    [Fact]
+    public async Task ListAvailableLlmConfigsForTenantAsync_ExcludesGroupConfig_WhenIdCollidesWithTenantConfig()
+    {
+        // TenantLlmConfigs and GroupLlmConfigs are separate tables with independent Id sequences,
+        // so seeding one of each can naturally produce the same Id in both — reproducing a real
+        // reported bug: the picker showed two entries sharing the same value (both "look selected"
+        // whenever that Id is chosen), even though LlmConfigResolver always resolves tenant-scope
+        // first for a given Id, so the group entry could never actually be selected anyway.
+        const int tenantId = 1;
+        var group = await _service.CreateGroupAsync(new CreateGroupDto("Alpha", null), CancellationToken.None);
+        await _service.AddMemberAsync(group.Id, tenantId, CancellationToken.None);
+
+        var tenantConfig = new TenantLlmConfigEntity { TenantId = tenantId, Name = "COT", Provider = "Anthropic" };
+        _db.TenantLlmConfigs.Add(tenantConfig);
+        await _db.SaveChangesAsync();
+
+        var groupConfig = new GroupLlmConfigEntity { GroupId = group.Id, Name = "Claude DEV", Provider = "Anthropic" };
+        _db.GroupLlmConfigs.Add(groupConfig);
+        await _db.SaveChangesAsync();
+
+        Assert.Equal(tenantConfig.Id, groupConfig.Id); // sanity check: the collision this test targets
+
+        var configs = await _service.ListAvailableLlmConfigsForTenantAsync(tenantId, environmentId: null, CancellationToken.None);
+
+        var matching = configs.Where(c => c.Id == tenantConfig.Id).ToList();
+        var match = Assert.Single(matching); // not two — the colliding group entry is excluded
+        Assert.Equal("tenant", match.Source);
+        Assert.Equal("COT", match.DisplayName);
+    }
 }

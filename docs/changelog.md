@@ -4,6 +4,41 @@
 
 ---
 
+## [2026-08-12] Bug fix: LLM config picker could show two entries as "selected" for the same value
+
+**Problem**: opening "Weather Agent - Global" (COT Play) and picking "COT" in the LLM config
+dropdown appeared to select two entries at once. Root cause: `TenantLlmConfigs` and
+`GroupLlmConfigs` are separate tables with **independent** Id sequences, so a tenant-scoped config
+("COT", `TenantLlmConfigs.Id=3`) and an unrelated group-scoped config ("Claude DEV",
+`GroupLlmConfigs.Id=3`, inherited via a group this tenant belongs to) can share the same numeric
+Id. `ListAvailableLlmConfigsForTenantAsync` returned both as separate list entries with that same
+raw Id as `AvailableLlmConfigDto.Id` — the `<SelectItem value={c.id}>` picker then had two options
+bound to the identical value, so selecting one visually highlighted both. Confirmed live via SQL:
+tenant 1 is a member of the group owning "Claude DEV", and both configs are Id 3 in their own
+tables.
+
+**Why hiding the group entry is correct, not just a workaround**: `LlmConfigResolver.
+ResolveNamedConfigAsync` already always tries `TenantLlmConfigs` by Id **first** and returns
+immediately on a match — a colliding group config could never actually be resolved/selected for
+this tenant in the first place, so listing it was always misleading, independent of this bug.
+
+**Fix**: `TenantGroupService.ListAvailableLlmConfigsForTenantAsync` now excludes any group config
+whose Id collides with an already-included tenant config's Id, for every caller of this shared
+endpoint (AgentBuilder, PromotionDialog's override picker, GroupAgentTemplateBuilder, PackEditor,
+HookRuleForm, AgentChat, TenantDetail). (`src/Diva.TenantAdmin/Services/TenantGroupService.cs`)
+
+**Tests**: `ListAvailableLlmConfigsForTenantAsync_ExcludesGroupConfig_WhenIdCollidesWithTenantConfig`
+— seeds one tenant config and one group config (naturally colliding on Id via SQLite's independent
+per-table autoincrement), asserts only the tenant-scoped entry is returned for that Id.
+(`tests/Diva.TenantAdmin.Tests/TenantGroupServiceTests.cs`)
+
+**Verification**: `dotnet build Diva.slnx` 0 errors; `dotnet test Diva.slnx` — `Diva.TenantAdmin.Tests`
+315/315 (314 + 1 new), `Diva.Tools.Tests` 78/78, `DivaFsMcpServer.Tests` 14/14, `Diva.Agents.Tests`
+351/352 (same single pre-existing unrelated failure tolerated). Deployed `diva-api` only; confirmed
+`tenantConfigIds` present in the deployed `Diva.TenantAdmin.dll`, ~1 minute old.
+
+---
+
 ## [2026-08-12] Bug fix: promotion blocking errors didn't say WHICH object in a cascade needed fixing
 
 **Problem** (follow-up to the same-day LLM config override fix — different root cause, same

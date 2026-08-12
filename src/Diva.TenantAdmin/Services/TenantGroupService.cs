@@ -874,7 +874,16 @@ public sealed class TenantGroupService : ITenantGroupService
                 groupConfigsQuery = groupConfigsQuery.Where(c => c.EnvironmentId == environmentId || c.EnvironmentId == null);
             var groupConfigs = await groupConfigsQuery.ToListAsync(ct);
 
-            result.AddRange(groupConfigs.Select(c =>
+            // TenantLlmConfigs and GroupLlmConfigs are separate tables with independent Id
+            // sequences, so a group config's Id can coincide with an unrelated tenant config's Id
+            // (e.g. both "3"). LlmConfigResolver always resolves tenant-scope first for a given Id,
+            // so such a group config could never actually be selected anyway — including it here
+            // would just render a second, unreachable "selected" option for the same picker value.
+            var tenantConfigIds = result.Select(c => c.Id).ToHashSet();
+
+            result.AddRange(groupConfigs
+                .Where(c => !tenantConfigIds.Contains(c.Id))
+                .Select(c =>
             {
                 var isRef = c.PlatformConfig is not null;
                 // When it's a reference, show the platform config's provider/model; otherwise use own fields
