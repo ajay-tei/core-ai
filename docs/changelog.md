@@ -4,6 +4,44 @@
 
 ---
 
+## [2026-08-12] Bug fix: delegated sub-agent auth failure — inherited credential group didn't apply to the child's own MCP server
+
+**Problem** (follow-up to the 2026-08-11 delegate-environment-scoping fix — same user-reported
+incident, deeper root cause): even after "Analytics - COT" was re-promoted to COT Play and
+correctly delegated to COT Play's own "Weather Agent - Global" row, the delegated call still failed
+MCP authentication — while calling Weather Agent directly still worked fine. Confirmed live via
+`docker logs` + DB inspection: `AnthropicAgentRunner` propagates the *effective credential
+user-group* a parent agent's own MCP server resolved to onto any agents it delegates to (so a
+delegation chain stays credential-consistent) — "Analytics - COT" resolved its own "BI Query PROD"
+server via user-group 1 and propagated `PreferredUserGroupId=1` to its delegate. But "Weather
+Server - Global" (COT Play) only has a credential mapped for user-group 5, not 1.
+`McpCredentialSelector.SelectCredential` treated an inherited group with no mapping on a given
+server as "resolve to no credential" (SSO passthrough) rather than falling back to the caller's own
+valid mapping — and a server-to-server delegation call has no real SSO token to fall back on
+in the first place, so that fallback was a **guaranteed** authentication failure, not a safety net.
+
+**Fix**: when the selected/inherited user-group has no credential mapping for a given server,
+`SelectCredential` now falls back to resolving independently from the caller's own group
+memberships (the same logic used when no group is preferred at all) instead of forcing "no
+credential". (`src/Diva.Infrastructure/LiteLLM/McpCredentialSelector.cs`)
+
+**Tests**: updated `PreferredUserGroup_Unmatched_FallsBackToCallersOwnMapping` and
+`PreferredUserGroup_UnmappedOnServer_FallsBackToCallersOwnMapping` (renamed from
+`*_ResolvesToNoCredential` — they now assert the caller's own valid mapping is used instead of
+`null`), reproducing the exact incident shape: a preferred/inherited group with no mapping on this
+specific server, while the caller has a different, valid, unambiguous mapping of their own.
+(`tests/Diva.Agents.Tests/McpCredentialSelectorTests.cs`)
+
+**Verification**: `dotnet build Diva.slnx` 0 errors; `dotnet test Diva.slnx` — `Diva.TenantAdmin.Tests`
+311/311, `Diva.Tools.Tests` 78/78, `DivaFsMcpServer.Tests` 14/14, `Diva.Agents.Tests` 351/352 (same
+single pre-existing unrelated failure tolerated; McpCredentialSelectorTests 22/22). Deployed via
+`docker compose -f docker-compose.tei.yml -f docker-compose.sqlserver.yml up -d --build`; confirmed
+the deployed `Diva.Infrastructure.dll` contains the new fallback log message (verified with
+`Select-String -Encoding Unicode` on a copied-out DLL, per the established lesson that `grep -a`
+cannot find UTF-16 string literal values) and the DLL was ~1 minute old.
+
+---
+
 ## [2026-08-11] Feature: Custom Variables editable directly on a promoted agent
 
 A promoted (non-default-environment) agent is otherwise entirely read-only in AgentBuilder — but

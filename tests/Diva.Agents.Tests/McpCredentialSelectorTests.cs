@@ -307,23 +307,24 @@ public class McpCredentialSelectorTests : IDisposable
     }
 
     [Fact]
-    public async Task PreferredUserGroup_UnmatchedResolvesToNoCredential()
+    public async Task PreferredUserGroup_Unmatched_FallsBackToCallersOwnMapping()
     {
         Seed(new TenantMcpServerEntity { TenantId = TenantId, Name = "weather", DefaultCredentialRef = "default-key" });
         var serverId = ServerId("weather");
         var g1 = SeedUserGroup("group-one", "alice");
         SeedGroupCredential(serverId, g1, "cred-one");
 
-        // Prefer a group id the caller does not belong to (or that has no mapping on this server):
-        // do NOT substitute another group's credential — resolve to no credential (SSO passthrough).
+        // Prefer a group id the caller does not belong to at all (e.g. inherited from a delegating
+        // parent's own, unrelated server) — this server has no mapping for it, so resolve
+        // independently from the caller's own group memberships instead of forcing no credential.
         var ctx = Ctx(userId: "alice").WithPreferredUserGroup(9999);
         var bindings = await _selector.ResolveBindingsAsync(ctx, ["weather"], default);
 
-        Assert.Null(Assert.Single(bindings).CredentialRef);
+        Assert.Equal("cred-one", Assert.Single(bindings).CredentialRef);
     }
 
     [Fact]
-    public async Task PreferredUserGroup_UnmappedOnServer_ResolvesToNoCredential()
+    public async Task PreferredUserGroup_UnmappedOnServer_FallsBackToCallersOwnMapping()
     {
         Seed(new TenantMcpServerEntity { TenantId = TenantId, Name = "weather", DefaultCredentialRef = "default-key" });
         var serverId = ServerId("weather");
@@ -331,12 +332,16 @@ public class McpCredentialSelectorTests : IDisposable
         var g2 = SeedUserGroup("group-two", "alice");
         SeedGroupCredential(serverId, g1, "cred-one");   // only g1 maps a credential for this server
 
-        // Caller belongs to g2 (a valid, credential-mapped group elsewhere) but this server has no
-        // g2 mapping → no credential rather than falling back to g1.
+        // Caller belongs to g2 (a valid, credential-mapped group elsewhere, e.g. inherited from a
+        // delegating parent's own server) but this server has no g2 mapping — pin a real bug: a
+        // delegated sub-agent whose own MCP server is only ever mapped to a DIFFERENT group than
+        // whatever the parent's own server resolved to must still resolve its own valid mapping
+        // (g1) rather than being forced into "no credential" (which, for a server-to-server
+        // delegation call with no real SSO token to fall back on, is a guaranteed auth failure).
         var ctx = Ctx(userId: "alice").WithPreferredUserGroup(g2);
         var bindings = await _selector.ResolveBindingsAsync(ctx, ["weather"], default);
 
-        Assert.Null(Assert.Single(bindings).CredentialRef);
+        Assert.Equal("cred-one", Assert.Single(bindings).CredentialRef);
     }
 
     [Fact]

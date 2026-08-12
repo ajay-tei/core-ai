@@ -297,9 +297,15 @@ public sealed class McpCredentialSelector : IMcpCredentialSelector
         // 2. Per-user-group credential. When the caller explicitly picked a group (or a delegating
         //    parent inherited its effective group) and it maps a credential for this server, that
         //    choice wins. If a group is selected/inherited but this server has NO mapping for it,
-        //    resolve to no credential (SSO passthrough) rather than silently substituting a
-        //    different group's credential. Only when no group is selected at all does the lowest
-        //    UserGroupId (oldest group) win.
+        //    fall back to resolving independently from the caller's own group memberships (below)
+        //    instead of forcing "no credential" — a delegation chain routinely touches several
+        //    servers that are each mapped to different, non-overlapping sets of user groups (e.g. a
+        //    parent's own server resolves via group 1, but a delegated sub-agent's own server is
+        //    only ever mapped for group 5); the inherited group is a hint for consistency, not a
+        //    hard override that should break a server it was never meant to apply to. There is also
+        //    no real SSO token to pass through in a server-to-server delegation call in the first
+        //    place, so "no credential" here is never actually a safe fallback — it is a guaranteed
+        //    authentication failure.
         if (groupCredByServer.TryGetValue(server.Id, out var groupCreds) && groupCreds.Count > 0)
         {
             if (preferredUserGroupId is int pref)
@@ -312,19 +318,18 @@ public sealed class McpCredentialSelector : IMcpCredentialSelector
                     return new CredDecision(picked.CredentialRef, CredSource.UserGroup, picked.UserGroupId, null);
                 }
 
-                _logger.LogWarning(
-                    "Shared MCP server '{Name}' (tenant {TenantId}): selected/inherited user-group {GroupId} has no credential mapping for this server "
-                    + "(mapped groups: {Groups}). Using no credential (SSO passthrough) rather than substituting another group's credential.",
+                _logger.LogInformation(
+                    "Shared MCP server '{Name}' (tenant {TenantId}): selected/inherited user-group {GroupId} has no credential mapping for this "
+                    + "server (mapped groups: {Groups}) — resolving independently from the caller's own group memberships instead.",
                     server.Name, tenantId, pref, string.Join(", ", groupCreds.Select(c => c.UserGroupId)));
-                return new CredDecision(null, CredSource.SsoPassthrough, null, null);
             }
 
-            // No explicit pick: prefer the group(s) the agent itself is scoped to (its access
-            // group's user groups) intersected with the caller's mapped groups for this server.
-            // This lets an agent that belongs to e.g. the "Riverside" group use the Riverside
-            // credential even when the caller also belongs to other credential-mapped groups.
-            // Falls back to the full set when the agent has no scope or its scope maps no
-            // credential on this server.
+            // No explicit pick (or the preferred/inherited group doesn't apply to this server):
+            // prefer the group(s) the agent itself is scoped to (its access group's user groups)
+            // intersected with the caller's mapped groups for this server. This lets an agent that
+            // belongs to e.g. the "Riverside" group use the Riverside credential even when the
+            // caller also belongs to other credential-mapped groups. Falls back to the full set
+            // when the agent has no scope or its scope maps no credential on this server.
             var candidates = groupCreds;
             if (agentScopedGroupIds.Count > 0)
             {
