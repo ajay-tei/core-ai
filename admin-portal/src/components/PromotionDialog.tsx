@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { AlertTriangle, ArrowRight, CheckCircle2, Loader2, XCircle } from "lucide-react";
+import { AlertTriangle, ArrowRight, Check, CheckCircle2, Loader2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useEnvironment } from "@/hooks/useEnvironment";
 
@@ -64,10 +64,20 @@ export function PromotionDialog({ open, onOpenChange, objectType, logicalId, dis
   const [changeNote, setChangeNote] = useState("");
   const [llmConfigs, setLlmConfigs] = useState<AvailableLlmConfig[]>([]);
   const [llmConfigOverride, setLlmConfigOverride] = useState("keep");
+  // LogicalIds of optional dependents (e.g. an Agent's scheduled tasks) the user has unchecked --
+  // everything defaults to included, matching the "selectable and excludable" requirement.
+  const [excludedIds, setExcludedIds] = useState<Set<string>>(new Set());
+  const toggleExcluded = (depLogicalId: string) =>
+    setExcludedIds((prev) =>
+    {
+      const next = new Set(prev);
+      if (next.has(depLogicalId)) next.delete(depLogicalId); else next.add(depLogicalId);
+      return next;
+    });
 
   useEffect(() =>
   {
-    if (!open) { setSelectedIds([]); setPreview(null); setConfirmed(false); setBulkResults(null); setChangeNote(""); setLlmConfigOverride("keep"); }
+    if (!open) { setSelectedIds([]); setPreview(null); setConfirmed(false); setBulkResults(null); setChangeNote(""); setLlmConfigOverride("keep"); setExcludedIds(new Set()); }
   }, [open]);
 
   useEffect(() =>
@@ -85,6 +95,7 @@ export function PromotionDialog({ open, onOpenChange, objectType, logicalId, dis
     if (!open || selectedIds.length !== 1) { setPreview(null); return; }
     setLoadingPreview(true);
     setConfirmed(false);
+    setExcludedIds(new Set());
     api.previewPromotion(objectType, logicalId, fromEnvironmentId, selectedIds[0], undefined, overrideLlmConfigId)
       .then(setPreview)
       .catch(() => setPreview({ canPromote: false, blockingError: "Failed to load promotion preview.", willPromote: [] }))
@@ -123,6 +134,7 @@ export function PromotionDialog({ open, onOpenChange, objectType, logicalId, dis
           objectType, logicalId, fromEnvironmentId, toEnvironmentId: selectedIds[0],
           changeNote: changeNote.trim() || undefined,
           targetLlmConfigId: overrideLlmConfigId,
+          excludedLogicalIds: Array.from(excludedIds),
         });
         if (result.success)
         {
@@ -137,7 +149,7 @@ export function PromotionDialog({ open, onOpenChange, objectType, logicalId, dis
       }
       else
       {
-        const results = await api.bulkPromote({ objectType, logicalId, fromEnvironmentId, toEnvironmentIds: selectedIds, changeNote: changeNote.trim() || undefined });
+        const results = await api.bulkPromote({ objectType, logicalId, fromEnvironmentId, toEnvironmentIds: selectedIds, changeNote: changeNote.trim() || undefined, excludedLogicalIds: Array.from(excludedIds) });
         setBulkResults(results);
         const succeeded = results.filter((r) => r.result.success).length;
         if (succeeded === results.length) toast.success(`Promoted "${displayName}" to all ${results.length} targets`);
@@ -242,22 +254,25 @@ export function PromotionDialog({ open, onOpenChange, objectType, logicalId, dis
                 {
                   const rootDep = preview.willPromote.find((d) => d.objectType === objectType && d.logicalId === logicalId);
                   const otherDeps = preview.willPromote.filter((d) => !(d.objectType === objectType && d.logicalId === logicalId));
+                  const hardDeps = otherDeps.filter((d) => !d.isOptional);
+                  const optionalDeps = otherDeps.filter((d) => d.isOptional);
+                  const rootLabel = objectType === "Agent" ? "Main agent" : objectType === "ScheduledTask" ? "Scheduled task" : objectType === "McpServer" ? "MCP server" : objectType === "AgentGroup" ? "Agent group" : "Object";
                   return (
                     <>
                       {rootDep && (
                         <div className="space-y-1.5">
-                          <Label className="text-xs text-muted-foreground">Main agent</Label>
+                          <Label className="text-xs text-muted-foreground">{rootLabel}</Label>
                           <div className="flex items-center justify-between gap-2 text-sm rounded border px-2 py-1.5">
                             <span>{rootDep.displayName}</span>
                             <span className="text-xs font-mono text-muted-foreground shrink-0">{formatVersionTransition(rootDep)}</span>
                           </div>
                         </div>
                       )}
-                      {otherDeps.length > 0 ? (
+                      {hardDeps.length > 0 ? (
                         <div className="space-y-1.5">
                           <Label className="text-xs text-muted-foreground">Sub-agents & dependencies</Label>
                           <div className="space-y-1">
-                            {otherDeps.map((dep) => (
+                            {hardDeps.map((dep) => (
                               <div key={`${dep.objectType}-${dep.logicalId}`} className="flex items-center justify-between gap-2 text-sm rounded border px-2 py-1">
                                 <div className="flex items-center gap-2 min-w-0">
                                   <Badge variant="outline" className="text-xs shrink-0">{dep.objectType}</Badge>
@@ -268,9 +283,37 @@ export function PromotionDialog({ open, onOpenChange, objectType, logicalId, dis
                             ))}
                           </div>
                         </div>
-                      ) : (
+                      ) : optionalDeps.length === 0 && (
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
                           <CheckCircle2 className="size-4 text-green-600" /> No additional dependencies to promote.
+                        </div>
+                      )}
+                      {optionalDeps.length > 0 && (
+                        <div className="space-y-1.5">
+                          <Label className="text-xs text-muted-foreground">Optional — included by default, uncheck to skip</Label>
+                          <div className="space-y-1">
+                            {optionalDeps.map((dep) =>
+                            {
+                              const included = !excludedIds.has(dep.logicalId);
+                              return (
+                                <label key={`${dep.objectType}-${dep.logicalId}`} className="flex items-center justify-between gap-2 text-sm rounded border px-2 py-1 cursor-pointer">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <span
+                                      role="checkbox"
+                                      aria-checked={included}
+                                      onClick={() => toggleExcluded(dep.logicalId)}
+                                      className={`flex size-4 shrink-0 items-center justify-center rounded border ${included ? "bg-primary border-primary text-primary-foreground" : "border-input"}`}
+                                    >
+                                      {included && <Check className="size-3" />}
+                                    </span>
+                                    <Badge variant="outline" className="text-xs shrink-0">{dep.objectType}</Badge>
+                                    <span className="truncate">{dep.displayName}</span>
+                                  </div>
+                                  <span className="text-xs font-mono text-muted-foreground shrink-0">{formatVersionTransition(dep)}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
                         </div>
                       )}
                     </>

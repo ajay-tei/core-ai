@@ -1313,6 +1313,8 @@ export interface PromotableDependency
   currentVersion?: number;
   /** Source environment's live version about to be promoted — undefined/null if never recorded yet. */
   promotingVersion?: number;
+  /** True for an optional dependent (e.g. an Agent's scheduled tasks) — excludable, unlike hard cascade dependencies. */
+  isOptional?: boolean;
 }
 
 export interface PromotionPreview
@@ -1350,6 +1352,8 @@ export interface PromoteRequest
   changeNote?: string;
   /** Agent promotions only \u2014 explicitly sets the target environment's LlmConfigId; omit to keep whatever the target already has configured. */
   targetLlmConfigId?: number;
+  /** LogicalIds of optional dependents (see PromotableDependency.isOptional) to skip this run. */
+  excludedLogicalIds?: string[];
 }
 
 export interface BulkPromoteRequest
@@ -1360,6 +1364,8 @@ export interface BulkPromoteRequest
   toEnvironmentIds: number[];
   tenantId?: number;
   changeNote?: string;
+  /** LogicalIds of optional dependents to skip, applied uniformly to every target environment. */
+  excludedLogicalIds?: string[];
 }
 
 export interface BulkPromoteResultItem
@@ -1434,6 +1440,7 @@ export interface ScheduledTask
   runAsUserEmail?: string;
   runAsUserLabel?: string;      // display label of the run-as user
   environmentId?: number;
+  logicalId?: string;
 }
 
 export interface ScheduledTaskListParams

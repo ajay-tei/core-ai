@@ -77,14 +77,14 @@ public sealed class ScheduledTaskSnapshotSerializer : IPromotableSnapshotSeriali
         using var db = _db.CreateDbContext();
 
         var agentId = await db.AgentDefinitions
-            .Where(a => a.TenantId == tenantId && a.Name == snapshot.AgentName)
+            .Where(a => a.TenantId == tenantId && a.EnvironmentId == environmentId && a.Name == snapshot.AgentName)
             .Select(a => a.Id)
             .FirstOrDefaultAsync(ct);
         if (agentId is null)
         {
             _logger.LogWarning(
-                "Scheduled task snapshot materialize for '{Name}': agent '{AgentName}' not found in tenant {TenantId} — keeping existing AgentId if updating, else task will reference a missing agent.",
-                snapshot.Name, snapshot.AgentName, tenantId);
+                "Scheduled task snapshot materialize for '{Name}': agent '{AgentName}' not found in tenant {TenantId} environment {EnvironmentId} — keeping existing AgentId if updating, else task will reference a missing agent.",
+                snapshot.Name, snapshot.AgentName, tenantId, environmentId);
         }
 
         var task = await db.ScheduledTasks.FirstOrDefaultAsync(

@@ -5,8 +5,10 @@ namespace Diva.Core.Models;
 /// (null = not live there yet); <paramref name="PromotingVersion"/> is the source environment's
 /// live version about to be promoted (null = not yet recorded in the ledger). Both populated only
 /// by <see cref="IPromotionOrchestrationService.PreviewAsync"/> for the admin UI's confirmation
-/// dialog — not meaningful outside that call.</summary>
-public sealed record PromotableDependency(string ObjectType, Guid LogicalId, string DisplayName, int? CurrentVersion = null, int? PromotingVersion = null);
+/// dialog — not meaningful outside that call. <paramref name="IsOptional"/> marks an optional
+/// dependent (see <see cref="IPromotionDependencyResolver.GetOptionalDependentsAsync"/>) that the
+/// caller may exclude from promotion; false for ordinary cascade/root items.</summary>
+public sealed record PromotableDependency(string ObjectType, Guid LogicalId, string DisplayName, int? CurrentVersion = null, int? PromotingVersion = null, bool IsOptional = false);
 
 /// <summary>A named external secret/config this object references that is never copied/promoted —
 /// it must already exist, independently configured, in the target environment (Phase G/I's "keys
@@ -35,4 +37,12 @@ public interface IPromotionDependencyResolver
     /// Default-empty for types with no such dependency.</summary>
     Task<IReadOnlyList<BlockingSecretDependency>> GetBlockingSecretDependenciesAsync(int tenantId, Guid logicalId, int environmentId, CancellationToken ct)
         => Task.FromResult<IReadOnlyList<BlockingSecretDependency>>([]);
+
+    /// <summary>Objects that reference this one but are NOT required for it to function (e.g. a
+    /// ScheduledTask that invokes this Agent) — offered as optional, excludable promotion items.
+    /// Unlike <see cref="GetCascadeDependenciesAsync"/> results, these must be materialized AFTER
+    /// the object they depend on, never before (the reverse dependency direction). Default-empty
+    /// for types with no such optional dependents.</summary>
+    Task<IReadOnlyList<PromotableDependency>> GetOptionalDependentsAsync(int tenantId, Guid logicalId, int environmentId, CancellationToken ct)
+        => Task.FromResult<IReadOnlyList<PromotableDependency>>([]);
 }

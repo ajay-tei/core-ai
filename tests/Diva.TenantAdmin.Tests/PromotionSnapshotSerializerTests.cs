@@ -409,6 +409,7 @@ public class ScheduledTaskSnapshotSerializerTests : IDisposable
         var sourceEnvId = await SeedEnvironmentAsync("dev", 0, isDefault: true);
         var targetEnvId = await SeedEnvironmentAsync("qa", 1);
         var agent = await SeedAgentAsync(sourceEnvId);
+        var targetAgent = await SeedAgentAsync(targetEnvId); // same default name, already promoted ahead of the task
         var task = await SeedTaskAsync(sourceEnvId, agent.Id);
 
         var snapshot = await _serializer.SerializeAsync(TenantId, sourceEnvId, task.LogicalId!.Value, CancellationToken.None);
@@ -416,8 +417,29 @@ public class ScheduledTaskSnapshotSerializerTests : IDisposable
 
         using var db = new DivaDbContext(_options);
         var target = await db.ScheduledTasks.SingleAsync(t => t.EnvironmentId == targetEnvId);
-        Assert.Equal(agent.Id, target.AgentId); // only one agent with that name exists tenant-wide
+        Assert.Equal(targetAgent.Id, target.AgentId); // resolves to the target environment's own agent row
         Assert.Equal(task.LogicalId, target.LogicalId);
+    }
+
+    [Fact]
+    public async Task MaterializeAsync_SameAgentNameInMultipleEnvironments_ResolvesToTargetEnvironmentsOwnAgent()
+    {
+        // Regression test: the agent lookup must filter by EnvironmentId, not just Name+TenantId --
+        // otherwise a promoted task could silently wire itself to a DIFFERENT environment's
+        // same-named agent (the normal case, since a promoted agent keeps its original name).
+        var sourceEnvId = await SeedEnvironmentAsync("dev", 0, isDefault: true);
+        var targetEnvId = await SeedEnvironmentAsync("qa", 1);
+        var sourceAgent = await SeedAgentAsync(sourceEnvId, name: "shared-agent-name");
+        var targetAgent = await SeedAgentAsync(targetEnvId, name: "shared-agent-name"); // same name, different env
+        var task = await SeedTaskAsync(sourceEnvId, sourceAgent.Id);
+
+        var snapshot = await _serializer.SerializeAsync(TenantId, sourceEnvId, task.LogicalId!.Value, CancellationToken.None);
+        await _serializer.MaterializeAsync(TenantId, targetEnvId, task.LogicalId!.Value, snapshot!.SnapshotJson, CancellationToken.None);
+
+        using var db2 = new DivaDbContext(_options);
+        var target = await db2.ScheduledTasks.SingleAsync(t => t.EnvironmentId == targetEnvId);
+        Assert.Equal(targetAgent.Id, target.AgentId); // resolved to qa's OWN agent, not dev's
+        Assert.NotEqual(sourceAgent.Id, target.AgentId);
     }
 
     [Fact]

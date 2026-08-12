@@ -99,6 +99,23 @@ public class PromotionOrchestrationServiceTests : IDisposable
         return agent;
     }
 
+    private async Task<ScheduledTaskEntity> SeedScheduledTaskAsync(int environmentId, string agentId, string name = "daily-report")
+    {
+        using var db = new DivaDbContext(_options);
+        var task = new ScheduledTaskEntity
+        {
+            TenantId = TenantId,
+            AgentId = agentId,
+            Name = name,
+            PromptText = "Report.",
+            LogicalId = Guid.NewGuid(),
+            EnvironmentId = environmentId,
+        };
+        db.ScheduledTasks.Add(task);
+        await db.SaveChangesAsync();
+        return task;
+    }
+
     [Fact]
     public async Task PreviewAsync_TargetRankNotHigher_Blocked()
     {
@@ -217,6 +234,120 @@ public class PromotionOrchestrationServiceTests : IDisposable
         Assert.False(result.Success);
         Assert.Contains("Agent", result.Error);
         Assert.Contains("promote it first", result.Error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task PreviewAsync_Agent_MarksItsScheduledTaskAsOptionalDependent()
+    {
+        var devEnvId = await SeedEnvironmentAsync("dev", 0, isDefault: true);
+        var qaEnvId = await SeedEnvironmentAsync("qa", 1);
+        var agent = await SeedAgentAsync(devEnvId, name: "report-agent");
+        var task = await SeedScheduledTaskAsync(devEnvId, agent.Id, name: "daily-report");
+
+        var preview = await _orchestrator.PreviewAsync(TenantId, "Agent", agent.LogicalId!.Value, devEnvId, qaEnvId, null, CancellationToken.None);
+
+        Assert.True(preview.CanPromote);
+        var taskDep = Assert.Single(preview.WillPromote, d => d.ObjectType == "ScheduledTask");
+        Assert.Equal(task.LogicalId, taskDep.LogicalId);
+        Assert.True(taskDep.IsOptional);
+        var agentDep = Assert.Single(preview.WillPromote, d => d.ObjectType == "Agent");
+        Assert.False(agentDep.IsOptional); // the agent itself is a hard, non-excludable item
+    }
+
+    [Fact]
+    public async Task PromoteAsync_Agent_CascadesScheduledTask_AgentIdResolvesToNewlyPromotedRow()
+    {
+        // Regression test: a ScheduledTask depends on its Agent (the opposite direction from
+        // MCP servers/delegates, which the Agent depends on) — it must be materialized AFTER the
+        // agent, not before, or its AgentId can't resolve to the target environment's new row.
+        var devEnvId = await SeedEnvironmentAsync("dev", 0, isDefault: true);
+        var qaEnvId = await SeedEnvironmentAsync("qa", 1);
+        var agent = await SeedAgentAsync(devEnvId, name: "report-agent");
+        var task = await SeedScheduledTaskAsync(devEnvId, agent.Id, name: "daily-report");
+
+        var result = await _orchestrator.PromoteAsync(TenantId, "Agent", agent.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, null, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Contains(result.PromotedObjects, r => r.ObjectType == "Agent" && !r.WasSkipped);
+        Assert.Contains(result.PromotedObjects, r => r.ObjectType == "ScheduledTask" && !r.WasSkipped);
+
+        using var db = new DivaDbContext(_options);
+        var qaAgent = await db.AgentDefinitions.SingleAsync(a => a.EnvironmentId == qaEnvId && a.LogicalId == agent.LogicalId);
+        var qaTask = await db.ScheduledTasks.SingleAsync(t => t.EnvironmentId == qaEnvId && t.LogicalId == task.LogicalId);
+        Assert.Equal(qaAgent.Id, qaTask.AgentId);
+        Assert.NotEqual(agent.Id, qaTask.AgentId); // resolved to the NEW qa row, not the source dev row
+    }
+
+    [Fact]
+    public async Task PromoteAsync_Agent_ExcludedScheduledTask_IsNotMaterialized()
+    {
+        var devEnvId = await SeedEnvironmentAsync("dev", 0, isDefault: true);
+        var qaEnvId = await SeedEnvironmentAsync("qa", 1);
+        var agent = await SeedAgentAsync(devEnvId, name: "report-agent");
+        var task = await SeedScheduledTaskAsync(devEnvId, agent.Id, name: "daily-report");
+
+        var result = await _orchestrator.PromoteAsync(
+            TenantId, "Agent", agent.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, null, CancellationToken.None,
+            excludedLogicalIds: [task.LogicalId!.Value]);
+
+        Assert.True(result.Success);
+        Assert.DoesNotContain(result.PromotedObjects, r => r.ObjectType == "ScheduledTask");
+
+        using var db = new DivaDbContext(_options);
+        Assert.False(await db.ScheduledTasks.AnyAsync(t => t.EnvironmentId == qaEnvId));
+    }
+
+    [Fact]
+    public async Task PromoteAsync_ScheduledTask_Standalone_SucceedsOnceAgentAlreadyPromoted()
+    {
+        var devEnvId = await SeedEnvironmentAsync("dev", 0, isDefault: true);
+        var qaEnvId = await SeedEnvironmentAsync("qa", 1);
+        var agent = await SeedAgentAsync(devEnvId, name: "report-agent");
+        var task = await SeedScheduledTaskAsync(devEnvId, agent.Id, name: "daily-report");
+
+        // Promote the agent alone (excluding its task) to prove standalone task promotion doesn't
+        // rely on cascade at all — only on the agent already existing in the target.
+        await _orchestrator.PromoteAsync(
+            TenantId, "Agent", agent.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, null, CancellationToken.None,
+            excludedLogicalIds: [task.LogicalId!.Value]);
+
+        var result = await _orchestrator.PromoteAsync(TenantId, "ScheduledTask", task.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, null, CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.False(result.PromotedObjects[0].WasSkipped);
+
+        using var db = new DivaDbContext(_options);
+        var qaAgent = await db.AgentDefinitions.SingleAsync(a => a.EnvironmentId == qaEnvId);
+        var qaTask = await db.ScheduledTasks.SingleAsync(t => t.EnvironmentId == qaEnvId);
+        Assert.Equal(qaAgent.Id, qaTask.AgentId);
+    }
+
+    [Fact]
+    public async Task PromoteAsync_ScheduledTask_FromNonDefaultEnvironment_ReusesVersionNotMinting()
+    {
+        var devEnvId = await SeedEnvironmentAsync("dev", 0, isDefault: true);
+        var stagingEnvId = await SeedEnvironmentAsync("staging", 1);
+        var prodEnvId = await SeedEnvironmentAsync("prod", 2);
+        var agent = await SeedAgentAsync(devEnvId, name: "report-agent");
+        var task = await SeedScheduledTaskAsync(devEnvId, agent.Id, name: "daily-report");
+
+        // Agent cascade (default-included) lands the task in both staging and prod at v1.
+        await _orchestrator.PromoteAsync(TenantId, "Agent", agent.LogicalId!.Value, devEnvId, stagingEnvId, "alice", null, null, CancellationToken.None);
+        await _orchestrator.PromoteAsync(TenantId, "Agent", agent.LogicalId!.Value, devEnvId, prodEnvId, "alice", null, null, CancellationToken.None);
+
+        // Staging's task drifts locally without ever being explicitly republished.
+        using (var db = new DivaDbContext(_options))
+        {
+            var stagingTask = await db.ScheduledTasks.SingleAsync(t => t.EnvironmentId == stagingEnvId);
+            stagingTask.PromptText = "drifted, never republished";
+            await db.SaveChangesAsync();
+        }
+
+        var toProd = await _orchestrator.PromoteAsync(TenantId, "ScheduledTask", task.LogicalId!.Value, stagingEnvId, prodEnvId, "alice", null, null, CancellationToken.None);
+
+        Assert.True(toProd.Success);
+        Assert.False(toProd.PromotedObjects[0].WasSkipped);
+        Assert.Equal(1, toProd.PromotedObjects[0].Version); // reused v1 — staging is not the default environment
     }
 
     [Fact]

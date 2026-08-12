@@ -51,6 +51,7 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
         }
 
         var deps = new List<PromotableDependency>();
+        var seen = new HashSet<(string ObjectType, Guid LogicalId)>();
         foreach (var (ot, lid) in closure)
         {
             if (_serializers.TryGetValue(ot, out var serializer))
@@ -61,14 +62,40 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
                     var promotingVersion = await _ledger.GetLiveVersionAsync(tenantId, lid, fromEnvironmentId, ct);
                     var currentVersion = await _ledger.GetLiveVersionAsync(tenantId, lid, toEnvironmentId, ct);
                     deps.Add(new PromotableDependency(ot, lid, snap.Name, currentVersion?.Version, promotingVersion?.Version));
+                    seen.Add((ot, lid));
                 }
+            }
+        }
+
+        // Optional dependents (e.g. an Agent's scheduled tasks) — offered alongside the hard
+        // closure but excludable by the caller; never required for the object above them to function.
+        foreach (var (ot, lid) in closure)
+        {
+            if (!_resolvers.TryGetValue(ot, out var resolver))
+            {
+                continue;
+            }
+            foreach (var dep in await resolver.GetOptionalDependentsAsync(tenantId, lid, fromEnvironmentId, ct))
+            {
+                if (!seen.Add((dep.ObjectType, dep.LogicalId)) || !_serializers.TryGetValue(dep.ObjectType, out var depSerializer))
+                {
+                    continue;
+                }
+                var snap = await depSerializer.SerializeAsync(tenantId, fromEnvironmentId, dep.LogicalId, ct);
+                if (snap is null)
+                {
+                    continue;
+                }
+                var promotingVersion = await _ledger.GetLiveVersionAsync(tenantId, dep.LogicalId, fromEnvironmentId, ct);
+                var currentVersion = await _ledger.GetLiveVersionAsync(tenantId, dep.LogicalId, toEnvironmentId, ct);
+                deps.Add(new PromotableDependency(dep.ObjectType, dep.LogicalId, snap.Name, currentVersion?.Version, promotingVersion?.Version, IsOptional: true));
             }
         }
 
         return new PromotionPreview { CanPromote = true, WillPromote = deps };
     }
 
-    public async Task<PromotionResult> PromoteAsync(int tenantId, string objectType, Guid logicalId, int fromEnvironmentId, int toEnvironmentId, string? createdBy, string? changeNote, int? targetLlmConfigId, CancellationToken ct)
+    public async Task<PromotionResult> PromoteAsync(int tenantId, string objectType, Guid logicalId, int fromEnvironmentId, int toEnvironmentId, string? createdBy, string? changeNote, int? targetLlmConfigId, CancellationToken ct, IReadOnlyList<Guid>? excludedLogicalIds = null)
     {
         using var db = _db.CreateDbContext();
 
@@ -97,61 +124,41 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
         var results = new List<PromotedObjectResult>();
         foreach (var (ot, lid) in closure)
         {
-            if (!_serializers.TryGetValue(ot, out var serializer))
-            {
-                continue;
-            }
-
-            var snapshot = await serializer.SerializeAsync(tenantId, fromEnvironmentId, lid, ct);
-            if (snapshot is null)
-            {
-                continue;
-            }
-
-            // Only the root object of this promotion (not cascade-pulled-in dependencies) is
-            // eligible for the LLM config override below.
             var isRoot = ot == objectType && lid == logicalId;
-
-            // Idempotent skip: target environment already has this exact content live. The ledger
-            // can go stale if the target row was deleted directly (not via promotion) -- confirm
-            // the row still physically exists before trusting the recorded content match, or a
-            // re-promotion after a manual delete would silently no-op instead of recreating it.
-            var targetDeployment = await db.EnvironmentDeployments.AsNoTracking()
-                .FirstOrDefaultAsync(d => d.LogicalId == lid && d.TenantId == tenantId && d.EnvironmentId == toEnvironmentId, ct);
-            if (targetDeployment?.LiveVersionId is int liveId)
+            var result = await MaterializePromotableAsync(
+                db, tenantId, fromEnvironmentId, toEnvironmentId, ot, lid, isRoot,
+                targetLlmConfigId, createdBy, changeNote, isFromDefaultEnvironment, ct);
+            if (result is not null)
             {
-                var liveVersion = await db.PromotableVersions.AsNoTracking().FirstOrDefaultAsync(v => v.Id == liveId, ct);
-                if (liveVersion is not null && liveVersion.SnapshotJson == snapshot.SnapshotJson
-                    && await serializer.SerializeAsync(tenantId, toEnvironmentId, lid, ct) is not null)
+                results.Add(result);
+            }
+        }
+
+        // Optional dependents (e.g. an Agent's scheduled tasks) — materialized AFTER the hard
+        // closure above so whatever they reference (their Agent) already exists in the target;
+        // excludable per-item by the caller, never eligible for the root's LLM config override.
+        var excluded = excludedLogicalIds is { Count: > 0 } ? excludedLogicalIds.ToHashSet() : null;
+        var processed = new HashSet<(string ObjectType, Guid LogicalId)>(closure);
+        foreach (var (ot, lid) in closure)
+        {
+            if (!_resolvers.TryGetValue(ot, out var resolver))
+            {
+                continue;
+            }
+            foreach (var dep in await resolver.GetOptionalDependentsAsync(tenantId, lid, fromEnvironmentId, ct))
+            {
+                if (!processed.Add((dep.ObjectType, dep.LogicalId)) || excluded?.Contains(dep.LogicalId) == true)
                 {
-                    if (isRoot && ot == "Agent" && targetLlmConfigId is not null)
-                    {
-                        await ApplyLlmConfigOverrideAsync(db, tenantId, toEnvironmentId, lid, targetLlmConfigId.Value, ct);
-                    }
-                    results.Add(new PromotedObjectResult(ot, lid, snapshot.Name, liveVersion.Id, liveVersion.Version, WasSkipped: true));
                     continue;
                 }
+                var result = await MaterializePromotableAsync(
+                    db, tenantId, fromEnvironmentId, toEnvironmentId, dep.ObjectType, dep.LogicalId, isRoot: false,
+                    targetLlmConfigId: null, createdBy, changeNote, isFromDefaultEnvironment, ct);
+                if (result is not null)
+                {
+                    results.Add(result);
+                }
             }
-
-            await serializer.MaterializeAsync(tenantId, toEnvironmentId, lid, snapshot.SnapshotJson, ct);
-
-            if (isRoot && ot == "Agent" && targetLlmConfigId is not null)
-            {
-                await ApplyLlmConfigOverrideAsync(db, tenantId, toEnvironmentId, lid, targetLlmConfigId.Value, ct);
-            }
-
-            var sourceDeployment = await db.EnvironmentDeployments.AsNoTracking()
-                .FirstOrDefaultAsync(d => d.LogicalId == lid && d.TenantId == tenantId && d.EnvironmentId == fromEnvironmentId, ct);
-
-            var recorded = await _ledger.RecordVersionAsync(
-                tenantId, lid, ot, snapshot.Name, toEnvironmentId,
-                snapshot.SnapshotJson, "promotion", sourceDeployment?.LiveVersionId, createdBy, changeNote, ct,
-                allowNewVersion: isFromDefaultEnvironment);
-
-            // Reaching here means MaterializeAsync actually wrote/updated the target's live row --
-            // never report this as skipped, regardless of whether the ledger minted a new version
-            // number (it may legitimately reuse the current one, e.g. non-default-environment promotions).
-            results.Add(new PromotedObjectResult(ot, lid, snapshot.Name, recorded.Version.Id, recorded.Version.Version, WasSkipped: false));
         }
 
         var run = new Data.Entities.PromotionRunEntity
@@ -173,6 +180,67 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
             run.Id, objectType, logicalId, fromEnvironmentId, toEnvironmentId, results.Count(r => !r.WasSkipped));
 
         return new PromotionResult { Success = true, RunId = run.Id, PromotedObjects = results };
+    }
+
+    /// <summary>Materializes one closure item into the target environment (idempotent-skip check,
+    /// MaterializeAsync, root-only LLM override, ledger version recording) — shared by the hard
+    /// closure loop and the optional-dependents pass in <see cref="PromoteAsync"/>. Returns null for
+    /// an item with no registered serializer or no live source snapshot (nothing to do).</summary>
+    private async Task<PromotedObjectResult?> MaterializePromotableAsync(
+        Data.DivaDbContext db, int tenantId, int fromEnvironmentId, int toEnvironmentId,
+        string ot, Guid lid, bool isRoot, int? targetLlmConfigId, string? createdBy, string? changeNote,
+        bool allowNewVersion, CancellationToken ct)
+    {
+        if (!_serializers.TryGetValue(ot, out var serializer))
+        {
+            return null;
+        }
+
+        var snapshot = await serializer.SerializeAsync(tenantId, fromEnvironmentId, lid, ct);
+        if (snapshot is null)
+        {
+            return null;
+        }
+
+        // Idempotent skip: target environment already has this exact content live. The ledger
+        // can go stale if the target row was deleted directly (not via promotion) -- confirm
+        // the row still physically exists before trusting the recorded content match, or a
+        // re-promotion after a manual delete would silently no-op instead of recreating it.
+        var targetDeployment = await db.EnvironmentDeployments.AsNoTracking()
+            .FirstOrDefaultAsync(d => d.LogicalId == lid && d.TenantId == tenantId && d.EnvironmentId == toEnvironmentId, ct);
+        if (targetDeployment?.LiveVersionId is int liveId)
+        {
+            var liveVersion = await db.PromotableVersions.AsNoTracking().FirstOrDefaultAsync(v => v.Id == liveId, ct);
+            if (liveVersion is not null && liveVersion.SnapshotJson == snapshot.SnapshotJson
+                && await serializer.SerializeAsync(tenantId, toEnvironmentId, lid, ct) is not null)
+            {
+                if (isRoot && ot == "Agent" && targetLlmConfigId is not null)
+                {
+                    await ApplyLlmConfigOverrideAsync(db, tenantId, toEnvironmentId, lid, targetLlmConfigId.Value, ct);
+                }
+                return new PromotedObjectResult(ot, lid, snapshot.Name, liveVersion.Id, liveVersion.Version, WasSkipped: true);
+            }
+        }
+
+        await serializer.MaterializeAsync(tenantId, toEnvironmentId, lid, snapshot.SnapshotJson, ct);
+
+        if (isRoot && ot == "Agent" && targetLlmConfigId is not null)
+        {
+            await ApplyLlmConfigOverrideAsync(db, tenantId, toEnvironmentId, lid, targetLlmConfigId.Value, ct);
+        }
+
+        var sourceDeployment = await db.EnvironmentDeployments.AsNoTracking()
+            .FirstOrDefaultAsync(d => d.LogicalId == lid && d.TenantId == tenantId && d.EnvironmentId == fromEnvironmentId, ct);
+
+        var recorded = await _ledger.RecordVersionAsync(
+            tenantId, lid, ot, snapshot.Name, toEnvironmentId,
+            snapshot.SnapshotJson, "promotion", sourceDeployment?.LiveVersionId, createdBy, changeNote, ct,
+            allowNewVersion: allowNewVersion);
+
+        // Reaching here means MaterializeAsync actually wrote/updated the target's live row --
+        // never report this as skipped, regardless of whether the ledger minted a new version
+        // number (it may legitimately reuse the current one, e.g. non-default-environment promotions).
+        return new PromotedObjectResult(ot, lid, snapshot.Name, recorded.Version.Id, recorded.Version.Version, WasSkipped: false);
     }
 
     /// <summary>Explicitly assigns which LLM config the just-materialized target-environment agent row uses — called only when the caller passed a non-null override (default is to leave the target's own existing LlmConfigId untouched, since it's excluded from the portable snapshot).</summary>

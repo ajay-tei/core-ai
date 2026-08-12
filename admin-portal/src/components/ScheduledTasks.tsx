@@ -37,9 +37,10 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { PromotionDialog } from "@/components/PromotionDialog";
 import {
   MoreHorizontal, Plus, CalendarClock, Pencil, Trash2,
-  Play, History, RefreshCw, ChevronDown, ChevronRight, Copy, Download, Upload,
+  Play, History, RefreshCw, ChevronDown, ChevronRight, Copy, Download, Upload, GitBranch,
 } from "lucide-react";
 import { DAY_NAMES } from "@/lib/scheduleConstants";
 
@@ -88,6 +89,7 @@ export function ScheduledTasks() {
   const [agents, setAgents]     = useState<AgentSummary[]>([]);
   const [runsTask,     setRunsTask]     = useState<ScheduledTask | null>(null);
   const [deleteId,     setDeleteId]     = useState<string | null>(null);
+  const [promotionTask, setPromotionTask] = useState<ScheduledTask | null>(null);
 
   // Import state
   const [importOpen,      setImportOpen]      = useState(false);
@@ -366,6 +368,12 @@ export function ScheduledTasks() {
                         <DropdownMenuItem onClick={() => setRunsTask(task)}>
                           <History className="h-3.5 w-3.5 mr-2" /> Run History
                         </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => setPromotionTask(task)}
+                          disabled={!task.logicalId || !currentEnvironmentId}
+                        >
+                          <GitBranch className="h-3.5 w-3.5 mr-2" /> Promote
+                        </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                           onClick={() => setDeleteId(task.id)}
@@ -399,6 +407,18 @@ export function ScheduledTasks() {
         agentName={runsTask ? agentName(runsTask.agentId) : ""}
         onClose={() => setRunsTask(null)}
       />
+
+      {promotionTask?.logicalId && currentEnvironmentId && (
+        <PromotionDialog
+          open={!!promotionTask}
+          onOpenChange={(open) => { if (!open) setPromotionTask(null); }}
+          objectType="ScheduledTask"
+          logicalId={promotionTask.logicalId}
+          displayName={promotionTask.name}
+          fromEnvironmentId={currentEnvironmentId}
+          onPromoted={reload}
+        />
+      )}
 
       {/* ── Import dialog ───────────────────────────────────────────────── */}
       <Dialog open={importOpen} onOpenChange={v => { if (!v) closeImport(); else setImportOpen(true); }}>

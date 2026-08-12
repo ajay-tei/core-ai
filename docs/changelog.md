@@ -4,6 +4,73 @@
 
 ---
 
+## [2026-08-12] Feature: optional, excludable scheduled-task cascade on Agent promotion + standalone task promotion
+
+**Problem**: promoting an Agent never brought its scheduled tasks along (by original design —
+auto-cascade only ever flowed toward dependencies, never dependents), and there was no way to
+promote a scheduled task on its own from the Scheduled Tasks page at all (the backend already
+supported it via a generic `objectType`, but no UI entry point existed).
+
+**Design wrinkle**: a ScheduledTask *depends on* its Agent (needs the Agent's row to already exist,
+to resolve `AgentId` by name) — the opposite direction from existing cascade dependencies (MCP
+servers/delegate agents, which the Agent needs and which are materialized *before* it via the
+existing `closure.Reverse()`). Modeling it as an ordinary cascade dependency would materialize it
+in the wrong order. Introduced a distinct **optional dependent** concept instead, resolved and
+materialized in a second pass *after* the root closure, so the Agent already exists in the target
+by the time its tasks are promoted.
+
+**Also fixed (found during this work, directly relevant)**: `ScheduledTaskSnapshotSerializer.MaterializeAsync`
+resolved the task's agent by `Name` with **no `EnvironmentId` filter** — with same-named agents
+across environments (the normal case, since a promoted agent keeps its name), a promoted task could
+silently wire itself to the wrong environment's agent. Now filters by `EnvironmentId` too.
+
+**Fix**:
+- `IPromotionDependencyResolver` gained `GetOptionalDependentsAsync` (default-empty interface
+  implementation — zero change needed for McpServer/ScheduledTask/AgentGroup resolvers);
+  `AgentPromotionDependencyResolver` overrides it to return the agent's own scheduled tasks.
+- `PromotableDependency` gained `IsOptional` (false for the root/hard cascade items).
+- `PromotionOrchestrationService.PreviewAsync` now also lists optional dependents (marked
+  `IsOptional: true`) alongside the hard closure, for every item in the closure (so a cascaded
+  delegate agent's own tasks are offered too, not just the root's).
+- `PromotionOrchestrationService.PromoteAsync` refactored to extract a reusable per-item
+  materialize helper, gained a trailing `excludedLogicalIds` parameter, and now processes optional
+  dependents in a second pass after the hard closure, skipping anything the caller excluded.
+  Simplified `WasSkipped` reporting for excluded/optional items to reflect whether materialization
+  actually ran, consistent with the existing rule that reaching `MaterializeAsync` is never
+  "skipped" regardless of the ledger's own version-reuse decision.
+- `PromoteRequest`/`BulkPromoteRequest` (and their TS equivalents) gained `ExcludedLogicalIds`.
+- `PromotionDialog.tsx` now splits dependencies into hard (always included) vs. optional
+  (checkbox per row, included by default, excludable) and passes the excluded set through on
+  submit; generalized the "Main agent" label per object type so it reads correctly for a
+  ScheduledTask-rooted promotion too.
+- `ScheduledTasks.tsx` gained a "Promote" row action (mirrors `AgentBuilder.tsx`'s existing wiring)
+  opening the same `PromotionDialog` with `objectType="ScheduledTask"`.
+- Version numbering needed no new code: the existing `allowNewVersion`/default-environment policy
+  is object-type-agnostic and already applies to scheduled tasks, cascaded or standalone.
+(`src/Diva.Core/Models/IPromotionDependencyResolver.cs`, `IPromotionOrchestrationService.cs`,
+`src/Diva.Infrastructure/Promotion/PromotionDependencyResolvers.cs`, `PromotionOrchestrationService.cs`,
+`ScheduledTaskSnapshotSerializer.cs`, `src/Diva.Host/Controllers/PromotionsController.cs`,
+`admin-portal/src/api.ts`, `admin-portal/src/components/PromotionDialog.tsx`,
+`admin-portal/src/components/ScheduledTasks.tsx`)
+
+**Tests**: `PreviewAsync_Agent_MarksItsScheduledTaskAsOptionalDependent`,
+`PromoteAsync_Agent_CascadesScheduledTask_AgentIdResolvesToNewlyPromotedRow` (the ordering
+regression test), `PromoteAsync_Agent_ExcludedScheduledTask_IsNotMaterialized`,
+`PromoteAsync_ScheduledTask_Standalone_SucceedsOnceAgentAlreadyPromoted`,
+`PromoteAsync_ScheduledTask_FromNonDefaultEnvironment_ReusesVersionNotMinting`
+(`tests/Diva.TenantAdmin.Tests/PromotionOrchestrationServiceTests.cs`); updated
+`MaterializeAsync_ReResolvesAgentNameToAgentId_InTargetTenant` (now seeds a target-environment
+agent, matching real usage) and added
+`MaterializeAsync_SameAgentNameInMultipleEnvironments_ResolvesToTargetEnvironmentsOwnAgent`
+(`tests/Diva.TenantAdmin.Tests/PromotionSnapshotSerializerTests.cs`).
+
+**Verification**: `dotnet build Diva.slnx` 0 errors; `dotnet test Diva.slnx` — `Diva.TenantAdmin.Tests`
+325/325 (319 + 6 new), `Diva.Tools.Tests` 78/78, `DivaFsMcpServer.Tests` 14/14, `Diva.Agents.Tests`
+355/356 (same single pre-existing unrelated `ContextWindowTests` failure tolerated). `tsc -b` clean;
+eslint unchanged at the established baseline (36 problems, 26 errors/10 warnings) — zero new issues.
+
+---
+
 ## [2026-08-12] Behavior change: version numbers now only increase when promoted from the default environment
 
 **Problem**: promoting an agent between two non-default environments (e.g. COT Play → COT Live)

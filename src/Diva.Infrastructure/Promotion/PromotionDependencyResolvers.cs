@@ -89,6 +89,25 @@ public sealed class AgentPromotionDependencyResolver : IPromotionDependencyResol
         return [];
     }
 
+    /// <summary>Scheduled tasks invoking this agent — optional, excludable, materialized after the
+    /// agent itself (see interface doc) so their AgentId can resolve to the just-promoted row.</summary>
+    public async Task<IReadOnlyList<PromotableDependency>> GetOptionalDependentsAsync(int tenantId, Guid logicalId, int environmentId, CancellationToken ct)
+    {
+        using var db = _db.CreateDbContext();
+        var agent = await db.AgentDefinitions.AsNoTracking()
+            .FirstOrDefaultAsync(a => a.TenantId == tenantId && a.EnvironmentId == environmentId && a.LogicalId == logicalId, ct);
+        if (agent is null)
+        {
+            return [];
+        }
+
+        var tasks = await db.ScheduledTasks.AsNoTracking()
+            .Where(t => t.TenantId == tenantId && t.EnvironmentId == environmentId && t.AgentId == agent.Id && t.LogicalId != null)
+            .Select(t => new { t.Name, t.LogicalId })
+            .ToListAsync(ct);
+        return tasks.Select(t => new PromotableDependency("ScheduledTask", t.LogicalId!.Value, t.Name, IsOptional: true)).ToList();
+    }
+
     private static List<string> ParseStringArray(string? json)
     {
         if (string.IsNullOrWhiteSpace(json) || json.Trim() == "[]")
