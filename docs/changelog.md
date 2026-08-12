@@ -4,6 +4,43 @@
 
 ---
 
+## [2026-08-12] Bug fix: an already-connected MCP client kept using a stale credential for up to 30 minutes, even after cache invalidation
+
+**Problem** (follow-up to the same-day credential-cache-invalidation and Edit-UI fixes — a third,
+distinct root cause in the same "COT Live Prod" investigation): even with the Edit UI genuinely
+saving a new key, and with logs confirming `CredentialResolver: invalidated cache for 'COT Live
+Prod'` firing correctly on every save, the agent kept failing with an authentication error. Traced
+live: repeated failed tool calls showed no intervening "Connected to MCP server..." log line,
+proving the same MCP client connection was being reused, not reconnected. Reading
+`McpConnectionManager.CreateClientAsync` confirmed why: it calls `ICredentialResolver.ResolveAsync`
+**once**, at connect time, and that resolved value is captured by the header-injection closure
+passed into `SsoAwareHttpMessageHandler` — fixed for the lifetime of that MCP client object. Because
+`McpClientCache` caches connected clients for a 30-minute TTL with no invalidation hook, and the
+credential-value cache fix only affects the *next* `ResolveAsync` call (which never happens for an
+already-connected client), a corrected credential could silently fail to take effect for up to 30
+minutes, or effectively indefinitely if the connection kept getting reused within that window. The
+SSO/tenant-context portion of header-building *is* re-evaluated per request (reads
+`IHttpContextAccessor` fresh); only the credential *value* is resolved once and re-injected (not
+re-resolved) afterward.
+
+**Fix**: added `McpClientCache.EvictAllAsync()` — evicts and disposes every cached MCP client across
+all agents and tenants (there's no cheap way to know in advance which cached connections reference
+a given credential name, since it isn't part of the cache key, so a credential write forces every
+agent to reconnect rather than risk continuing to serve a stale value). Wired into
+`CredentialsController`'s `Update`, `Rotate`, and `Delete` actions, right alongside the existing
+`ICredentialResolver.InvalidateAsync` call.
+(`src/Diva.Infrastructure/LiteLLM/McpClientCache.cs`, `src/Diva.Host/Controllers/CredentialsController.cs`)
+
+**Tests**: `EvictAllAsync_RemovesEveryAgent_NextCallsAllReconnect` (two different agents cached,
+evict-all, both reconnect on next call) and `EvictAllAsync_EmptyCache_IsNoOp`.
+(`tests/Diva.Agents.Tests/McpClientCacheTests.cs`)
+
+**Verification**: `dotnet build Diva.slnx` 0 errors; `dotnet test Diva.slnx` — `Diva.TenantAdmin.Tests`
+315/315, `Diva.Tools.Tests` 78/78, `DivaFsMcpServer.Tests` 14/14, `Diva.Agents.Tests` 355/356 (353 +
+2 new, same single pre-existing unrelated `ContextWindowTests` failure tolerated).
+
+---
+
 ## [2026-08-12] Bug fix: admin portal had no way to actually change an existing MCP credential's key
 
 **Problem** (follow-up to the same-day cache-invalidation fix — different root cause entirely):

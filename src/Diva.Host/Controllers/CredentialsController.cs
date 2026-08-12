@@ -5,6 +5,7 @@ using Diva.Infrastructure.Auth;
 using Diva.Infrastructure.Data;
 using Diva.Infrastructure.Data.Entities;
 using Diva.Infrastructure.Extensions;
+using Diva.Infrastructure.LiteLLM;
 using Diva.TenantAdmin.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -20,6 +21,7 @@ public class CredentialsController : ControllerBase
     private readonly ICredentialEncryptor _encryptor;
     private readonly IEnvironmentService _environments;
     private readonly ICredentialResolver _credentialResolver;
+    private readonly McpClientCache _mcpClientCache;
     private readonly ILogger<CredentialsController> _logger;
 
     public CredentialsController(
@@ -27,12 +29,14 @@ public class CredentialsController : ControllerBase
         ICredentialEncryptor encryptor,
         IEnvironmentService environments,
         ICredentialResolver credentialResolver,
+        McpClientCache mcpClientCache,
         ILogger<CredentialsController> logger)
     {
         _db = db;
         _encryptor = encryptor;
         _environments = environments;
         _credentialResolver = credentialResolver;
+        _mcpClientCache = mcpClientCache;
         _logger = logger;
     }
 
@@ -210,6 +214,9 @@ public class CredentialsController : ControllerBase
         await db.SaveChangesAsync(ct);
         // Otherwise a rotated/edited key keeps serving the old cached value for up to the TTL.
         await _credentialResolver.InvalidateAsync(tid, entity.Name, ct);
+        // An already-connected MCP client captured the OLD credential value in a closure at
+        // connect time and never re-reads it — force every agent to reconnect.
+        await _mcpClientCache.EvictAllAsync();
         return Ok(new { entity.Id, entity.Name, entity.AuthScheme });
     }
 
@@ -225,6 +232,7 @@ public class CredentialsController : ControllerBase
         db.McpCredentials.Remove(entity);
         await db.SaveChangesAsync(ct);
         await _credentialResolver.InvalidateAsync(tid, entity.Name, ct);
+        await _mcpClientCache.EvictAllAsync();
         return NoContent();
     }
 
@@ -240,6 +248,7 @@ public class CredentialsController : ControllerBase
         entity.EncryptedApiKey = _encryptor.Encrypt(dto.NewApiKey);
         await db.SaveChangesAsync(ct);
         await _credentialResolver.InvalidateAsync(tid, entity.Name, ct);
+        await _mcpClientCache.EvictAllAsync();
 
         _logger.LogInformation("Credential rotated: {Name} for tenant {TenantId}", entity.Name, tid);
         return Ok(new { entity.Id, entity.Name, Message = "Key rotated successfully" });

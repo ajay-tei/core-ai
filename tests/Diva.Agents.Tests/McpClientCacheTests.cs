@@ -115,4 +115,34 @@ public class McpClientCacheTests : IAsyncDisposable
         // Should not throw
         await _cache.EvictAsync("does-not-exist");
     }
+
+    [Fact]
+    public async Task EvictAllAsync_RemovesEveryAgent_NextCallsAllReconnect()
+    {
+        int calls1 = 0, calls2 = 0;
+        var agent1 = Agent("a1");
+        var agent2 = Agent("a2");
+        Func<CancellationToken, Task<Dictionary<string, McpClient>>> factory1 =
+            _ => { calls1++; return Task.FromResult(new Dictionary<string, McpClient>()); };
+        Func<CancellationToken, Task<Dictionary<string, McpClient>>> factory2 =
+            _ => { calls2++; return Task.FromResult(new Dictionary<string, McpClient>()); };
+
+        await _cache.GetOrConnectAsync(agent1, factory1, default);  // warm agent1
+        await _cache.GetOrConnectAsync(agent2, factory2, default);  // warm agent2
+
+        await _cache.EvictAllAsync();                                // evict every agent
+
+        await _cache.GetOrConnectAsync(agent1, factory1, default);  // should reconnect
+        await _cache.GetOrConnectAsync(agent2, factory2, default);  // should reconnect
+
+        Assert.Equal(2, calls1);
+        Assert.Equal(2, calls2);
+    }
+
+    [Fact]
+    public async Task EvictAllAsync_EmptyCache_IsNoOp()
+    {
+        // Should not throw
+        await _cache.EvictAllAsync();
+    }
 }

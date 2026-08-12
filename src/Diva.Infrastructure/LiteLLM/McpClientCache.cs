@@ -19,6 +19,12 @@ public sealed class McpClientCache : IAsyncDisposable
         DateTime CreatedAt);
 
     private readonly ConcurrentDictionary<string, CachedEntry> _cache = new();
+    // Per-cache-key async gate: serializes concurrent cold-cache connects for the same key so a
+    // burst of simultaneous requests for the same agent (e.g. many users starting a session right
+    // after a deploy/TTL expiry) coalesces into ONE connect instead of each caller racing to spawn
+    // its own stdio/docker process or HTTP handshake. Never removed — bounded by distinct agent/
+    // discriminator/suffix combinations, same order of magnitude as _cache itself.
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new();
     private readonly TimeSpan _ttl = TimeSpan.FromMinutes(30);
 
     /// <summary>
@@ -45,14 +51,23 @@ public sealed class McpClientCache : IAsyncDisposable
         var cacheKey = BuildCacheKey(definition.Id, cacheKeyDiscriminator, cacheKeySuffix);
         var hash = ComputeHash(bindingsForHash);
 
-        if (_cache.TryGetValue(cacheKey, out var entry)
-            && entry.BindingsHash == hash
-            && DateTime.UtcNow - entry.CreatedAt < _ttl)
-        {
-            return entry.Clients;
-        }
+        if (TryGetFresh(cacheKey, hash, out var clients))
+            return clients;
 
-        return await ConnectAndCacheAsync(cacheKey, bindingsForHash, hash, connectFactory, ct);
+        var gate = _locks.GetOrAdd(cacheKey, static _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
+        try
+        {
+            // Re-check: another caller may have populated the cache while we waited on the gate.
+            if (TryGetFresh(cacheKey, hash, out clients))
+                return clients;
+
+            return await ConnectAndCacheAsync(cacheKey, bindingsForHash, hash, connectFactory, ct);
+        }
+        finally
+        {
+            gate.Release();
+        }
     }
 
     /// <summary>
@@ -70,10 +85,33 @@ public sealed class McpClientCache : IAsyncDisposable
         var bindingsForHash = effectiveBindingsJson ?? definition.ToolBindings;
         var cacheKey = BuildCacheKey(definition.Id, cacheKeyDiscriminator, cacheKeySuffix);
         var hash = ComputeHash(bindingsForHash);
-        if (_cache.TryRemove(cacheKey, out var dead))
-            foreach (var c in dead.Clients.Values)
-                try { await c.DisposeAsync(); } catch { /* ignore */ }
-        return await ConnectAndCacheAsync(cacheKey, bindingsForHash, hash, connectFactory, ct);
+
+        var gate = _locks.GetOrAdd(cacheKey, static _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
+        try
+        {
+            if (_cache.TryRemove(cacheKey, out var dead))
+                foreach (var c in dead.Clients.Values)
+                    try { await c.DisposeAsync(); } catch { /* ignore */ }
+            return await ConnectAndCacheAsync(cacheKey, bindingsForHash, hash, connectFactory, ct);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private bool TryGetFresh(string cacheKey, string hash, out Dictionary<string, McpClient> clients)
+    {
+        if (_cache.TryGetValue(cacheKey, out var entry)
+            && entry.BindingsHash == hash
+            && DateTime.UtcNow - entry.CreatedAt < _ttl)
+        {
+            clients = entry.Clients;
+            return true;
+        }
+        clients = null!;
+        return false;
     }
 
     private static string BuildCacheKey(string agentId, string? discriminator, string? suffix) =>
@@ -120,6 +158,25 @@ public sealed class McpClientCache : IAsyncDisposable
         var keys = _cache.Keys
             .Where(k => k == agentId || k.StartsWith(agentId + ":", StringComparison.Ordinal))
             .ToList();
+        foreach (var key in keys)
+            if (_cache.TryRemove(key, out var entry))
+                foreach (var c in entry.Clients.Values)
+                    try { await c.DisposeAsync(); } catch { /* ignore */ }
+    }
+
+    /// <summary>
+    /// Evicts every cached MCP client, across all agents and tenants. A connected client's
+    /// resolved credential is captured ONCE (in a closure) at connect time, not re-resolved on
+    /// each request — invalidating the credential resolver's own cache only affects the NEXT
+    /// resolution, so a credential's value/active-state/expiry change never reaches an
+    /// already-connected client (cached for up to 30 min) without also evicting it here. There is
+    /// no cheap way to know in advance which cached connections reference a given credential name
+    /// (it isn't part of the cache key), so a credential write forces every agent to reconnect
+    /// rather than risk silently continuing to use a stale value.
+    /// </summary>
+    public async Task EvictAllAsync()
+    {
+        var keys = _cache.Keys.ToList();
         foreach (var key in keys)
             if (_cache.TryRemove(key, out var entry))
                 foreach (var c in entry.Clients.Values)
