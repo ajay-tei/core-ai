@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Trash2, Save, KeyRound } from "lucide-react";
+import { Plus, Trash2, Save, KeyRound, Pencil, X } from "lucide-react";
 import { toast } from "sonner";
 
 const AUTH_SCHEMES = ["Bearer", "ApiKey", "Custom"] as const;
@@ -22,6 +22,8 @@ export function CredentialManager() {
     usePagedList<McpCredential, McpCredentialListParams>(api.listCredentialsPaged, { page: 1, pageSize: 25 });
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState<CreateCredentialDto>({ name: "", apiKey: "" });
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState<UpdateCredentialDto>({});
 
   useEffect(() => {
     if (currentEnvironmentId) update({ environmentId: currentEnvironmentId });
@@ -55,6 +57,33 @@ export function CredentialManager() {
     try {
       await api.updateCredential(cred.id, { isActive: !cred.isActive } as UpdateCredentialDto);
       toast.success(`Credential "${cred.name}" ${cred.isActive ? "deactivated" : "activated"}`);
+      reload();
+    } catch { toast.error("Failed to update credential"); }
+  };
+
+  const startEdit = (cred: McpCredential) => {
+    setEditingId(cred.id);
+    setEditForm({
+      name: cred.name,
+      authScheme: cred.authScheme,
+      customHeaderName: cred.customHeaderName,
+      description: cred.description,
+      environmentId: cred.environmentId,
+      newApiKey: undefined,
+    });
+  };
+
+  const cancelEdit = () => { setEditingId(null); setEditForm({}); };
+
+  const handleSaveEdit = async (id: number) => {
+    if (!editForm.name?.trim()) {
+      toast.error("Name is required");
+      return;
+    }
+    try {
+      await api.updateCredential(id, editForm);
+      toast.success(`Credential "${editForm.name}" updated${editForm.newApiKey ? " (key rotated)" : ""}`);
+      cancelEdit();
       reload();
     } catch { toast.error("Failed to update credential"); }
   };
@@ -142,6 +171,64 @@ export function CredentialManager() {
         <div className="space-y-3">
           {(result?.items ?? []).map((c) => (
             <Card key={c.id}>
+              {editingId === c.id ? (
+                <CardContent className="grid gap-4 py-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label>Name</Label>
+                      <Input value={editForm.name ?? ""} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Auth Scheme</Label>
+                      <Select value={editForm.authScheme ?? "Bearer"} onValueChange={(v) => setEditForm({ ...editForm, authScheme: v })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {AUTH_SCHEMES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>New API Key</Label>
+                    <Input
+                      type="password"
+                      value={editForm.newApiKey ?? ""}
+                      onChange={(e) => setEditForm({ ...editForm, newApiKey: e.target.value || undefined })}
+                      placeholder="Leave blank to keep the existing key"
+                      autoComplete="new-password"
+                    />
+                  </div>
+                  {editForm.authScheme === "Custom" && (
+                    <div className="space-y-1.5">
+                      <Label>Custom Header Name</Label>
+                      <Input value={editForm.customHeaderName ?? ""} onChange={(e) => setEditForm({ ...editForm, customHeaderName: e.target.value })} />
+                    </div>
+                  )}
+                  <div className="space-y-1.5">
+                    <Label>Description</Label>
+                    <Input value={editForm.description ?? ""} onChange={(e) => setEditForm({ ...editForm, description: e.target.value })} placeholder="Optional description" />
+                  </div>
+                  {environments.length > 0 && (
+                    <div className="space-y-1.5">
+                      <Label>Environment</Label>
+                      <Select
+                        value={editForm.environmentId ? String(editForm.environmentId) : "none"}
+                        onValueChange={(v) => setEditForm({ ...editForm, environmentId: v === "none" ? undefined : Number(v) })}
+                      >
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">All environments (untagged)</SelectItem>
+                          {environments.map((e) => <SelectItem key={e.id} value={String(e.id)}>{e.displayName}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <Button onClick={() => handleSaveEdit(c.id)}><Save className="h-4 w-4 mr-1" /> Save</Button>
+                    <Button variant="outline" onClick={cancelEdit}><X className="h-4 w-4 mr-1" /> Cancel</Button>
+                  </div>
+                </CardContent>
+              ) : (
               <CardContent className="flex items-center justify-between py-4">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
@@ -169,6 +256,9 @@ export function CredentialManager() {
                   </div>
                 </div>
                 <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={() => startEdit(c)}>
+                    <Pencil className="h-4 w-4" />
+                  </Button>
                   <Button variant="outline" size="sm" onClick={() => handleToggleActive(c)}>
                     {c.isActive ? "Deactivate" : "Activate"}
                   </Button>
@@ -177,6 +267,7 @@ export function CredentialManager() {
                   </Button>
                 </div>
               </CardContent>
+              )}
             </Card>
           ))}
         </div>

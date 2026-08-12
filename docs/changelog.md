@@ -4,6 +4,31 @@
 
 ---
 
+## [2026-08-12] Bug fix: admin portal had no way to actually change an existing MCP credential's key
+
+**Problem** (follow-up to the same-day cache-invalidation fix — different root cause entirely):
+even after that fix deployed, the "COT Live Prod" credential's authentication error persisted.
+Traced live: the masked key hint in `McpCredentialSelector`'s own logging (`key ****2ccc`) — which
+reads straight from the database on every call, no caching involved — was **identical** before and
+after the user believed they'd entered a new key, and the DB row's `EncryptedApiKey` length and
+`CreatedAt` hadn't changed either. The backend `PUT .../credentials/{id}` (with `newApiKey`) and
+`POST .../credentials/{id}/rotate` endpoints both already existed and both already call the new
+`InvalidateAsync` — but `CredentialManager.tsx` never called either of them: its only per-credential
+actions were Activate/Deactivate and Delete. There was no Edit button, no key-rotation field, no way
+at all to change a credential's key short of deleting and recreating it under a decoy identical
+name — so whatever the user did in the UI never actually reached the backend.
+
+**Fix**: added a real Edit flow to `CredentialManager.tsx` — a pencil-icon button per row opens an
+inline form (name, auth scheme, custom header, description, environment, all pre-filled) plus an
+optional **New API Key** field ("leave blank to keep the existing key"), calling the existing
+`PUT /api/admin/credentials/{id}` endpoint. (`admin-portal/src/components/CredentialManager.tsx`)
+
+**Verification**: `tsc -b` clean; eslint clean (36 problems, matching the established baseline
+exactly, zero from the touched file). Deployed `diva-portal` only; confirmed the new bundle
+(`main-edOT80mZ.js`, changed from `main-9DTQIKrw.js`) contains the new edit-form text.
+
+---
+
 ## [2026-08-12] Bug fix: rotating/editing an MCP credential kept serving the OLD key for up to 2 minutes
 
 **Problem**: user updated "COT Live Prod" with a new, verified-working key (confirmed valid via an
