@@ -44,6 +44,13 @@ public interface IPromotionLedgerService
     /// the most recent version on record (content-hash dedup — republishing unchanged content is
     /// a no-op). Always updates the environment's live-version pointer to the resulting version.
     /// </summary>
+    /// <param name="allowNewVersion">
+    /// When false, a content difference from the latest recorded version never mints a new version
+    /// number — the current version is reused as-is instead. Used for promotions whose source is
+    /// not the tenant's default environment: version numbers are only meant to increase when a new
+    /// release is cut from the default environment: every other promotion (e.g. Staging -&gt; Prod)
+    /// just carries the existing version forward to one more environment.
+    /// </param>
     Task<RecordVersionResult> RecordVersionAsync(
         int tenantId,
         Guid logicalId,
@@ -55,7 +62,8 @@ public interface IPromotionLedgerService
         int? promotedFromVersionId,
         string? createdBy,
         string? changeNote,
-        CancellationToken ct);
+        CancellationToken ct,
+        bool allowNewVersion = true);
 
     /// <summary>Full version history for a logical object, newest first.</summary>
     Task<IReadOnlyList<PromotableVersionDto>> GetHistoryAsync(int tenantId, Guid logicalId, CancellationToken ct);

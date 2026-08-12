@@ -588,4 +588,62 @@ public class PromotionOrchestrationServiceTests : IDisposable
         var history = await _ledger.GetHistoryAsync(TenantId, agent.LogicalId!.Value, CancellationToken.None);
         Assert.Single(history); // one recorded version, reused across both environments
     }
+
+    [Fact]
+    public async Task PromoteAsync_FromNonDefaultEnvironment_ContentDiffersFromRecordedVersion_ReusesVersionInsteadOfMinting()
+    {
+        // Business rule: version numbers only increase when a release is cut from the tenant's
+        // default environment. Promoting from any OTHER environment must never mint a new version,
+        // even if that environment's own live content has since drifted from what's on record.
+        var devEnvId = await SeedEnvironmentAsync("dev", 0, isDefault: true);
+        var stagingEnvId = await SeedEnvironmentAsync("staging", 1);
+        var prodEnvId = await SeedEnvironmentAsync("prod", 2);
+        var agent = await SeedAgentAsync(devEnvId);
+
+        var toStaging = await _orchestrator.PromoteAsync(TenantId, "Agent", agent.LogicalId!.Value, devEnvId, stagingEnvId, "alice", null, null, CancellationToken.None);
+        Assert.Equal(1, toStaging.PromotedObjects[0].Version);
+
+        // Staging's own live row drifts from what was recorded for v1 (simulates a direct edit
+        // made in staging without going through Dev/republish).
+        using (var db = new DivaDbContext(_options))
+        {
+            var stagingAgent = await db.AgentDefinitions.SingleAsync(a => a.EnvironmentId == stagingEnvId);
+            stagingAgent.SystemPrompt = "drifted prompt, never republished";
+            await db.SaveChangesAsync();
+        }
+
+        var toProd = await _orchestrator.PromoteAsync(TenantId, "Agent", agent.LogicalId!.Value, stagingEnvId, prodEnvId, "alice", null, null, CancellationToken.None);
+
+        Assert.True(toProd.Success);
+        Assert.False(toProd.PromotedObjects[0].WasSkipped); // content was actually materialized into prod
+        Assert.Equal(1, toProd.PromotedObjects[0].Version);  // reused v1, did not mint v2
+
+        var history = await _ledger.GetHistoryAsync(TenantId, agent.LogicalId!.Value, CancellationToken.None);
+        Assert.Single(history); // still just one recorded version
+    }
+
+    [Fact]
+    public async Task PromoteAsync_FromDefaultEnvironment_ContentDiffers_StillMintsNewVersion()
+    {
+        var devEnvId = await SeedEnvironmentAsync("dev", 0, isDefault: true);
+        var stagingEnvId = await SeedEnvironmentAsync("staging", 1);
+        var agent = await SeedAgentAsync(devEnvId);
+
+        var first = await _orchestrator.PromoteAsync(TenantId, "Agent", agent.LogicalId!.Value, devEnvId, stagingEnvId, "alice", null, null, CancellationToken.None);
+        Assert.Equal(1, first.PromotedObjects[0].Version);
+
+        // Dev (the default environment) genuinely changes content, then re-promotes.
+        using (var db = new DivaDbContext(_options))
+        {
+            var devAgent = await db.AgentDefinitions.SingleAsync(a => a.EnvironmentId == devEnvId);
+            devAgent.SystemPrompt = "v2 prompt";
+            await db.SaveChangesAsync();
+        }
+
+        var second = await _orchestrator.PromoteAsync(TenantId, "Agent", agent.LogicalId!.Value, devEnvId, stagingEnvId, "alice", null, null, CancellationToken.None);
+
+        Assert.True(second.Success);
+        Assert.False(second.PromotedObjects[0].WasSkipped);
+        Assert.Equal(2, second.PromotedObjects[0].Version); // default-environment promotion DOES mint a new version
+    }
 }

@@ -37,7 +37,8 @@ public sealed class PromotionLedgerService : IPromotionLedgerService
         int? promotedFromVersionId,
         string? createdBy,
         string? changeNote,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool allowNewVersion = true)
     {
         using var db = _db.CreateDbContext();
 
@@ -72,6 +73,14 @@ public sealed class PromotionLedgerService : IPromotionLedgerService
         {
             // Pure dedup — identical to the latest recorded content regardless of which
             // environment(s) already use it (e.g. promoting unchanged content to a new environment).
+            version = latest;
+        }
+        else if (latest is not null && !allowNewVersion)
+        {
+            // Promotion from a non-default environment must never mint a new version number, even
+            // though this target's freshly-serialized content isn't byte-identical to the latest
+            // recorded snapshot — reuse the current version's identity. (MaterializeAsync writes the
+            // fresh content to the target's own live row separately; this only affects the ledger label.)
             version = latest;
         }
         else if (latest is not null && (source is "manual" or "publish")

@@ -94,6 +94,25 @@ public class PromotionLedgerServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task RecordVersionAsync_PromotionSource_AllowNewVersionFalse_ReusesLatestInsteadOfMinting()
+    {
+        // allowNewVersion=false models a promotion whose source is NOT the tenant's default
+        // environment -- version numbers must never increase there, even though "promotion" would
+        // otherwise always mint a new version on content change (see the test above).
+        var envId = await SeedEnvironmentAsync();
+        var logicalId = Guid.NewGuid();
+        var first = await _ledger.RecordVersionAsync(TenantId, logicalId, "McpServer", "weather-api", envId, "{\"v\":1}", "promotion", null, "alice", null, CancellationToken.None);
+
+        var second = await _ledger.RecordVersionAsync(TenantId, logicalId, "McpServer", "weather-api", envId, "{\"v\":2}", "promotion", null, "alice", null, CancellationToken.None, allowNewVersion: false);
+
+        Assert.Equal(1, second.Version.Version);           // no new version minted
+        Assert.Equal(first.Version.Id, second.Version.Id); // same row identity reused
+
+        using var db = new DivaDbContext(_options);
+        Assert.Equal(1, await db.PromotableVersions.CountAsync(v => v.LogicalId == logicalId)); // only one row ever created
+    }
+
+    [Fact]
     public async Task GetHistoryAsync_ReturnsNewestFirst()
     {
         var envId = await SeedEnvironmentAsync();

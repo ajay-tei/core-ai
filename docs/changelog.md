@@ -4,6 +4,46 @@
 
 ---
 
+## [2026-08-12] Behavior change: version numbers now only increase when promoted from the default environment
+
+**Problem**: promoting an agent between two non-default environments (e.g. COT Play → COT Live)
+could mint a brand-new version number even though nothing meaningful changed — `RecordVersionAsync`
+only compares the freshly-serialized source content's hash against the single global latest
+recorded version for that logical object, and mints a new version whenever they don't match
+(always true for `source: "promotion"`, by design, so promotion is a distinct auditable
+checkpoint). But version numbers are meant to represent releases cut from the tenant's default
+environment — every other promotion should just carry the existing version forward to one more
+environment, never mint a new one, regardless of why the hash happened to differ (e.g. content
+that drifted in a non-default environment without ever being explicitly re-published).
+
+**Fix**: `IPromotionLedgerService.RecordVersionAsync` gained a trailing `bool allowNewVersion =
+true` parameter — when false, a content mismatch against the latest recorded version reuses that
+version's identity instead of minting a new one. `PromotionOrchestrationService.PromoteAsync` now
+looks up the source environment's `IsDefault` flag once per call and passes
+`allowNewVersion: isFromDefaultEnvironment` to the ledger. Every other existing caller (the 4
+publish-flow controllers, `RollbackAsync`, all existing tests) is unaffected by the default value.
+Also simplified `PromotedObjectResult.WasSkipped` computation in `PromoteAsync`: it's now `false`
+whenever `MaterializeAsync` actually ran (the target's live row was genuinely written), instead of
+being derived from the ledger's own `WasNew` flag — which would have misreported "skipped" for a
+freshly-materialized non-default-environment promotion that happens to reuse a version number.
+(`src/Diva.Core/Models/PromotionModels.cs`, `src/Diva.Infrastructure/Promotion/PromotionLedgerService.cs`,
+`src/Diva.Infrastructure/Promotion/PromotionOrchestrationService.cs`)
+
+**Tests**: `RecordVersionAsync_PromotionSource_AllowNewVersionFalse_ReusesLatestInsteadOfMinting`
+(ledger-level: `allowNewVersion: false` reuses the existing row/number despite changed content),
+`PromoteAsync_FromNonDefaultEnvironment_ContentDiffersFromRecordedVersion_ReusesVersionInsteadOfMinting`
+(staging's content drifts post-promotion, then staging→prod reuses v1 instead of minting v2, and is
+reported as not-skipped since prod's row was genuinely created), and
+`PromoteAsync_FromDefaultEnvironment_ContentDiffers_StillMintsNewVersion` (confirms the existing,
+correct behavior is preserved when the source IS the default environment).
+(`tests/Diva.TenantAdmin.Tests/PromotionLedgerServiceTests.cs`, `tests/Diva.TenantAdmin.Tests/PromotionOrchestrationServiceTests.cs`)
+
+**Verification**: `dotnet build Diva.slnx` 0 errors; `dotnet test Diva.slnx` — `Diva.TenantAdmin.Tests`
+319/319 (316 + 3 new), `Diva.Tools.Tests` 78/78, `DivaFsMcpServer.Tests` 14/14, `Diva.Agents.Tests`
+355/356 (same single pre-existing unrelated `ContextWindowTests` failure tolerated).
+
+---
+
 ## [2026-08-12] Observability: log a masked tail of the actual credential value at resolve/inject time
 
 **Problem**: after the COT Live "Weather Server - Global" tool calls turned out to fail for a

@@ -78,6 +78,12 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
             return new PromotionResult { Success = false, Error = rankCheck };
         }
 
+        // Version numbers only increase when a release is cut from the tenant's default
+        // environment — every other promotion (e.g. COT Play -> COT Live) carries the existing
+        // version forward to one more environment instead of minting a new one.
+        var fromEnv = await db.TenantEnvironments.AsNoTracking().FirstOrDefaultAsync(e => e.Id == fromEnvironmentId && e.TenantId == tenantId, ct);
+        var isFromDefaultEnvironment = fromEnv?.IsDefault ?? false;
+
         var (closure, forwardErrors) = await BuildClosureAsync(db, tenantId, objectType, logicalId, fromEnvironmentId, toEnvironmentId, targetLlmConfigId, ct);
         if (forwardErrors.Count > 0)
         {
@@ -112,25 +118,18 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
             // re-promotion after a manual delete would silently no-op instead of recreating it.
             var targetDeployment = await db.EnvironmentDeployments.AsNoTracking()
                 .FirstOrDefaultAsync(d => d.LogicalId == lid && d.TenantId == tenantId && d.EnvironmentId == toEnvironmentId, ct);
-            var recreatingMissingRow = false;
             if (targetDeployment?.LiveVersionId is int liveId)
             {
                 var liveVersion = await db.PromotableVersions.AsNoTracking().FirstOrDefaultAsync(v => v.Id == liveId, ct);
-                if (liveVersion is not null && liveVersion.SnapshotJson == snapshot.SnapshotJson)
+                if (liveVersion is not null && liveVersion.SnapshotJson == snapshot.SnapshotJson
+                    && await serializer.SerializeAsync(tenantId, toEnvironmentId, lid, ct) is not null)
                 {
-                    if (await serializer.SerializeAsync(tenantId, toEnvironmentId, lid, ct) is not null)
+                    if (isRoot && ot == "Agent" && targetLlmConfigId is not null)
                     {
-                        if (isRoot && ot == "Agent" && targetLlmConfigId is not null)
-                        {
-                            await ApplyLlmConfigOverrideAsync(db, tenantId, toEnvironmentId, lid, targetLlmConfigId.Value, ct);
-                        }
-                        results.Add(new PromotedObjectResult(ot, lid, snapshot.Name, liveVersion.Id, liveVersion.Version, WasSkipped: true));
-                        continue;
+                        await ApplyLlmConfigOverrideAsync(db, tenantId, toEnvironmentId, lid, targetLlmConfigId.Value, ct);
                     }
-                    // Ledger says this content is already live, but the row itself is gone --
-                    // MaterializeAsync must still run below, and the result must not be reported
-                    // as skipped even though RecordVersionAsync will dedup the unchanged content.
-                    recreatingMissingRow = true;
+                    results.Add(new PromotedObjectResult(ot, lid, snapshot.Name, liveVersion.Id, liveVersion.Version, WasSkipped: true));
+                    continue;
                 }
             }
 
@@ -146,9 +145,13 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
 
             var recorded = await _ledger.RecordVersionAsync(
                 tenantId, lid, ot, snapshot.Name, toEnvironmentId,
-                snapshot.SnapshotJson, "promotion", sourceDeployment?.LiveVersionId, createdBy, changeNote, ct);
+                snapshot.SnapshotJson, "promotion", sourceDeployment?.LiveVersionId, createdBy, changeNote, ct,
+                allowNewVersion: isFromDefaultEnvironment);
 
-            results.Add(new PromotedObjectResult(ot, lid, snapshot.Name, recorded.Version.Id, recorded.Version.Version, WasSkipped: !recorded.WasNew && !recreatingMissingRow));
+            // Reaching here means MaterializeAsync actually wrote/updated the target's live row --
+            // never report this as skipped, regardless of whether the ledger minted a new version
+            // number (it may legitimately reuse the current one, e.g. non-default-environment promotions).
+            results.Add(new PromotedObjectResult(ot, lid, snapshot.Name, recorded.Version.Id, recorded.Version.Version, WasSkipped: false));
         }
 
         var run = new Data.Entities.PromotionRunEntity
