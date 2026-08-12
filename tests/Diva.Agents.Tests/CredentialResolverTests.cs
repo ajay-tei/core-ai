@@ -171,4 +171,62 @@ public class CredentialResolverTests : IDisposable
         Assert.NotNull(second);
         Assert.Equal("sk-cached", second.ApiKey);
     }
+
+    [Fact]
+    public async Task InvalidateAsync_ForcesFreshResolution_AfterKeyIsUpdated()
+    {
+        // Pins a real reported bug: an admin rotates/edits a credential's key, but the agent kept
+        // getting an "authentication error" using the OLD value for up to the cache TTL, because
+        // nothing evicted the previously-resolved (now stale) entry.
+        await SeedCredentialAsync("rotatable-key", "sk-old-value");
+
+        var first = await _resolver.ResolveAsync(TenantId, "rotatable-key", 0, CancellationToken.None);
+        Assert.Equal("sk-old-value", first!.ApiKey);
+
+        using (var db = CreateDb())
+        {
+            var entity = await db.McpCredentials.FirstAsync(c => c.Name == "rotatable-key");
+            entity.EncryptedApiKey = _encryptor.Encrypt("sk-new-value");
+            await db.SaveChangesAsync();
+        }
+
+        // Without invalidation, this would still return the stale cached "sk-old-value".
+        await _resolver.InvalidateAsync(TenantId, "rotatable-key", CancellationToken.None);
+
+        var second = await _resolver.ResolveAsync(TenantId, "rotatable-key", 0, CancellationToken.None);
+        Assert.Equal("sk-new-value", second!.ApiKey);
+    }
+
+    [Fact]
+    public async Task InvalidateAsync_SweepsEveryTenantEnvironment_NotJustTheUnscopedSlot()
+    {
+        // The cache key includes the CALLING environment (not just the credential's own tag), so
+        // invalidation must clear every environment this tenant has, not only the "0" wildcard slot.
+        using (var db = CreateDb())
+        {
+            db.TenantEnvironments.Add(new TenantEnvironmentEntity
+            {
+                TenantId = TenantId, Slug = "prod", DisplayName = "Prod", Rank = 1, IsDefault = false,
+            });
+            await db.SaveChangesAsync();
+        }
+        var envId = await CreateDb().TenantEnvironments.Where(e => e.TenantId == TenantId).Select(e => e.Id).FirstAsync();
+
+        await SeedCredentialAsync("env-scoped-key", "sk-old-value");
+
+        var first = await _resolver.ResolveAsync(TenantId, "env-scoped-key", envId, CancellationToken.None);
+        Assert.Equal("sk-old-value", first!.ApiKey);
+
+        using (var db = CreateDb())
+        {
+            var entity = await db.McpCredentials.FirstAsync(c => c.Name == "env-scoped-key");
+            entity.EncryptedApiKey = _encryptor.Encrypt("sk-new-value");
+            await db.SaveChangesAsync();
+        }
+
+        await _resolver.InvalidateAsync(TenantId, "env-scoped-key", CancellationToken.None);
+
+        var second = await _resolver.ResolveAsync(TenantId, "env-scoped-key", envId, CancellationToken.None);
+        Assert.Equal("sk-new-value", second!.ApiKey);
+    }
 }

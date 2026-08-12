@@ -24,4 +24,13 @@ public interface ICredentialResolver
     /// Resolution prefers a row tagged to this exact environment, falling back to an untagged
     /// (EnvironmentId == null) row — never a different, specifically-tagged environment's row.</param>
     Task<ResolvedCredential?> ResolveAsync(int tenantId, string credentialName, int environmentId, CancellationToken ct);
+
+    /// <summary>
+    /// Evicts every cached resolution of this credential (across all of the tenant's environments,
+    /// plus the unscoped/wildcard slot) so an updated value, rotated key, deactivation, or deletion
+    /// takes effect immediately instead of silently continuing to serve the old value for up to the
+    /// cache TTL. Call after any write to a credential's EncryptedApiKey, IsActive, ExpiresAt, or
+    /// EnvironmentId.
+    /// </summary>
+    Task InvalidateAsync(int tenantId, string credentialName, CancellationToken ct);
 }

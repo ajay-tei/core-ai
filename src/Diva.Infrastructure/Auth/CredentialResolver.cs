@@ -112,4 +112,24 @@ public sealed class CredentialResolver : ICredentialResolver
 
         return resolved;
     }
+
+    public async Task InvalidateAsync(int tenantId, string credentialName, CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(credentialName)) return;
+
+        // IMemoryCache has no prefix-evict, and the cache key includes the CALLER's environmentId
+        // (0 = unscoped), not just the credential's own tag — so sweep every environment this
+        // tenant has, not just the one the credential currently happens to be tagged to.
+        _cache.Remove($"cred:{tenantId}:{credentialName}:0");
+
+        using var db = _dbFactory.CreateDbContext(TenantContext.System(tenantId));
+        var envIds = await db.TenantEnvironments
+            .Where(e => e.TenantId == tenantId)
+            .Select(e => e.Id)
+            .ToListAsync(ct);
+        foreach (var envId in envIds)
+            _cache.Remove($"cred:{tenantId}:{credentialName}:{envId}");
+
+        _logger.LogInformation("CredentialResolver: invalidated cache for '{Name}' (tenant {TenantId})", credentialName, tenantId);
+    }
 }

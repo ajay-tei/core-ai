@@ -4,6 +4,42 @@
 
 ---
 
+## [2026-08-12] Bug fix: rotating/editing an MCP credential kept serving the OLD key for up to 2 minutes
+
+**Problem**: user updated "COT Live Prod" with a new, verified-working key (confirmed valid via an
+external MCP testing tool), but agents in COT Live kept failing with an authentication error.
+Traced live: `CredentialResolver.ResolveAsync` caches the **decrypted** credential in `IMemoryCache`
+for 2 minutes, keyed by `cred:{tenantId}:{name}:{environmentId}` — but nothing ever evicted that
+entry when the credential's `EncryptedApiKey` was changed. `CredentialsController`'s `Update`,
+`Rotate`, and `Delete` actions all write straight to the DB with no cache invalidation at all, so
+any resolution that happened before the edit (e.g. the admin's own earlier test) kept being served
+back, silently, for up to 2 minutes after the key was corrected — long enough that a same-session
+retest could easily still hit the stale value. Not the environment-scoping/credential-group bugs
+fixed earlier today — this is a distinct cache-invalidation gap.
+
+**Fix**: added `ICredentialResolver.InvalidateAsync(tenantId, credentialName, ct)` — since the cache
+key includes the *calling* environment (not just the credential's own tag), it sweeps every
+environment the tenant has (not just the credential's own one) plus the unscoped/wildcard slot.
+Called from `CredentialsController`'s `Update`, `Rotate`, and `Delete` actions right after
+`SaveChangesAsync`, matching the established "always invalidate after writes" convention already
+used for `ILlmConfigResolver`/`IGroupMembershipCache`.
+(`src/Diva.Core/Configuration/ICredentialResolver.cs`, `src/Diva.Infrastructure/Auth/CredentialResolver.cs`,
+`src/Diva.Host/Controllers/CredentialsController.cs`)
+
+**Tests**: `InvalidateAsync_ForcesFreshResolution_AfterKeyIsUpdated` (update → invalidate → next
+resolve sees the new value, not the cached old one) and
+`InvalidateAsync_SweepsEveryTenantEnvironment_NotJustTheUnscopedSlot` (a resolution cached under a
+specific environment id is also cleared, not just the unscoped "0" slot).
+(`tests/Diva.Agents.Tests/CredentialResolverTests.cs`)
+
+**Verification**: `dotnet build Diva.slnx` 0 errors; `dotnet test Diva.slnx` — `Diva.TenantAdmin.Tests`
+315/315, `Diva.Tools.Tests` 78/78, `DivaFsMcpServer.Tests` 14/14, `Diva.Agents.Tests` 353/354 (352 +
+2 new, same single pre-existing unrelated failure tolerated). Deployed `diva-api` only; confirmed
+`InvalidateAsync` present in the deployed `Diva.Core.dll` and the new log message string via
+`Select-String -Encoding Unicode` on the deployed `Diva.Infrastructure.dll`, ~1 minute old.
+
+---
+
 ## [2026-08-12] Bug fix: LLM config picker could show two entries as "selected" for the same value
 
 **Problem**: opening "Weather Agent - Global" (COT Play) and picking "COT" in the LLM config

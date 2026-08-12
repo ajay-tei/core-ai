@@ -19,17 +19,20 @@ public class CredentialsController : ControllerBase
     private readonly IDatabaseProviderFactory _db;
     private readonly ICredentialEncryptor _encryptor;
     private readonly IEnvironmentService _environments;
+    private readonly ICredentialResolver _credentialResolver;
     private readonly ILogger<CredentialsController> _logger;
 
     public CredentialsController(
         IDatabaseProviderFactory db,
         ICredentialEncryptor encryptor,
         IEnvironmentService environments,
+        ICredentialResolver credentialResolver,
         ILogger<CredentialsController> logger)
     {
         _db = db;
         _encryptor = encryptor;
         _environments = environments;
+        _credentialResolver = credentialResolver;
         _logger = logger;
     }
 
@@ -205,6 +208,8 @@ public class CredentialsController : ControllerBase
             entity.EncryptedApiKey = _encryptor.Encrypt(dto.NewApiKey);
 
         await db.SaveChangesAsync(ct);
+        // Otherwise a rotated/edited key keeps serving the old cached value for up to the TTL.
+        await _credentialResolver.InvalidateAsync(tid, entity.Name, ct);
         return Ok(new { entity.Id, entity.Name, entity.AuthScheme });
     }
 
@@ -219,6 +224,7 @@ public class CredentialsController : ControllerBase
 
         db.McpCredentials.Remove(entity);
         await db.SaveChangesAsync(ct);
+        await _credentialResolver.InvalidateAsync(tid, entity.Name, ct);
         return NoContent();
     }
 
@@ -233,6 +239,7 @@ public class CredentialsController : ControllerBase
 
         entity.EncryptedApiKey = _encryptor.Encrypt(dto.NewApiKey);
         await db.SaveChangesAsync(ct);
+        await _credentialResolver.InvalidateAsync(tid, entity.Name, ct);
 
         _logger.LogInformation("Credential rotated: {Name} for tenant {TenantId}", entity.Name, tid);
         return Ok(new { entity.Id, entity.Name, Message = "Key rotated successfully" });
