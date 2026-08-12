@@ -4,6 +4,46 @@
 
 ---
 
+## [2026-08-12] Bug fix: promotion blocking errors didn't say WHICH object in a cascade needed fixing
+
+**Problem** (follow-up to the same-day LLM config override fix — different root cause, same
+confusing symptom to a user testing it): promoting "Analytics - COT" from COT Play to COT Live
+still showed *"LlmConfig 'COT' has no key configured for environment 'COT Live'"* even with a valid
+override chosen, and none of the new version-info UI. Confirmed live via DB inspection this was
+**not** the same bug, and **not** a regression — the override correctly exempts the *root* agent
+("Analytics - COT" has no pinned LlmConfig at all, so its own check was already a no-op), but its
+cascaded delegate "Weather Agent - Global" has its **own** pinned LlmConfig ("COT", tagged only for
+COT Play) — which has no override mechanism in this flow, so it correctly still blocks. The error
+message just never said *which* object needed it, so it looked identical to the earlier (actually
+fixed) root-agent case. Since `preview.canPromote` is false for the whole cascade, the dialog's new
+Main-agent/Sub-agents version UI (which only renders when `canPromote` is true) also never appeared
+— looking exactly like "the same dialog as before."
+
+**Fix**: `BuildClosureAsync`'s draft, forward-dependency, and blocking-secret error messages now
+all prefix the specific object's label (e.g. `"Agent 'Weather Agent - Global': LlmConfig 'COT' has
+no key configured..."`), reusing the object-name lookup that was previously only used for the draft
+message. (`src/Diva.Infrastructure/Promotion/PromotionOrchestrationService.cs`)
+
+**Tests**: `PreviewAsync_DelegateAgentsOwnMissingLlmConfig_StillBlocks_WithObjectLabelInError`
+reproduces the exact scenario — root agent has no pinned config (or gets an override), a cascaded
+delegate has its own separately-pinned, environment-mismatched config — asserting the error names
+the delegate, not the root. (`tests/Diva.TenantAdmin.Tests/PromotionOrchestrationServiceTests.cs`)
+
+**What the user still needs to do**: this is a real, correct block, not a bug to route around —
+"Weather Agent - Global" needs its own valid LLM config for COT Live before "Analytics - COT" can
+be promoted there (e.g. a `TenantLlmConfig` named "COT" tagged to COT Live, or repoint the agent's
+`LlmConfigId` via `PUT /api/agents/{id}/model-config` on its COT Play copy to a config that already
+has one).
+
+**Verification**: `dotnet build Diva.slnx` 0 errors; `dotnet test Diva.slnx` — `Diva.TenantAdmin.Tests`
+314/314 (313 + 1 new), `Diva.Tools.Tests` 78/78, `DivaFsMcpServer.Tests` 14/14, `Diva.Agents.Tests`
+351/352 (same single pre-existing unrelated failure tolerated). Deployed `diva-api` only via `docker
+compose -f docker-compose.tei.yml -f docker-compose.sqlserver.yml up -d --build diva-api`; confirmed
+the updated error message string in the deployed `Diva.Infrastructure.dll` via `Select-String
+-Encoding Unicode` (per the established lesson that `grep -a` cannot find UTF-16 string literals).
+
+---
+
 ## [2026-08-12] Bug fix: admin portal could serve a stale JS bundle after every deploy
 
 **Problem**: after deploying the promote-dialog version display + LLM config override fix, a user

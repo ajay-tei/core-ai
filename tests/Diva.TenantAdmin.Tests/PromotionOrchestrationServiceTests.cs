@@ -411,6 +411,63 @@ public class PromotionOrchestrationServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task PreviewAsync_DelegateAgentsOwnMissingLlmConfig_StillBlocks_WithObjectLabelInError()
+    {
+        // Pins a real follow-up scenario: the root agent's own LlmConfig override does NOT exempt
+        // a delegate (cascaded) agent's own, separately-pinned LlmConfig — that has no override
+        // mechanism in this flow, so a genuinely missing key there must still block, and the error
+        // must say WHICH object needs it (previously ambiguous when the root and a delegate happen
+        // to reference a similarly-named config).
+        var cotPlayEnvId = await SeedEnvironmentAsync("cot-play", 0, isDefault: true);
+        var cotLiveEnvId = await SeedEnvironmentAsync("cot-live", 1);
+
+        int subAgentConfigId;
+        using (var db = new DivaDbContext(_options))
+        {
+            var subAgentConfig = new TenantLlmConfigEntity { TenantId = TenantId, Name = "COT", EnvironmentId = cotPlayEnvId };
+            db.TenantLlmConfigs.Add(subAgentConfig);
+            await db.SaveChangesAsync();
+            subAgentConfigId = subAgentConfig.Id;
+        }
+
+        var subAgent = await SeedAgentAsync(cotPlayEnvId, name: "Weather Agent - Global", llmConfigId: subAgentConfigId);
+        AgentDefinitionEntity rootAgent;
+        using (var db = new DivaDbContext(_options))
+        {
+            // A real delegate agent has already gone through at least one promotion of its own
+            // (it exists as its own environment copy in the first place), which is what creates
+            // its PromotableObjectEntity row — reproduce that here rather than relying on a real
+            // RecordVersionAsync round-trip.
+            db.PromotableObjects.Add(new PromotableObjectEntity
+            {
+                LogicalId = subAgent.LogicalId!.Value,
+                TenantId = TenantId,
+                ObjectType = "Agent",
+                Name = subAgent.Name,
+                OriginEnvironmentId = cotPlayEnvId,
+            });
+            rootAgent = new AgentDefinitionEntity
+            {
+                TenantId = TenantId,
+                Name = "Analytics - COT",
+                LogicalId = Guid.NewGuid(),
+                EnvironmentId = cotPlayEnvId,
+                DelegateAgentIdsJson = JsonSerializer.Serialize(new[] { subAgent.Id }),
+            };
+            db.AgentDefinitions.Add(rootAgent);
+            await db.SaveChangesAsync();
+        }
+
+        // Root has no pinned config at all, so its own check is a no-op either way — the block
+        // must come from the delegate's own "COT" config having no key in cot-live.
+        var preview = await _orchestrator.PreviewAsync(TenantId, "Agent", rootAgent.LogicalId!.Value, cotPlayEnvId, cotLiveEnvId, targetLlmConfigId: 999, CancellationToken.None);
+
+        Assert.False(preview.CanPromote);
+        Assert.Contains("Weather Agent - Global", preview.BlockingError);
+        Assert.Contains("COT", preview.BlockingError);
+    }
+
+    [Fact]
     public async Task PreviewAsync_PopulatesCurrentAndPromotingVersions()
     {
         var devEnvId = await SeedEnvironmentAsync("dev", 0, isDefault: true);

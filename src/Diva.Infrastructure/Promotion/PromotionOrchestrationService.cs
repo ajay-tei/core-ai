@@ -261,18 +261,22 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
 
             closure.Add((ot, lid));
 
+            // Resolved once per item and reused below — every forward/blocking error needs to say
+            // WHICH object in the cascade it's about, not just the root being promoted (a sub-agent
+            // pulled in by GetCascadeDependenciesAsync can have its own, unrelated missing config).
+            var objName = await db.PromotableObjects.AsNoTracking()
+                .Where(o => o.TenantId == tenantId && o.LogicalId == lid)
+                .Select(o => o.Name)
+                .FirstOrDefaultAsync(ct);
+            var objLabel = string.IsNullOrEmpty(objName) ? $"{ot} ({lid})" : $"{ot} '{objName}'";
+
             // Draft isolation (Phase C): a pending, unpublished draft means the live row is NOT
             // yet what the admin last edited — promoting it would silently ship stale content and
             // give false confidence that "what I just edited" went out. Block until published or discarded.
             var draft = await _drafts.GetDraftAsync(tenantId, ot, lid, fromEnvironmentId, ct);
             if (draft is not null)
             {
-                var draftName = await db.PromotableObjects.AsNoTracking()
-                    .Where(o => o.TenantId == tenantId && o.LogicalId == lid)
-                    .Select(o => o.Name)
-                    .FirstOrDefaultAsync(ct);
-                var label = string.IsNullOrEmpty(draftName) ? $"{ot} ({lid})" : $"{ot} '{draftName}'";
-                forwardErrors.Add($"{label} has unpublished draft changes — publish or discard the draft before promoting.");
+                forwardErrors.Add($"{objLabel} has unpublished draft changes — publish or discard the draft before promoting.");
             }
 
             if (!_resolvers.TryGetValue(ot, out var resolver))
@@ -315,7 +319,7 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
                 };
                 if (!existsInTarget)
                 {
-                    forwardErrors.Add($"{secret.Kind} '{secret.Name}' has no key configured for environment '{toEnv?.DisplayName ?? "the target environment"}' — configure it before promoting.");
+                    forwardErrors.Add($"{objLabel}: {secret.Kind} '{secret.Name}' has no key configured for environment '{toEnv?.DisplayName ?? "the target environment"}' — configure it before promoting.");
                 }
             }
 
