@@ -4,6 +4,34 @@
 
 ---
 
+## [2026-08-12] Bug fix: admin portal could serve a stale JS bundle after every deploy
+
+**Problem**: after deploying the promote-dialog version display + LLM config override fix, a user
+still saw the old dialog and the old blocking error. Confirmed via `docker logs` that the browser's
+actual network request to `/api/admin/promotions/preview` never included `targetLlmConfigId` at
+all — proof the browser was still running the previous JS bundle, even though the server's built
+files were already up to date (verified directly: the new bundle, containing the "Main agent"/
+"Sub-agents & dependencies" strings, was already on disk in the portal container). Root cause:
+`nginx.conf` had no `Cache-Control` headers at all, so `index.html` (which references the current
+build's content-hashed asset filenames) could be cached indefinitely by the browser or an
+intermediate proxy — a fresh deploy produces new asset files, but a stale cached `index.html` keeps
+pointing at the old ones forever.
+
+**Fix**: `index.html` (and the SPA catch-all route) now gets `Cache-Control: no-cache, no-store,
+must-revalidate` — always revalidated, never served stale. `/assets/` (Vite's content-hashed JS/CSS
+output) gets `Cache-Control: public, max-age=31536000, immutable` — safe to cache forever, since a
+new build always produces a new filename. (`admin-portal/nginx.conf`)
+
+**Verification**: rebuilt and redeployed `diva-portal` only; confirmed via `curl -I` against the
+running container that `/index.html` returns `no-cache, no-store, must-revalidate` and
+`/assets/main-*.js` returns `public, max-age=31536000, immutable`.
+
+**Note**: this does not touch the 2026-08-12 promote-dialog fix itself (already correctly deployed
+server-side) — it fixes the delivery mechanism so a hard refresh (or, going forward, even a normal
+refresh) actually picks up the new bundle instead of silently continuing to run the old one.
+
+---
+
 ## [2026-08-12] Feature + fix: promote dialog shows current/promoting versions; LLM config override no longer falsely blocked
 
 **Feature**: the Promote dialog's dependency list showed names only, with no version info, and
