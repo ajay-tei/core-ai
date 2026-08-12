@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type AvailableLlmConfig, type BulkPromoteResultItem, type PromotionPreview } from "@/api";
+import { api, type AvailableLlmConfig, type BulkPromoteResultItem, type PromotableDependency, type PromotionPreview } from "@/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -20,6 +20,18 @@ interface PromotionDialogProps
   displayName: string;
   fromEnvironmentId: number;
   onPromoted?: () => void;
+}
+
+// "v3 → v4", "New → v1" (not live in the target yet), "v3 (up to date)" (no-op re-promote), or
+// "—" (never recorded in either environment) — so the dialog never has to guess at a missing value.
+function formatVersionTransition(dep: PromotableDependency): string
+{
+  const { currentVersion: current, promotingVersion: promoting } = dep;
+  if (current == null && promoting == null) return "—";
+  if (current == null) return `New → v${promoting}`;
+  if (promoting == null) return `v${current}`;
+  if (current === promoting) return `v${current} (up to date)`;
+  return `v${current} → v${promoting}`;
 }
 
 /**
@@ -64,16 +76,20 @@ export function PromotionDialog({ open, onOpenChange, objectType, logicalId, dis
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, targets.length]);
 
+  const isBulk = selectedIds.length > 1;
+  const showLlmConfigPicker = objectType === "Agent" && !isBulk && selectedIds.length === 1;
+  const overrideLlmConfigId = showLlmConfigPicker && llmConfigOverride !== "keep" ? Number(llmConfigOverride) : undefined;
+
   useEffect(() =>
   {
     if (!open || selectedIds.length !== 1) { setPreview(null); return; }
     setLoadingPreview(true);
     setConfirmed(false);
-    api.previewPromotion(objectType, logicalId, fromEnvironmentId, selectedIds[0])
+    api.previewPromotion(objectType, logicalId, fromEnvironmentId, selectedIds[0], undefined, overrideLlmConfigId)
       .then(setPreview)
       .catch(() => setPreview({ canPromote: false, blockingError: "Failed to load promotion preview.", willPromote: [] }))
       .finally(() => setLoadingPreview(false));
-  }, [open, selectedIds, objectType, logicalId, fromEnvironmentId]);
+  }, [open, selectedIds, objectType, logicalId, fromEnvironmentId, overrideLlmConfigId]);
 
   const toggleTarget = (id: number) =>
   {
@@ -81,13 +97,11 @@ export function PromotionDialog({ open, onOpenChange, objectType, logicalId, dis
     setConfirmed(false);
   };
 
-  const isBulk = selectedIds.length > 1;
   const selectedEnvs = targets.filter((e) => selectedIds.includes(e.id));
   const needsConfirmCheckbox = selectedEnvs.some((e) => e.rank === maxRank);
   const canConfirm = selectedIds.length > 0
     && (!needsConfirmCheckbox || confirmed)
     && (isBulk || !!preview?.canPromote);
-  const showLlmConfigPicker = objectType === "Agent" && !isBulk && selectedIds.length === 1;
 
   useEffect(() =>
   {
@@ -108,7 +122,7 @@ export function PromotionDialog({ open, onOpenChange, objectType, logicalId, dis
         const result = await api.promote({
           objectType, logicalId, fromEnvironmentId, toEnvironmentId: selectedIds[0],
           changeNote: changeNote.trim() || undefined,
-          targetLlmConfigId: showLlmConfigPicker && llmConfigOverride !== "keep" ? Number(llmConfigOverride) : undefined,
+          targetLlmConfigId: overrideLlmConfigId,
         });
         if (result.success)
         {
@@ -224,24 +238,44 @@ export function PromotionDialog({ open, onOpenChange, objectType, logicalId, dis
                     <span>{preview.blockingError}</span>
                   </div>
                 )}
-                {preview.canPromote && preview.willPromote.length > 0 && (
-                  <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">This will also promote:</Label>
-                    <div className="space-y-1">
-                      {preview.willPromote.map((dep) => (
-                        <div key={`${dep.objectType}-${dep.logicalId}`} className="flex items-center gap-2 text-sm rounded border px-2 py-1">
-                          <Badge variant="outline" className="text-xs">{dep.objectType}</Badge>
-                          {dep.displayName}
+                {preview.canPromote && (() =>
+                {
+                  const rootDep = preview.willPromote.find((d) => d.objectType === objectType && d.logicalId === logicalId);
+                  const otherDeps = preview.willPromote.filter((d) => !(d.objectType === objectType && d.logicalId === logicalId));
+                  return (
+                    <>
+                      {rootDep && (
+                        <div className="space-y-1.5">
+                          <Label className="text-xs text-muted-foreground">Main agent</Label>
+                          <div className="flex items-center justify-between gap-2 text-sm rounded border px-2 py-1.5">
+                            <span>{rootDep.displayName}</span>
+                            <span className="text-xs font-mono text-muted-foreground shrink-0">{formatVersionTransition(rootDep)}</span>
+                          </div>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {preview.canPromote && preview.willPromote.length === 0 && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <CheckCircle2 className="size-4 text-green-600" /> No additional dependencies to promote.
-                  </div>
-                )}
+                      )}
+                      {otherDeps.length > 0 ? (
+                        <div className="space-y-1.5">
+                          <Label className="text-xs text-muted-foreground">Sub-agents & dependencies</Label>
+                          <div className="space-y-1">
+                            {otherDeps.map((dep) => (
+                              <div key={`${dep.objectType}-${dep.logicalId}`} className="flex items-center justify-between gap-2 text-sm rounded border px-2 py-1">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <Badge variant="outline" className="text-xs shrink-0">{dep.objectType}</Badge>
+                                  <span className="truncate">{dep.displayName}</span>
+                                </div>
+                                <span className="text-xs font-mono text-muted-foreground shrink-0">{formatVersionTransition(dep)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <CheckCircle2 className="size-4 text-green-600" /> No additional dependencies to promote.
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </>
             ))}
 

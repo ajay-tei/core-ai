@@ -26,7 +26,8 @@ public sealed record PromotionPreview
 /// </summary>
 public interface IPromotionOrchestrationService
 {
-    Task<PromotionPreview> PreviewAsync(int tenantId, string objectType, Guid logicalId, int fromEnvironmentId, int toEnvironmentId, CancellationToken ct);
+    /// <summary><paramref name="targetLlmConfigId"/> (Agent promotions only) is the override the caller is about to apply via <see cref="PromoteAsync"/> — when set, the root agent's own pinned LlmConfigId is not checked for a missing target-environment key, since the override replaces it.</summary>
+    Task<PromotionPreview> PreviewAsync(int tenantId, string objectType, Guid logicalId, int fromEnvironmentId, int toEnvironmentId, int? targetLlmConfigId, CancellationToken ct);
 
     /// <summary><paramref name="changeNote"/> is recorded on the resulting ledger version(s) in <paramref name="toEnvironmentId"/> (e.g. a user-supplied summary of what this promotion changes).
     /// <paramref name="targetLlmConfigId"/> (Agent promotions only) explicitly sets the promoted row's LlmConfigId in the target environment; when null, the target's own existing LlmConfigId is left untouched (LlmConfigId is deliberately excluded from the portable snapshot, so this is already the default "keep existing" behavior on re-promotion).</summary>

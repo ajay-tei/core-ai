@@ -107,7 +107,7 @@ public class PromotionOrchestrationServiceTests : IDisposable
         var server = await SeedMcpServerAsync(qaEnvId); // lives in qa (rank 1)
 
         // Attempt to promote backwards: qa (rank 1) -> dev (rank 0).
-        var preview = await _orchestrator.PreviewAsync(TenantId, "McpServer", server.LogicalId!.Value, qaEnvId, devEnvId, CancellationToken.None);
+        var preview = await _orchestrator.PreviewAsync(TenantId, "McpServer", server.LogicalId!.Value, qaEnvId, devEnvId, null, CancellationToken.None);
 
         Assert.False(preview.CanPromote);
         Assert.Contains("strictly higher", preview.BlockingError, StringComparison.OrdinalIgnoreCase);
@@ -123,7 +123,7 @@ public class PromotionOrchestrationServiceTests : IDisposable
         var server = await SeedMcpServerAsync(acmeEnvId);
 
         // Rank passes (2 > 1) but the two environments belong to different clients.
-        var preview = await _orchestrator.PreviewAsync(TenantId, "McpServer", server.LogicalId!.Value, acmeEnvId, globexEnvId, CancellationToken.None);
+        var preview = await _orchestrator.PreviewAsync(TenantId, "McpServer", server.LogicalId!.Value, acmeEnvId, globexEnvId, null, CancellationToken.None);
 
         Assert.False(preview.CanPromote);
         Assert.Contains("different clients", preview.BlockingError, StringComparison.OrdinalIgnoreCase);
@@ -136,7 +136,7 @@ public class PromotionOrchestrationServiceTests : IDisposable
         var acmeEnvId = await SeedEnvironmentAsync("acme-play", 1, clientGroup: "Acme");
         var server = await SeedMcpServerAsync(qaEnvId);
 
-        var preview = await _orchestrator.PreviewAsync(TenantId, "McpServer", server.LogicalId!.Value, qaEnvId, acmeEnvId, CancellationToken.None);
+        var preview = await _orchestrator.PreviewAsync(TenantId, "McpServer", server.LogicalId!.Value, qaEnvId, acmeEnvId, null, CancellationToken.None);
 
         Assert.True(preview.CanPromote);
     }
@@ -160,7 +160,7 @@ public class PromotionOrchestrationServiceTests : IDisposable
         db.AgentDefinitions.Add(agent);
         await db.SaveChangesAsync();
 
-        var preview = await _orchestrator.PreviewAsync(TenantId, "Agent", agent.LogicalId!.Value, devEnvId, qaEnvId, CancellationToken.None);
+        var preview = await _orchestrator.PreviewAsync(TenantId, "Agent", agent.LogicalId!.Value, devEnvId, qaEnvId, null, CancellationToken.None);
 
         Assert.True(preview.CanPromote);
         Assert.Contains(preview.WillPromote, d => d.ObjectType == "Agent" && d.LogicalId == agent.LogicalId);
@@ -369,6 +369,88 @@ public class PromotionOrchestrationServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task PreviewAndPromoteAsync_TargetLlmConfigIdOverride_SkipsFalseBlockOnAgentsOwnMissingConfig()
+    {
+        // Pins a real bug: the agent's own pinned LlmConfig ("COT", no key in qa) hard-blocked
+        // promotion even when the caller was about to apply a different, valid override — the
+        // blocking check never looked at targetLlmConfigId at all.
+        var devEnvId = await SeedEnvironmentAsync("dev", 0, isDefault: true);
+        var qaEnvId = await SeedEnvironmentAsync("qa", 1);
+
+        int sourceConfigId, targetConfigId;
+        using (var db = new DivaDbContext(_options))
+        {
+            var sourceConfig = new TenantLlmConfigEntity { TenantId = TenantId, Name = "COT", EnvironmentId = devEnvId };
+            var targetConfig = new TenantLlmConfigEntity { TenantId = TenantId, Name = "COT Live Config", EnvironmentId = qaEnvId };
+            db.TenantLlmConfigs.AddRange(sourceConfig, targetConfig);
+            await db.SaveChangesAsync();
+            sourceConfigId = sourceConfig.Id;
+            targetConfigId = targetConfig.Id;
+        }
+        var agent = await SeedAgentAsync(devEnvId, llmConfigId: sourceConfigId); // "COT" has no key in qa
+
+        // Without an override: "COT" has no key configured for qa — hard block.
+        var blockedPreview = await _orchestrator.PreviewAsync(TenantId, "Agent", agent.LogicalId!.Value, devEnvId, qaEnvId, null, CancellationToken.None);
+        Assert.False(blockedPreview.CanPromote);
+        Assert.Contains("COT", blockedPreview.BlockingError);
+
+        var blockedResult = await _orchestrator.PromoteAsync(TenantId, "Agent", agent.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, null, CancellationToken.None);
+        Assert.False(blockedResult.Success);
+
+        // With an explicit override ("COT Live Config", which DOES have a key in qa): the block
+        // no longer applies, since the override replaces "COT" for this promotion.
+        var okPreview = await _orchestrator.PreviewAsync(TenantId, "Agent", agent.LogicalId!.Value, devEnvId, qaEnvId, targetConfigId, CancellationToken.None);
+        Assert.True(okPreview.CanPromote);
+
+        var okResult = await _orchestrator.PromoteAsync(TenantId, "Agent", agent.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, targetConfigId, CancellationToken.None);
+        Assert.True(okResult.Success);
+
+        using var verify = new DivaDbContext(_options);
+        var target = await verify.AgentDefinitions.SingleAsync(a => a.EnvironmentId == qaEnvId);
+        Assert.Equal(targetConfigId, target.LlmConfigId);
+    }
+
+    [Fact]
+    public async Task PreviewAsync_PopulatesCurrentAndPromotingVersions()
+    {
+        var devEnvId = await SeedEnvironmentAsync("dev", 0, isDefault: true);
+        var qaEnvId = await SeedEnvironmentAsync("qa", 1);
+        var agent = await SeedAgentAsync(devEnvId);
+
+        var factory = new DirectDbFactory(_options);
+        var exportService = new AgentExportService(factory, NullLogger<AgentExportService>.Instance);
+        var serializer = new AgentSnapshotSerializer(factory, exportService, NullLogger<AgentSnapshotSerializer>.Instance);
+
+        // Nothing has ever been recorded (Saved/Published/promoted) for either environment yet.
+        var freshPreview = await _orchestrator.PreviewAsync(TenantId, "Agent", agent.LogicalId!.Value, devEnvId, qaEnvId, null, CancellationToken.None);
+        var freshDep = Assert.Single(freshPreview.WillPromote, d => d.ObjectType == "Agent");
+        Assert.Null(freshDep.CurrentVersion);
+        Assert.Null(freshDep.PromotingVersion);
+
+        // Record dev's current content as v1 (simulates Save Changes), then promote it to qa —
+        // identical content reuses v1 for qa too (same global version number).
+        var devSnapshotV1 = await serializer.SerializeAsync(TenantId, devEnvId, agent.LogicalId!.Value, CancellationToken.None);
+        await _ledger.RecordVersionAsync(TenantId, agent.LogicalId!.Value, "Agent", agent.Name, devEnvId, devSnapshotV1!.SnapshotJson, "manual", null, "alice", null, CancellationToken.None);
+        await _orchestrator.PromoteAsync(TenantId, "Agent", agent.LogicalId!.Value, devEnvId, qaEnvId, "alice", null, null, CancellationToken.None);
+
+        // Dev moves on to v2 — qa still depends on v1, so dev's edit creates a new version rather
+        // than mutating what qa is currently live on.
+        using (var db = new DivaDbContext(_options))
+        {
+            var devAgent = await db.AgentDefinitions.SingleAsync(a => a.EnvironmentId == devEnvId);
+            devAgent.SystemPrompt = "v2 prompt";
+            await db.SaveChangesAsync();
+        }
+        var devSnapshotV2 = await serializer.SerializeAsync(TenantId, devEnvId, agent.LogicalId!.Value, CancellationToken.None);
+        await _ledger.RecordVersionAsync(TenantId, agent.LogicalId!.Value, "Agent", agent.Name, devEnvId, devSnapshotV2!.SnapshotJson, "manual", null, "alice", null, CancellationToken.None);
+
+        var divergedPreview = await _orchestrator.PreviewAsync(TenantId, "Agent", agent.LogicalId!.Value, devEnvId, qaEnvId, null, CancellationToken.None);
+        var divergedDep = Assert.Single(divergedPreview.WillPromote, d => d.ObjectType == "Agent");
+        Assert.Equal(1, divergedDep.CurrentVersion);   // qa is still live on what it was promoted with
+        Assert.Equal(2, divergedDep.PromotingVersion); // dev has since moved on
+    }
+
+    [Fact]
     public async Task PreviewAndPromoteAsync_UnpublishedDraftInSourceEnvironment_Blocked()
     {
         var devEnvId = await SeedEnvironmentAsync("dev", 0, isDefault: true);
@@ -377,7 +459,7 @@ public class PromotionOrchestrationServiceTests : IDisposable
 
         await _drafts.SaveDraftAsync(TenantId, "Agent", agent.LogicalId!.Value, devEnvId, "{}", "alice", CancellationToken.None);
 
-        var preview = await _orchestrator.PreviewAsync(TenantId, "Agent", agent.LogicalId!.Value, devEnvId, qaEnvId, CancellationToken.None);
+        var preview = await _orchestrator.PreviewAsync(TenantId, "Agent", agent.LogicalId!.Value, devEnvId, qaEnvId, null, CancellationToken.None);
         Assert.False(preview.CanPromote);
         Assert.Contains("draft", preview.BlockingError, StringComparison.OrdinalIgnoreCase);
 

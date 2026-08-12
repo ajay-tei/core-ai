@@ -34,7 +34,7 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
         _logger = logger;
     }
 
-    public async Task<PromotionPreview> PreviewAsync(int tenantId, string objectType, Guid logicalId, int fromEnvironmentId, int toEnvironmentId, CancellationToken ct)
+    public async Task<PromotionPreview> PreviewAsync(int tenantId, string objectType, Guid logicalId, int fromEnvironmentId, int toEnvironmentId, int? targetLlmConfigId, CancellationToken ct)
     {
         using var db = _db.CreateDbContext();
 
@@ -44,7 +44,7 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
             return new PromotionPreview { CanPromote = false, BlockingError = rankCheck };
         }
 
-        var (closure, forwardErrors) = await BuildClosureAsync(db, tenantId, objectType, logicalId, fromEnvironmentId, toEnvironmentId, ct);
+        var (closure, forwardErrors) = await BuildClosureAsync(db, tenantId, objectType, logicalId, fromEnvironmentId, toEnvironmentId, targetLlmConfigId, ct);
         if (forwardErrors.Count > 0)
         {
             return new PromotionPreview { CanPromote = false, BlockingError = string.Join(" ", forwardErrors) };
@@ -58,7 +58,9 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
                 var snap = await serializer.SerializeAsync(tenantId, fromEnvironmentId, lid, ct);
                 if (snap is not null)
                 {
-                    deps.Add(new PromotableDependency(ot, lid, snap.Name));
+                    var promotingVersion = await _ledger.GetLiveVersionAsync(tenantId, lid, fromEnvironmentId, ct);
+                    var currentVersion = await _ledger.GetLiveVersionAsync(tenantId, lid, toEnvironmentId, ct);
+                    deps.Add(new PromotableDependency(ot, lid, snap.Name, currentVersion?.Version, promotingVersion?.Version));
                 }
             }
         }
@@ -76,7 +78,7 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
             return new PromotionResult { Success = false, Error = rankCheck };
         }
 
-        var (closure, forwardErrors) = await BuildClosureAsync(db, tenantId, objectType, logicalId, fromEnvironmentId, toEnvironmentId, ct);
+        var (closure, forwardErrors) = await BuildClosureAsync(db, tenantId, objectType, logicalId, fromEnvironmentId, toEnvironmentId, targetLlmConfigId, ct);
         if (forwardErrors.Count > 0)
         {
             return new PromotionResult { Success = false, Error = string.Join(" ", forwardErrors) };
@@ -239,7 +241,7 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
     /// validation errors (non-empty means promotion must be blocked).
     /// </summary>
     private async Task<(List<(string ObjectType, Guid LogicalId)> Closure, List<string> ForwardErrors)> BuildClosureAsync(
-        Data.DivaDbContext db, int tenantId, string objectType, Guid logicalId, int fromEnvironmentId, int toEnvironmentId, CancellationToken ct)
+        Data.DivaDbContext db, int tenantId, string objectType, Guid logicalId, int fromEnvironmentId, int toEnvironmentId, int? targetLlmConfigId, CancellationToken ct)
     {
         var closure = new List<(string, Guid)>();
         var visited = new HashSet<(string, Guid)>();
@@ -294,6 +296,13 @@ public sealed class PromotionOrchestrationService : IPromotionOrchestrationServi
             var secretDeps = await resolver.GetBlockingSecretDependenciesAsync(tenantId, lid, fromEnvironmentId, ct);
             foreach (var secret in secretDeps)
             {
+                // The root agent's own pinned LlmConfig is irrelevant once the caller is applying an
+                // explicit override for this promotion — checking it here would be a false block.
+                if (secret.Kind == "LlmConfig" && targetLlmConfigId is not null && ot == objectType && lid == logicalId)
+                {
+                    continue;
+                }
+
                 var existsInTarget = secret.Kind switch
                 {
                     "LlmConfig" => await db.TenantLlmConfigs.AnyAsync(c => c.TenantId == tenantId && c.Name == secret.Name

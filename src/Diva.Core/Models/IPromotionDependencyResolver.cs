@@ -1,7 +1,12 @@
 namespace Diva.Core.Models;
 
-/// <summary>A dependency this object needs, identified for promotion-closure purposes.</summary>
-public sealed record PromotableDependency(string ObjectType, Guid LogicalId, string DisplayName);
+/// <summary>A dependency this object needs, identified for promotion-closure purposes.
+/// <paramref name="CurrentVersion"/> is the version currently live in the target environment
+/// (null = not live there yet); <paramref name="PromotingVersion"/> is the source environment's
+/// live version about to be promoted (null = not yet recorded in the ledger). Both populated only
+/// by <see cref="IPromotionOrchestrationService.PreviewAsync"/> for the admin UI's confirmation
+/// dialog — not meaningful outside that call.</summary>
+public sealed record PromotableDependency(string ObjectType, Guid LogicalId, string DisplayName, int? CurrentVersion = null, int? PromotingVersion = null);
 
 /// <summary>A named external secret/config this object references that is never copied/promoted —
 /// it must already exist, independently configured, in the target environment (Phase G/I's "keys

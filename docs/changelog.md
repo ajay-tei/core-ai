@@ -4,6 +4,53 @@
 
 ---
 
+## [2026-08-12] Feature + fix: promote dialog shows current/promoting versions; LLM config override no longer falsely blocked
+
+**Feature**: the Promote dialog's dependency list showed names only, with no version info, and
+conflated the main agent being promoted with its cascaded sub-agents/dependencies in one
+undifferentiated list — making it unclear exactly what content (which version) was about to ship.
+
+**Backend**: `PromotableDependency` gains `CurrentVersion` (live version in the target environment,
+null = not live there yet) and `PromotingVersion` (source environment's live version about to be
+promoted, null = never recorded yet). `PromotionOrchestrationService.PreviewAsync` populates both
+per closure item via the existing `IPromotionLedgerService.GetLiveVersionAsync`.
+(`src/Diva.Core/Models/IPromotionDependencyResolver.cs`, `src/Diva.Infrastructure/Promotion/PromotionOrchestrationService.cs`)
+
+**Frontend**: `PromotionDialog.tsx` now splits the preview into a "Main agent" row (the root object)
+and a separate "Sub-agents & dependencies" list, each showing `v{current} → v{promoting}` (or
+"New → vN" for a first-time promotion into that environment, or "vN (up to date)" for a no-op
+re-promote). (`admin-portal/src/api.ts`, `admin-portal/src/components/PromotionDialog.tsx`)
+
+**Bug fix**: picking an LLM config override in the dialog still showed *"LlmConfig 'X' has no key
+configured for environment 'Y' — configure it before promoting"* and blocked the Promote button.
+Root cause: the blocking-secret check (`GetBlockingSecretDependenciesAsync`) validates the agent's
+**own pinned** `LlmConfigId`, with no awareness that `targetLlmConfigId` (the override) would
+actually be applied instead — and this wasn't just a preview display bug, `PromoteAsync` ran the
+same check internally, so the promotion would have failed server-side even if the button hadn't
+been disabled. Fixed: `PreviewAsync` and `BuildClosureAsync` (used by both `PreviewAsync` and
+`PromoteAsync`) now accept the caller's `targetLlmConfigId` and skip the LlmConfig check for the
+*root* agent specifically when an override is supplied — sub-agents' own pinned configs (which have
+no override mechanism) are still validated normally. The dialog now re-runs the preview whenever
+the LLM config picker selection changes, so the block clears as soon as a valid override is chosen.
+(`src/Diva.Core/Models/IPromotionOrchestrationService.cs`, `src/Diva.Infrastructure/Promotion/PromotionOrchestrationService.cs`,
+`src/Diva.Host/Controllers/PromotionsController.cs`, `admin-portal/src/components/PromotionDialog.tsx`)
+
+**Tests**: `PreviewAndPromoteAsync_TargetLlmConfigIdOverride_SkipsFalseBlockOnAgentsOwnMissingConfig`
+(reproduces the exact reported bug — blocked without an override, promotes successfully with one)
+and `PreviewAsync_PopulatesCurrentAndPromotingVersions` (first promotion shows null/null, then a
+diverged re-promotion shows the target's still-live version vs. the source's newer one).
+(`tests/Diva.TenantAdmin.Tests/PromotionOrchestrationServiceTests.cs`)
+
+**Verification**: `dotnet build Diva.slnx` 0 errors; `dotnet test Diva.slnx` — `Diva.TenantAdmin.Tests`
+313/313 (311 + 2 new), `Diva.Tools.Tests` 78/78, `DivaFsMcpServer.Tests` 14/14, `Diva.Agents.Tests`
+351/352 (same single pre-existing unrelated failure tolerated). `tsc -b` clean; eslint clean (36
+problems, matching the established pre-existing baseline exactly, zero from touched files).
+Deployed via `docker compose -f docker-compose.tei.yml -f docker-compose.sqlserver.yml up -d
+--build`; confirmed `PromotingVersion`/`targetLlmConfigId` present in the deployed
+`Diva.Core.dll`/`Diva.Host.dll` and `Diva.Infrastructure.dll` was ~1 minute old.
+
+---
+
 ## [2026-08-12] Bug fix: delegated sub-agent auth failure — inherited credential group didn't apply to the child's own MCP server
 
 **Problem** (follow-up to the 2026-08-11 delegate-environment-scoping fix — same user-reported

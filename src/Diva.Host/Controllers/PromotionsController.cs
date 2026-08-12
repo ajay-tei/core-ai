@@ -35,10 +35,10 @@ public class PromotionsController : ControllerBase
     public async Task<IActionResult> Preview(
         [FromQuery] string objectType, [FromQuery] Guid logicalId,
         [FromQuery] int fromEnvironmentId, [FromQuery] int toEnvironmentId,
-        [FromQuery] int tenantId = 1, CancellationToken ct = default)
+        [FromQuery] int tenantId = 1, [FromQuery] int? targetLlmConfigId = null, CancellationToken ct = default)
     {
         var tid = EffectiveTenantId(tenantId);
-        var preview = await _orchestrator.PreviewAsync(tid, objectType, logicalId, fromEnvironmentId, toEnvironmentId, ct);
+        var preview = await _orchestrator.PreviewAsync(tid, objectType, logicalId, fromEnvironmentId, toEnvironmentId, targetLlmConfigId, ct);
         return Ok(preview);
     }
 

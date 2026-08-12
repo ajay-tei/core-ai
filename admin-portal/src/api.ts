@@ -1309,6 +1309,10 @@ export interface PromotableDependency
   objectType: string;
   logicalId: string;
   displayName: string;
+  /** Version currently live in the target environment — undefined/null if not live there yet. */
+  currentVersion?: number;
+  /** Source environment's live version about to be promoted — undefined/null if never recorded yet. */
+  promotingVersion?: number;
 }
 
 export interface PromotionPreview
@@ -2318,12 +2322,13 @@ export const api = {
   publishAgentGroup: (id: string) => request<AgentGroup>(`/api/agent-groups/${ id }/publish`, { method: "POST" }),
 
   // ── Promotion (Phase D) ───────────────────────────────────────────────────────
-  previewPromotion: (objectType: string, logicalId: string, fromEnvironmentId: number, toEnvironmentId: number, tenantId = 1) =>
+  previewPromotion: (objectType: string, logicalId: string, fromEnvironmentId: number, toEnvironmentId: number, tenantId = 1, targetLlmConfigId?: number) =>
   {
     const qs = new URLSearchParams({
       objectType, logicalId, tenantId: String(tenantId),
       fromEnvironmentId: String(fromEnvironmentId), toEnvironmentId: String(toEnvironmentId),
     });
+    if (targetLlmConfigId !== undefined) qs.set("targetLlmConfigId", String(targetLlmConfigId));
     return request<PromotionPreview>(`/api/admin/promotions/preview?${ qs }`);
   },
   promote: (req: PromoteRequest) =>
