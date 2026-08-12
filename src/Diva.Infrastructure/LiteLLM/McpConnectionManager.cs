@@ -120,6 +120,10 @@ public sealed class McpConnectionManager : IMcpConnectionManager
 
     // ── Transport factory ────────────────────────────────────────────────────
 
+    /// <summary>Masked tail (last 4 chars) for cross-checking an injected key against its DB value
+    /// (shown the same way in the admin UI) without ever logging the full secret.</summary>
+    private static string MaskTail(string apiKey) => apiKey.Length <= 4 ? apiKey : apiKey[^4..];
+
     private async Task<McpClient> CreateClientAsync(McpToolBinding binding, int tenantId, CancellationToken ct, TenantContext? fallbackTenant = null, bool forcePassSsoToken = false)
     {
         // Resolve credential if referenced (for both HTTP and stdio transports)
@@ -258,6 +262,7 @@ public sealed class McpConnectionManager : IMcpConnectionManager
                     if (credential is not null)
                     {
                         var scheme = credential.AuthScheme.ToLowerInvariant();
+                        var tail = MaskTail(credential.ApiKey);
                         switch (scheme)
                         {
                             case "bearer":
@@ -265,8 +270,8 @@ public sealed class McpConnectionManager : IMcpConnectionManager
                                 {
                                     headers["Authorization"] = $"Bearer {credential.ApiKey}";
                                     _logger.LogInformation(
-                                        "MCP binding '{Name}': injecting credential as Bearer token (credentialRef={Ref})",
-                                        binding.Name, binding.CredentialRef);
+                                        "MCP binding '{Name}': injecting credential as Bearer token (credentialRef={Ref}, key ****{Tail})",
+                                        binding.Name, binding.CredentialRef, tail);
                                 }
                                 else
                                 {
@@ -278,22 +283,22 @@ public sealed class McpConnectionManager : IMcpConnectionManager
                             case "apikey":
                                 headers["X-API-Key"] = credential.ApiKey;
                                 _logger.LogInformation(
-                                    "MCP binding '{Name}': injecting credential as X-API-Key header (credentialRef={Ref})",
-                                    binding.Name, binding.CredentialRef);
+                                    "MCP binding '{Name}': injecting credential as X-API-Key header (credentialRef={Ref}, key ****{Tail})",
+                                    binding.Name, binding.CredentialRef, tail);
                                 break;
                             case "custom" when !string.IsNullOrEmpty(credential.CustomHeaderName):
                                 headers[credential.CustomHeaderName] = credential.ApiKey;
                                 _logger.LogInformation(
-                                    "MCP binding '{Name}': injecting credential as custom header '{Header}' (credentialRef={Ref})",
-                                    binding.Name, credential.CustomHeaderName, binding.CredentialRef);
+                                    "MCP binding '{Name}': injecting credential as custom header '{Header}' (credentialRef={Ref}, key ****{Tail})",
+                                    binding.Name, credential.CustomHeaderName, binding.CredentialRef, tail);
                                 break;
                             default:
                                 if (!headers.ContainsKey("Authorization"))
                                 {
                                     headers["Authorization"] = $"Bearer {credential.ApiKey}";
                                     _logger.LogWarning(
-                                        "MCP binding '{Name}': unknown auth scheme '{Scheme}', defaulting to Bearer (credentialRef={Ref})",
-                                        binding.Name, credential.AuthScheme, binding.CredentialRef);
+                                        "MCP binding '{Name}': unknown auth scheme '{Scheme}', defaulting to Bearer (credentialRef={Ref}, key ****{Tail})",
+                                        binding.Name, credential.AuthScheme, binding.CredentialRef, tail);
                                 }
                                 break;
                         }
@@ -328,8 +333,8 @@ public sealed class McpConnectionManager : IMcpConnectionManager
         {
             envVars["MCP_API_KEY"] = credential.ApiKey;
             _logger.LogInformation(
-                "MCP binding '{Name}': injecting MCP_API_KEY env var for stdio transport (credentialRef={Ref}, scheme={Scheme})",
-                binding.Name, binding.CredentialRef, credential.AuthScheme);
+                "MCP binding '{Name}': injecting MCP_API_KEY env var for stdio transport (credentialRef={Ref}, scheme={Scheme}, key ****{Tail})",
+                binding.Name, binding.CredentialRef, credential.AuthScheme, MaskTail(credential.ApiKey));
         }
         else
         {

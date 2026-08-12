@@ -4,6 +4,34 @@
 
 ---
 
+## [2026-08-12] Observability: log a masked tail of the actual credential value at resolve/inject time
+
+**Problem**: after the COT Live "Weather Server - Global" tool calls turned out to fail for a
+reason external to this repo (the tool's own upstream auth — see the trace-DB finding recorded in
+memory), the natural follow-up question was "are we even sure the right key reaches the request?".
+The answer was: not directly provable from logs. `McpCredentialSelector` already logs a masked tail
+when picking *which* credential name to use, but that's a separate decrypt call for a different
+purpose. Neither `CredentialResolver.ResolveAsync` (the actual decrypt-and-return step) nor
+`McpConnectionManager.CreateClientAsync` (the actual header/env-var injection point) logged
+anything about the resolved *value* — only the credential's name. So there was no way to confirm,
+from logs alone, that the value injected into a specific live HTTP request matched the credential's
+current DB value.
+
+**Fix**: log a masked tail (last 4 chars, `key ****xxxx` — same convention already used by
+`McpCredentialSelector` and the admin UI's credential hint) at both points: right after
+`CredentialResolver.ResolveAsync` decrypts the key, and at every injection site in
+`McpConnectionManager.CreateClientAsync` (Bearer, X-API-Key, custom header, unknown-scheme
+fallback, and the stdio `MCP_API_KEY` env var). The full key is never logged. This lets a live
+auth failure be cross-checked end-to-end: compare the masked tail in the admin UI's credential
+list against the masked tail logged for that exact tool call.
+(`src/Diva.Infrastructure/Auth/CredentialResolver.cs`, `src/Diva.Infrastructure/LiteLLM/McpConnectionManager.cs`)
+
+**Verification**: `dotnet build Diva.slnx` 0 errors; `dotnet test Diva.slnx` — `Diva.TenantAdmin.Tests`
+316/316, `Diva.Tools.Tests` 78/78, `DivaFsMcpServer.Tests` 14/14, `Diva.Agents.Tests` 355/356 (same
+single pre-existing unrelated `ContextWindowTests` failure tolerated). No behavior change, logging only.
+
+---
+
 ## [2026-08-12] Bug fix: re-promoting after manually deleting a target-environment agent silently promoted nothing
 
 **Problem**: user deleted all agents directly from COT Live, then re-promoted "Analytics - COT"

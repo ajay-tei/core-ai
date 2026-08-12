@@ -86,6 +86,13 @@ public sealed class CredentialResolver : ICredentialResolver
             return null;
         }
 
+        // Masked tail lets an admin cross-check this exact resolution against the credential's
+        // current DB value (shown the same way in the admin UI) without ever logging the full key.
+        var tail = apiKey.Length <= 4 ? apiKey : apiKey[^4..];
+        _logger.LogInformation(
+            "Credential '{Name}' resolved for tenant {TenantId} (environment {EnvironmentId}, scheme={Scheme}): key ****{Tail}",
+            credentialName, tenantId, environmentId, entity.AuthScheme, tail);
+
         var resolved = new ResolvedCredential(apiKey, entity.AuthScheme, entity.CustomHeaderName);
 
         _cache.Set(cacheKey, resolved, CacheTtl);
