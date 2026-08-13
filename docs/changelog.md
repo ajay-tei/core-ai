@@ -4,6 +4,45 @@
 
 ---
 
+## [2026-08-13] Feature: Version History + Rollback UI for scheduled tasks, and a ledger-recording gap fix
+
+**Problem**: investigated how scheduled task history/versioning is maintained and whether rollback
+is possible. The backend ledger (`PromotableVersions`/`EnvironmentDeployments`, `IPromotionLedgerService`,
+generic `PromotionsController` history/diff/rollback endpoints) already fully supports `ScheduledTask`
+— it's one of the same 4 registered `IPromotableSnapshotSerializer`s as Agent/McpServer/AgentGroup,
+and `PromotionOrchestrationService.RollbackAsync` looks up its serializer generically by
+`objectType` string, so rollback already worked end-to-end via a raw API call. But two gaps meant
+this wasn't actually usable or trustworthy:
+1. **No UI at all** — `VersionHistoryDialog` (the shared, object-type-agnostic ledger viewer +
+   rollback action already used by `AgentBuilder.tsx`) was never wired up anywhere for
+   `ScheduledTask`; `ScheduledTasks.tsx` only had a "Promote" row action, no "Version History".
+2. **Direct edits were invisible to the ledger** — `SchedulerController.Update` (the plain
+   `PUT /api/schedules/{id}` used by `ScheduleTaskEditor.tsx`'s "Save Changes" button) never called
+   `_ledger.RecordVersionAsync`, unlike `AgentsController.Update`'s identical direct-save path. Only
+   Promote (and the never-wired-up-in-the-UI Publish) recorded a version, so a plain edit-and-save
+   would silently leave the environment's live-version pointer stale relative to the actual live row
+   — Version History would have under-reported what's really live.
+
+**Fix**:
+- `SchedulerController.Update` now records a ledger version (`Source="manual"`) after a successful
+  direct save, mirroring `AgentsController.Update` exactly (serialize the post-update row, skip if
+  `LogicalId`/`EnvironmentId` are unset — untagged/legacy tasks). (`src/Diva.Host/Controllers/
+  SchedulerController.cs`)
+- `ScheduledTasks.tsx` gained a "Version History" row action (Clock icon, distinct from the
+  existing "Run History" execution-log action) opening the shared `VersionHistoryDialog` with
+  `objectType="ScheduledTask"` and `environmentId={currentEnvironmentId}` — identical wiring shape
+  to `AgentBuilder.tsx`'s. No new API surface needed; `getPromotionHistory`/`getLiveVersion`/
+  `getPromotionDiff`/`rollbackPromotion` were already fully generic. (`admin-portal/src/components/
+  ScheduledTasks.tsx`)
+
+**Verification**: `dotnet build Diva.slnx` 0 errors; `Diva.TenantAdmin.Tests` 327/327 (no new test —
+the ledger's dedup/mutate-in-place logic is already covered generically in
+`PromotionLedgerServiceTests.cs`, and there's no dedicated controller test for `AgentsController.
+Update`'s identical ledger call either, so none was added here for parity). `tsc -b` clean; ESLint
+baseline unchanged at 36 problems (26 errors, 10 warnings).
+
+---
+
 ## [2026-08-13] Feature: scheduled tasks promoted to a non-default environment are now locked, except Template Parameters + Run As User
 
 **Problem**: unlike Agents (locked once promoted, with narrow per-environment-editable exceptions

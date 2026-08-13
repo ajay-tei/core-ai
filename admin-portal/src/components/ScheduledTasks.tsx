@@ -38,9 +38,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { PromotionDialog } from "@/components/PromotionDialog";
+import { VersionHistoryDialog } from "@/components/VersionHistoryDialog";
 import {
   MoreHorizontal, Plus, CalendarClock, Pencil, Trash2,
-  Play, History, RefreshCw, ChevronDown, ChevronRight, Copy, Download, Upload, GitBranch,
+  Play, History, RefreshCw, ChevronDown, ChevronRight, Copy, Download, Upload, GitBranch, Clock,
 } from "lucide-react";
 import { DAY_NAMES } from "@/lib/scheduleConstants";
 
@@ -90,6 +91,7 @@ export function ScheduledTasks() {
   const [runsTask,     setRunsTask]     = useState<ScheduledTask | null>(null);
   const [deleteId,     setDeleteId]     = useState<string | null>(null);
   const [promotionTask, setPromotionTask] = useState<ScheduledTask | null>(null);
+  const [versionHistoryTask, setVersionHistoryTask] = useState<ScheduledTask | null>(null);
 
   // Import state
   const [importOpen,      setImportOpen]      = useState(false);
@@ -374,6 +376,12 @@ export function ScheduledTasks() {
                         >
                           <GitBranch className="h-3.5 w-3.5 mr-2" /> Promote
                         </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => setVersionHistoryTask(task)}
+                          disabled={!task.logicalId || !currentEnvironmentId}
+                        >
+                          <Clock className="h-3.5 w-3.5 mr-2" /> Version History
+                        </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
                           onClick={() => setDeleteId(task.id)}
@@ -417,6 +425,18 @@ export function ScheduledTasks() {
           displayName={promotionTask.name}
           fromEnvironmentId={currentEnvironmentId}
           onPromoted={reload}
+        />
+      )}
+
+      {versionHistoryTask?.logicalId && currentEnvironmentId && (
+        <VersionHistoryDialog
+          open={!!versionHistoryTask}
+          onOpenChange={(open) => { if (!open) setVersionHistoryTask(null); }}
+          objectType="ScheduledTask"
+          logicalId={versionHistoryTask.logicalId}
+          displayName={versionHistoryTask.name}
+          environmentId={currentEnvironmentId}
+          onRolledBack={reload}
         />
       )}
 

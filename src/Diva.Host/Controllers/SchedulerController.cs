@@ -168,6 +168,21 @@ public class SchedulerController : ControllerBase
         if (ex is ArgumentException argEx)
             return BadRequest(new { error = argEx.Message });
 
+        // Direct saves bypass the Draft/Publish flow but must still be recorded in the version
+        // ledger (Source="manual") — otherwise the environment's live-version pointer silently
+        // goes stale relative to what's actually in the live row (mirrors AgentsController.Update).
+        if (existing.LogicalId is { } logicalId && existing.EnvironmentId is { } environmentId)
+        {
+            var ctx = HttpContext.TryGetTenantContext();
+            var snapshot = await _snapshotSerializer.SerializeAsync(tid, environmentId, logicalId, ct);
+            if (snapshot is not null)
+            {
+                await _ledger.RecordVersionAsync(
+                    tid, logicalId, "ScheduledTask", snapshot.Name, environmentId,
+                    snapshot.SnapshotJson, "manual", null, ctx?.UserId, null, ct);
+            }
+        }
+
         return Ok(updated);
     }
 
