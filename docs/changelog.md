@@ -4,6 +4,26 @@
 
 ---
 
+## [2026-08-13] Bug fix: scheduled task editor's Agent dropdown showed agents from every environment
+
+**Problem**: `ScheduleTaskEditor.tsx` called `api.listAgents()` with no `environmentId`, so the
+Agent dropdown showed every agent in the tenant regardless of environment — including agents that
+only exist in a different (e.g. non-default) environment, which could never actually be invoked
+from a schedule authored in the current one.
+
+**Fix**: pass `currentEnvironmentId` (from `useEnvironment()`) through to `api.listAgents(...)`,
+matching the existing convention in `DelegateAgentSelector.tsx`/`AgentGroups.tsx`. `GET /api/agents`
+already filters to `EnvironmentId == environmentId || EnvironmentId == null` (untagged/legacy
+agents still show) and already restricts to whatever agents the calling user has access to
+(`AgentsController.List`'s existing denied-agent-ids filter for non-admin callers) — no backend
+change needed, this endpoint already did both things correctly, it just wasn't being asked to.
+(`admin-portal/src/components/ScheduleTaskEditor.tsx`)
+
+**Verification**: `tsc -b` clean; ESLint baseline unchanged at 36 problems (26 errors, 10 warnings).
+No backend change, so no dotnet test run needed.
+
+---
+
 ## [2026-08-13] Feature: block deleting actively-used Agents/ScheduledTasks/MCP servers/credentials
 
 **Problem**: nothing stopped an admin from deleting an Agent or ScheduledTask that was actively

@@ -29,7 +29,7 @@ export function ScheduleTaskEditor({ cloneMode = false }: { cloneMode?: boolean 
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const mode: "create" | "edit" | "clone" = !id ? "create" : cloneMode ? "clone" : "edit";
-  const { environments } = useEnvironment();
+  const { environments, currentEnvironmentId } = useEnvironment();
 
   const [agents, setAgents]     = useState<AgentSummary[]>([]);
   const [users,  setUsers]      = useState<UserProfile[]>([]);
@@ -66,9 +66,12 @@ export function ScheduleTaskEditor({ cloneMode = false }: { cloneMode?: boolean 
   const taskEnvName = environments.find((e) => e.id === source?.environmentId)?.displayName;
 
   useEffect(() => {
-    api.listAgents().then(setAgents).catch(() => setAgents([]));
+    // Scoped to the current environment (plus untagged/legacy agents) and, via the same
+    // GET /api/agents the caller already uses elsewhere, to whatever agents the calling user has
+    // access to — never agents that only exist in a different environment.
+    api.listAgents(currentEnvironmentId ?? undefined).then(setAgents).catch(() => setAgents([]));
     api.listUserProfiles(1).then(setUsers).catch(() => setUsers([]));
-  }, []);
+  }, [currentEnvironmentId]);
 
   useEffect(() => {
     if (!id) { setLoading(false); return; }
