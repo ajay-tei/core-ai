@@ -9,6 +9,7 @@ import {
   Code2,
   Cpu,
   Download,
+  Eye,
   GitBranch,
   History,
   Info,
@@ -26,6 +27,7 @@ import { AgentImportDialog } from "@/components/AgentImportDialog";
 import { PromptQuickFixDialog } from "@/components/PromptQuickFixDialog";
 import { PromotionDialog } from "@/components/PromotionDialog";
 import { VersionHistoryDialog } from "@/components/VersionHistoryDialog";
+import { AgentToolsPreviewDialog } from "@/components/AgentToolsPreviewDialog";
 import { useEnvironment } from "@/hooks/useEnvironment";
 import {
   api,
@@ -1094,6 +1096,7 @@ export function AgentBuilder() {
   const [savingModelConfig, setSavingModelConfig] = useState(false);
   const [savingCustomVariables, setSavingCustomVariables] = useState(false);
   const [versionHistoryOpen, setVersionHistoryOpen] = useState(false);
+  const [toolsPreviewOpen, setToolsPreviewOpen] = useState(false);
   const [liveVersion, setLiveVersion] = useState<LiveVersionInfo | null>(null);
 
   // Agents are meant to be authored in the tenant's default environment and promoted outward —
@@ -1400,6 +1403,14 @@ export function AgentBuilder() {
           onRolledBack={() => { api.getAgent(agentId).then(setForm).catch(() => {}); loadLiveVersion(); }}
         />
       )}
+
+      <AgentToolsPreviewDialog
+        open={toolsPreviewOpen}
+        onOpenChange={setToolsPreviewOpen}
+        sharedServerRefsJson={form.mcpServerRefsJson}
+        bindings={bindings}
+        environmentId={currentEnvironmentId ?? undefined}
+      />
 
       <Tabs defaultValue="identity">
         <TabsList className="grid w-full grid-cols-4">
@@ -1813,6 +1824,14 @@ export function AgentBuilder() {
                 <p className="text-xs text-muted-foreground">{bindings.length} server{bindings.length !== 1 ? "s" : ""} configured</p>
               </div>
               <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setToolsPreviewOpen(true)}
+                >
+                  <Eye className="mr-1.5 size-3.5" />
+                  View Available Tools
+                </Button>
                 <ImportJsonDialog onImport={setBindings} />
                 <Button
                   variant="outline"

@@ -4,6 +4,34 @@
 
 ---
 
+## [2026-08-13] Feature: "View Available Tools" popup in Agent Builder's Tools tab
+
+**Problem**: an agent's Tools tab lets you attach shared MCP servers (`McpServerRefsJson`) and
+configure inline custom bindings, but there was no way to see what tools/endpoints each one
+actually exposes without leaving the page — `DockerGatewayPanel`'s probe is only for discovering
+tools while building a brand-new Docker Gateway binding, not for reviewing servers already
+configured on the agent.
+
+**Fix**: new `AgentToolsPreviewDialog.tsx`, opened via a "View Available Tools" button next to
+Import/Add Server in the "MCP Tool Servers" section header. On open it snapshots the agent's
+current config (shared server refs + inline bindings, skipping empty placeholder rows), resolves
+each shared ref's full connection details via the already-fetched `api.listMcpServers(...)`, then
+probes every target in parallel via the existing generic `POST /api/agents/mcp-probe` (no backend
+change needed — this endpoint already accepts `endpoint`/`command`/`args`/`passSsoToken`/
+`credentialRef`, exactly the shape both a shared server and an inline `McpToolBinding` carry).
+Each server renders as a row with a live/failed status badge and an expandable tool list (name +
+description); a connection failure for one server doesn't block the others. Dialog is modal, so it
+snapshots once on open rather than re-probing on every keystroke elsewhere in the form.
+(`admin-portal/src/components/AgentToolsPreviewDialog.tsx`,
+`admin-portal/src/components/AgentBuilder.tsx`)
+
+**Verification**: `tsc -b` clean; ESLint baseline unchanged at 36 problems (26 errors, 10
+warnings) — one new `no-unused-expressions` violation from a ternary-for-side-effects `Set`
+toggle was caught and fixed (if/else) before it could land. No backend change, so no dotnet test
+run needed.
+
+---
+
 ## [2026-08-13] Feature: version badge + Version History/Rollback directly on the scheduled task editor page
 
 **Problem**: version info + rollback for scheduled tasks (added earlier the same day) was only
