@@ -4,6 +4,54 @@
 
 ---
 
+## [2026-08-13] Bug fix: scheduled "Run as User" tasks didn't fully carry the user's identity for MCP credential/environment resolution
+
+**Problem**: investigated whether a scheduled task configured to "Run as User" correctly identifies
+the right MCP server and credential. Found two independent gaps:
+
+1. `TenantContext.RunAsUser(...)` hardcoded `UserRoles = ["system"]` and left `UserGroups` (SSO
+   groups) empty, only ever populating the real `UserId`/`UserEmail`. `UserGroupMembershipCache.GetGroupIdsForUserAsync`
+   matches a user into a group three ways: explicit UserId, explicit Email, or a role/SSO-group
+   auto-include rule. Only the first two worked for a "run as user" execution — a group whose
+   membership is defined via a role-based auto-include rule (not an explicit per-user listing)
+   never matched, so that user's MCP credential (mapped to the group) was never selected, even
+   though the original feature was explicitly designed to carry "that user's identity **and group
+   membership**" (per the original changelog entry). `UserProfileEntity.Roles` (persisted from the
+   user's last login) already has the data needed — the scheduler just never looked it up.
+2. `SchedulerHostedService.ExecuteRunAsync` never set `TenantContext.EnvironmentId` for **any**
+   scheduled task (Run-as-User or plain) — a documented-but-never-completed gap from the Phase E
+   environment-routing work ("Scheduler task executor's agent lookup" was explicitly listed as
+   deferred). Downstream MCP server lookup (`McpCredentialSelector.ResolveSharedBindingsAsync`)
+   treats `EnvironmentId == 0` as "match any environment", so a scheduled task could resolve an
+   MCP server/credential from the **wrong** environment (or ambiguously, whichever of several
+   same-named rows a `Task.WhenAll` connection race happened to finish last) whenever the same
+   server name exists in more than one environment — the normal case for shared infrastructure.
+
+**Fix**:
+- `TenantContext.RunAsUser` gained an optional `roles` parameter (falls back to `["system"]` when
+  not supplied, preserving prior behavior for any other caller).
+- `SchedulerHostedService.ExecuteRunAsync` now looks up the run-as-user's `UserProfileEntity.Roles`
+  and passes them through, and calls `.WithEnvironment(scheduledTask.EnvironmentId ?? 0)` on the
+  constructed context (both the System and RunAsUser branches) so MCP server/credential and
+  LLM-config resolution correctly scope to the task's own environment.
+- SSO-group-based auto-include still cannot match for a "run as user" execution — `UserProfileEntity`
+  has no persisted SSO-group field to source it from. Noted as a known, accepted limitation (would
+  need a schema change to fix), not addressed in this pass.
+(`src/Diva.Core/Models/TenantContext.cs`, `src/Diva.Infrastructure/Scheduler/SchedulerHostedService.cs`)
+
+**Tests**: `Resolver_MatchesRoleBasedGroup_ForSchedulerRunAsUserContext` — constructs a context via
+`TenantContext.RunAsUser(...)` exactly as the scheduler does and confirms it now matches a
+role-based auto-include group rule. (`tests/Diva.TenantAdmin.Tests/UserGroupServiceTests.cs`)
+
+**Verification**: `dotnet build Diva.slnx` 0 errors; `dotnet test Diva.slnx` — `Diva.TenantAdmin.Tests`
+326/326 (325 + 1 new), `Diva.Tools.Tests` 78/78, `DivaFsMcpServer.Tests` 14/14, `Diva.Agents.Tests`
+355/356 (same single pre-existing unrelated `ContextWindowTests` failure tolerated). No dedicated
+test added for the environment-scoping fix itself — `SchedulerHostedService.ExecuteRunAsync` is
+private with no existing mock harness for its concrete `AnthropicAgentRunner` dependency; the fix
+is a single-line, low-risk use of the already-tested `TenantContext.WithEnvironment`.
+
+---
+
 ## [2026-08-12] Feature: optional, excludable scheduled-task cascade on Agent promotion + standalone task promotion
 
 **Problem**: promoting an Agent never brought its scheduled tasks along (by original design —

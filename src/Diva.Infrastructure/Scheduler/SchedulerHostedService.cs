@@ -9,6 +9,7 @@ using Diva.Infrastructure.Notifications;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.EntityFrameworkCore;
 
 namespace Diva.Infrastructure.Scheduler;
 
@@ -369,13 +370,25 @@ public sealed class SchedulerHostedService : BackgroundService, ISchedulerManual
             }
 
             var prompt = BuildPrompt(scheduledTask, run.Id, feedbackUrl);
-            var tenant = string.IsNullOrWhiteSpace(scheduledTask.RunAsUserId)
+            string[]? runAsUserRoles = null;
+            if (!string.IsNullOrWhiteSpace(scheduledTask.RunAsUserId))
+                runAsUserRoles = await db.UserProfiles.AsNoTracking()
+                    .Where(u => u.TenantId == scheduledTask.TenantId && u.UserId == scheduledTask.RunAsUserId)
+                    .Select(u => u.Roles)
+                    .FirstOrDefaultAsync(appCt);
+
+            // Environment-scoped so downstream MCP server/credential/LLM-config resolution (all
+            // keyed off TenantContext.EnvironmentId) matches this task's OWN environment rather than
+            // wildcard-matching any environment's same-named server.
+            var tenant = (string.IsNullOrWhiteSpace(scheduledTask.RunAsUserId)
                 ? TenantContext.System(scheduledTask.TenantId)
                 : TenantContext.RunAsUser(
                     scheduledTask.TenantId,
                     scheduledTask.RunAsUserId!,
                     scheduledTask.RunAsUserEmail,
-                    scheduledTask.RunAsUserLabel);
+                    scheduledTask.RunAsUserLabel,
+                    runAsUserRoles))
+                .WithEnvironment(scheduledTask.EnvironmentId ?? 0);
 
             if (!string.IsNullOrWhiteSpace(scheduledTask.RunAsUserId))
                 _logger.LogInformation(

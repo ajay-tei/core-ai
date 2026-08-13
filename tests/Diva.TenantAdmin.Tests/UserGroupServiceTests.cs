@@ -123,6 +123,22 @@ public class UserGroupServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Resolver_MatchesRoleBasedGroup_ForSchedulerRunAsUserContext()
+    {
+        // Regression test: SchedulerHostedService builds a "run as user" context via
+        // TenantContext.RunAsUser(...) for scheduled tasks -- it must carry the user's own
+        // persisted roles (not a hardcoded "system" role) so role-based auto-include group rules
+        // still match, exactly as they would for that user's own real interactive session.
+        var g = await _service.CreateAsync(TenantId,
+            new UserGroupDto("Finance", null, [], ["finance-role"]), null, CancellationToken.None);
+
+        var runAsUserContext = TenantContext.RunAsUser(TenantId, "alice", roles: ["finance-role"]);
+
+        var ids = await _resolver.GetGroupIdsForUserAsync(runAsUserContext, CancellationToken.None);
+        Assert.Equal([g.Id], ids);
+    }
+
+    [Fact]
     public async Task Resolver_ReturnsGroupsInAscendingIdOrder()
     {
         var g1 = await _service.CreateAsync(TenantId, new UserGroupDto("A", null, [new UserGroupMemberDto("alice", null)], []), null, CancellationToken.None);

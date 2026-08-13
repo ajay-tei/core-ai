@@ -102,10 +102,12 @@ public sealed class TenantContext
     /// System context that carries a specific user's identity so downstream user-group resolution
     /// (e.g. MCP credential selection) matches that user. Used by scheduled tasks configured to
     /// "run as" a user profile. Retains full agent access (<c>["*"]</c>) — this is an internal,
-    /// admin-configured run, not an interactive user request.
+    /// admin-configured run, not an interactive user request. <paramref name="roles"/> should be the
+    /// user's own persisted roles (<c>UserProfileEntity.Roles</c>) so role-based user-group
+    /// auto-include rules match correctly; falls back to <c>["system"]</c> when not supplied.
     /// </summary>
     public static TenantContext RunAsUser(
-        int tenantId, string userId, string? email = null, string? displayName = null, int siteId = 0) => new()
+        int tenantId, string userId, string? email = null, string? displayName = null, string[]? roles = null, int siteId = 0) => new()
         {
             TenantId = tenantId,
             TenantName = "System",
@@ -114,7 +116,7 @@ public sealed class TenantContext
             UserName = displayName ?? string.Empty,
             SiteIds = siteId > 0 ? [siteId] : [],
             CurrentSiteId = siteId,
-            UserRoles = ["system"],
+            UserRoles = roles is { Length: > 0 } ? roles : ["system"],
             AgentAccess = ["*"]
         };
 
