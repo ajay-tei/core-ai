@@ -9,19 +9,21 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
-import { ArrowLeft, Save, Sparkles } from "lucide-react";
+import { ArrowLeft, Clock, Save, Sparkles } from "lucide-react";
 import {
   api,
-  type AgentSummary, type ScheduledTask, type CreateScheduleDto, type UserProfile,
+  type AgentSummary, type ScheduledTask, type CreateScheduleDto, type UserProfile, type LiveVersionInfo,
 } from "@/api";
 import { useEnvironment } from "@/hooks/useEnvironment";
 import { TIMEZONES, DAY_NAMES } from "@/lib/scheduleConstants";
 import { PromptQuickFixDialog } from "@/components/PromptQuickFixDialog";
+import { VersionHistoryDialog } from "@/components/VersionHistoryDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -64,6 +66,19 @@ export function ScheduleTaskEditor({ cloneMode = false }: { cloneMode?: boolean 
     source?.environmentId && defaultEnvironmentId && source.environmentId !== defaultEnvironmentId
   );
   const taskEnvName = environments.find((e) => e.id === source?.environmentId)?.displayName;
+
+  const [versionHistoryOpen, setVersionHistoryOpen] = useState(false);
+  const [liveVersion, setLiveVersion] = useState<LiveVersionInfo | null>(null);
+
+  // Ledger version currently live in the environment being viewed — refetched after Rollback.
+  const loadLiveVersion = () => {
+    if (!source?.logicalId || !currentEnvironmentId) { setLiveVersion(null); return; }
+    api.getLiveVersion(source.logicalId, currentEnvironmentId).then(setLiveVersion).catch(() => setLiveVersion(null));
+  };
+  useEffect(() => {
+    loadLiveVersion();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source?.logicalId, currentEnvironmentId]);
 
   useEffect(() => {
     // Scoped to the current environment (plus untagged/legacy agents) and, via the same
@@ -202,15 +217,37 @@ export function ScheduleTaskEditor({ cloneMode = false }: { cloneMode?: boolean 
         <Button variant="ghost" size="sm" onClick={() => navigate("/schedules")} className="gap-1 -ml-1">
           <ArrowLeft className="size-4" /> Back
         </Button>
-        <div>
-          <h1 className="text-2xl font-semibold">
+        <div className="flex-1">
+          <h1 className="text-2xl font-semibold flex items-center gap-2">
             {mode === "edit" ? "Edit Schedule" : mode === "clone" ? "Clone Schedule" : "New Schedule"}
+            {liveVersion && <Badge variant="outline">v{liveVersion.version}</Badge>}
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             Schedule an agent to run automatically on a recurring or one-time basis.
           </p>
         </div>
+        {mode === "edit" && source?.logicalId && (
+          <Button variant="outline" size="sm" onClick={() => setVersionHistoryOpen(true)} className="gap-1.5">
+            <Clock className="size-4" />
+            Version History
+          </Button>
+        )}
       </div>
+
+      {mode === "edit" && source?.logicalId && currentEnvironmentId && (
+        <VersionHistoryDialog
+          open={versionHistoryOpen}
+          onOpenChange={setVersionHistoryOpen}
+          objectType="ScheduledTask"
+          logicalId={source.logicalId}
+          displayName={source.name}
+          environmentId={currentEnvironmentId}
+          onRolledBack={() => {
+            if (id) api.getSchedule(id, 1).then(setSource).catch(() => {});
+            loadLiveVersion();
+          }}
+        />
+      )}
 
       {isReadOnly && (
         <div className="flex items-center justify-between rounded-md border border-blue-600/40 bg-blue-500/10 px-4 py-2.5 text-sm">

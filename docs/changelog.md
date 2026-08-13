@@ -4,6 +4,27 @@
 
 ---
 
+## [2026-08-13] Feature: version badge + Version History/Rollback directly on the scheduled task editor page
+
+**Problem**: version info + rollback for scheduled tasks (added earlier the same day) was only
+reachable from the Scheduled Tasks list page's row "..." menu. `AgentBuilder.tsx` shows this
+directly on the edit page itself (a "vN" badge next to the title + a "Version History" button) —
+`ScheduleTaskEditor.tsx` had neither, an inconsistency with the Agent editing experience.
+
+**Fix**: `ScheduleTaskEditor.tsx` now mirrors `AgentBuilder.tsx` exactly — a `loadLiveVersion`
+helper (`api.getLiveVersion`, refetched when `source.logicalId`/`currentEnvironmentId` change or
+after a rollback) renders a `v{N}` badge next to the page title, and a "Version History" button
+(shown only in edit mode, once the task has a `logicalId`) opens the same shared
+`VersionHistoryDialog` used everywhere else (`objectType="ScheduledTask"`), with `onRolledBack`
+refetching the task (which cascades into the existing form-sync effect) and the live version.
+The list-page entry point added earlier is unchanged — this is an additional, more discoverable
+access point, not a replacement. (`admin-portal/src/components/ScheduleTaskEditor.tsx`)
+
+**Verification**: `tsc -b` clean; ESLint baseline unchanged at 36 problems (26 errors, 10 warnings).
+No backend change, so no dotnet test run needed.
+
+---
+
 ## [2026-08-13] Bug fix: scheduled task editor's Agent dropdown showed agents from every environment
 
 **Problem**: `ScheduleTaskEditor.tsx` called `api.listAgents()` with no `environmentId`, so the
