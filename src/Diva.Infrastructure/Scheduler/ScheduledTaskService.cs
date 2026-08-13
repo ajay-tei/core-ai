@@ -124,6 +124,25 @@ public sealed class ScheduledTaskService : IScheduledTaskService
         return entity;
     }
 
+    public async Task<ScheduledTaskEntity> UpdateRuntimeOverridesAsync(
+        int tenantId, string taskId, string? parametersJson,
+        string? runAsUserId, string? runAsUserEmail, string? runAsUserLabel, CancellationToken ct)
+    {
+        using var db = _db.CreateDbContext(TenantContext.System(tenantId));
+        var entity = await db.ScheduledTasks.FindAsync([taskId], ct)
+            ?? throw new KeyNotFoundException($"Scheduled task '{taskId}' not found.");
+
+        entity.ParametersJson = parametersJson;
+        var uid = string.IsNullOrWhiteSpace(runAsUserId) ? null : runAsUserId;
+        entity.RunAsUserId = uid;
+        entity.RunAsUserEmail = uid is null || string.IsNullOrWhiteSpace(runAsUserEmail) ? null : runAsUserEmail;
+        entity.RunAsUserLabel = uid is null || string.IsNullOrWhiteSpace(runAsUserLabel) ? null : runAsUserLabel;
+        entity.UpdatedAt = DateTime.UtcNow;
+
+        await db.SaveChangesAsync(ct);
+        return entity;
+    }
+
     public async Task DeleteAsync(int tenantId, string taskId, CancellationToken ct)
     {
         using var db = _db.CreateDbContext(TenantContext.System(tenantId));

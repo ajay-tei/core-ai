@@ -1928,6 +1928,14 @@ export const api = {
     request<ScheduledTask>(`/api/schedules?tenantId=${ tenantId }`, { method: "POST", body: JSON.stringify(dto) }),
   updateSchedule: (id: string, dto: UpdateScheduleDto, tenantId = 1) =>
     request<ScheduledTask>(`/api/schedules/${ id }?tenantId=${ tenantId }`, { method: "PUT", body: JSON.stringify(dto) }),
+  // Narrow update allowed even on a read-only (non-default-environment) scheduled task — template
+  // parameters and the run-as user are environment-specific execution knobs, not "task config."
+  updateScheduleRuntimeOverrides: (
+    id: string,
+    dto: { parametersJson?: string; runAsUserId?: string; runAsUserEmail?: string; runAsUserLabel?: string; },
+    tenantId = 1,
+  ) =>
+    request<ScheduledTask>(`/api/schedules/${ id }/runtime-overrides?tenantId=${ tenantId }`, { method: "PUT", body: JSON.stringify(dto) }),
   deleteSchedule: (id: string, tenantId = 1) =>
     request<void>(`/api/schedules/${ id }?tenantId=${ tenantId }`, { method: "DELETE" }),
   setScheduleEnabled: (id: string, isEnabled: boolean, tenantId = 1) =>

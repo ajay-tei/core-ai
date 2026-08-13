@@ -4,6 +4,57 @@
 
 ---
 
+## [2026-08-13] Feature: scheduled tasks promoted to a non-default environment are now locked, except Template Parameters + Run As User
+
+**Problem**: unlike Agents (locked once promoted, with narrow per-environment-editable exceptions
+for `LlmConfigId`/`ModelId`/`CustomVariablesJson`), a promoted `ScheduledTask` had NO editing
+restrictions at all — `PUT /api/schedules/{id}` (and its draft/publish siblings) let anyone edit
+every field of a task living in a non-default environment directly, letting it silently drift from
+whatever was actually promoted. Additionally, `ScheduledTaskSnapshotSerializer.MaterializeAsync`
+unconditionally overwrote `ParametersJson` from the source on every re-promotion, so even a
+deliberately-customized target value (e.g. different sample data per environment) would be wiped
+out the next time the task was re-promoted.
+
+**Fix** (mirrors the existing Agent per-environment-editable-field pattern):
+- `SchedulerController` gained `IsLockedForEditingAsync`/`NonDefaultEnvironmentLocked()` (same
+  shape as `AgentsController`'s) and now gates `PUT /api/schedules/{id}`, `PUT .../draft`, and
+  `POST .../publish` with a 403 when the task's `EnvironmentId` isn't the tenant's default
+  environment. Untagged (legacy) tasks remain editable everywhere, matching Agent semantics.
+- New narrow endpoint `PUT /api/schedules/{id}/runtime-overrides` (`IScheduledTaskService.
+  UpdateRuntimeOverridesAsync`) updates only `ParametersJson` + `RunAsUserId`/`RunAsUserEmail`/
+  `RunAsUserLabel` directly, deliberately NOT gated by the lock check — these two are the only
+  fields still editable on a locked task (environment-specific execution knobs, not "task config").
+- `ScheduledTaskSnapshotSerializer.MaterializeAsync` now only seeds `ParametersJson` from source
+  when materializing a brand-new row (`isNewRow`); an existing target row keeps its own value
+  across re-promotion. `RunAsUserId`/`RunAsUserEmail`/`RunAsUserLabel` were already excluded from
+  the snapshot entirely (never portable across environments), so they were already preserved.
+(`src/Diva.Host/Controllers/SchedulerController.cs`, `src/Diva.Infrastructure/Scheduler/
+IScheduledTaskService.cs`, `src/Diva.Infrastructure/Scheduler/ScheduledTaskService.cs`,
+`src/Diva.Infrastructure/Promotion/ScheduledTaskSnapshotSerializer.cs`)
+
+**Frontend** (`admin-portal/src/components/ScheduleTaskEditor.tsx`, `admin-portal/src/api.ts`):
+`isReadOnly` (task's `environmentId` set, tenant has a default environment, and they differ —
+only in edit mode; create/clone always produce a new row and stay fully editable) wraps the
+Agent & Name / Timing / Prompt (payload type + prompt text) / Notifications sections in
+`<fieldset disabled={isReadOnly}>`. Template Parameters (JSON) and the Run As User card are
+rendered as fieldset siblings, so they stay interactive; a "Save overrides" action bar appears
+between them calling the new `api.updateScheduleRuntimeOverrides` narrow endpoint. Locked banner
+matches the Agent Builder's styling/wording. Main Save button is disabled when read-only.
+
+**Tests**: `MaterializeAsync_ExistingTargetRow_PreservesParametersJson_NotOverwrittenBySource`
+(new) — first-promotes a task, customizes the target's `ParametersJson` directly (simulating the
+runtime-overrides endpoint), changes the source's `ParametersJson` and re-promotes, and confirms
+the target keeps its own customized value. (`tests/Diva.TenantAdmin.Tests/
+PromotionSnapshotSerializerTests.cs`) No controller-level test added for the lock-check itself —
+consistent with `AgentsController`'s equivalent, which also has no dedicated controller test.
+
+**Verification**: `dotnet build Diva.slnx` 0 errors; `dotnet test Diva.slnx` —
+`Diva.TenantAdmin.Tests` 327/327 (326 + 1 new), `Diva.Agents.Tests` 355/356 (same single
+pre-existing unrelated `ContextWindowTests` failure tolerated). `tsc -b` clean; ESLint baseline
+unchanged at 36 problems (26 errors, 10 warnings).
+
+---
+
 ## [2026-08-13] Bug fix: scheduled "Run as User" tasks didn't fully carry the user's identity for MCP credential/environment resolution
 
 **Problem**: investigated whether a scheduled task configured to "Run as User" correctly identifies

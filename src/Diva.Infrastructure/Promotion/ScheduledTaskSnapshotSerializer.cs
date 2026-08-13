@@ -12,6 +12,10 @@ using Microsoft.Extensions.Logging;
 /// (not portable across tenants/environments as a raw id) — mirrors AgentExportService's
 /// delegate-name resolution pattern. Matched by (TenantId, EnvironmentId, LogicalId) on
 /// materialize, so the same Name can safely exist in multiple environments simultaneously.
+/// ParametersJson and RunAsUser* are editable directly on a promoted (locked) task via
+/// PUT /api/schedules/{id}/runtime-overrides — ParametersJson is only seeded from source on
+/// first promotion (existing rows keep their own value); RunAsUser* is never part of the
+/// snapshot at all (never portable — always preserved).
 /// </summary>
 public sealed class ScheduledTaskSnapshotSerializer : IPromotableSnapshotSerializer
 {
@@ -89,6 +93,7 @@ public sealed class ScheduledTaskSnapshotSerializer : IPromotableSnapshotSeriali
 
         var task = await db.ScheduledTasks.FirstOrDefaultAsync(
             t => t.TenantId == tenantId && t.EnvironmentId == environmentId && t.LogicalId == logicalId, ct);
+        var isNewRow = task is null;
         if (task is null)
         {
             task = new ScheduledTaskEntity { TenantId = tenantId, Name = snapshot.Name, CreatedAt = DateTime.UtcNow };
@@ -108,7 +113,13 @@ public sealed class ScheduledTaskSnapshotSerializer : IPromotableSnapshotSeriali
         task.TimeZoneId = snapshot.TimeZoneId;
         task.PayloadType = snapshot.PayloadType;
         task.PromptText = snapshot.PromptText;
-        task.ParametersJson = snapshot.ParametersJson;
+        // Template parameters are editable directly on a promoted (locked) task, like RunAsUser*
+        // below — only seed from source on first promotion; an existing target row keeps its own
+        // value across re-promotion so per-environment customization survives.
+        if (isNewRow)
+        {
+            task.ParametersJson = snapshot.ParametersJson;
+        }
         task.IsEnabled = snapshot.IsEnabled;
         task.NotifyEmails = snapshot.NotifyEmails;
         task.NotifyOn = snapshot.NotifyOn;

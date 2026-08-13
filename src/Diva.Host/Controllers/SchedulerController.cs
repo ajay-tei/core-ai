@@ -5,6 +5,7 @@ using Diva.Host.Auth;
 using Diva.Infrastructure.Auth;
 using Diva.Infrastructure.Data.Entities;
 using Diva.Infrastructure.Scheduler;
+using Diva.TenantAdmin.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
@@ -22,6 +23,7 @@ public class SchedulerController : ControllerBase
     private readonly IEntityDraftService _drafts;
     private readonly IPromotionLedgerService _ledger;
     private readonly IPromotableSnapshotSerializer _snapshotSerializer;
+    private readonly IEnvironmentService _environments;
 
     public SchedulerController(
         IScheduledTaskService service,
@@ -30,7 +32,8 @@ public class SchedulerController : ControllerBase
         ISchedulerManualDispatch manualDispatch,
         IEntityDraftService drafts,
         IPromotionLedgerService ledger,
-        IEnumerable<IPromotableSnapshotSerializer> snapshotSerializers)
+        IEnumerable<IPromotableSnapshotSerializer> snapshotSerializers,
+        IEnvironmentService environments)
     {
         _service = service;
         _logger = logger;
@@ -39,6 +42,7 @@ public class SchedulerController : ControllerBase
         _drafts = drafts;
         _ledger = ledger;
         _snapshotSerializer = snapshotSerializers.First(s => s.ObjectType == "ScheduledTask");
+        _environments = environments;
     }
 
     private int EffectiveTenantId(int requestedTenantId)
@@ -46,6 +50,24 @@ public class SchedulerController : ControllerBase
         var ctx = HttpContext.TryGetTenantContext();
         return ctx is { TenantId: > 0 } ? ctx.TenantId : requestedTenantId;
     }
+
+    // Scheduled tasks are meant to be authored in the tenant's default environment and promoted
+    // outward — editing a non-default-environment copy directly would let it drift from what was
+    // actually promoted. Untagged (legacy) tasks remain editable everywhere.
+    private async Task<bool> IsLockedForEditingAsync(ScheduledTaskEntity task, int tenantId, CancellationToken ct)
+    {
+        if (task.EnvironmentId is not { } envId) return false;
+        var defaultEnv = await _environments.GetDefaultAsync(tenantId, ct);
+        return defaultEnv is not null && envId != defaultEnv.Id;
+    }
+
+    private static IActionResult NonDefaultEnvironmentLocked() => new ObjectResult(new
+    {
+        error = "This scheduled task belongs to a non-default environment and cannot be edited directly. " +
+                "Edit the version in the default environment and promote your changes here instead. " +
+                "Template parameters and the run-as user can still be changed directly.",
+    })
+    { StatusCode = StatusCodes.Status403Forbidden };
 
     // ── GET /api/schedules?search=&page=1&pageSize=25 ────────────────────────
     [HttpGet]
@@ -124,12 +146,16 @@ public class SchedulerController : ControllerBase
         CancellationToken ct = default)
     {
         if (dto is null) return BadRequest(new { error = "Request body is required." });
+        var tid = EffectiveTenantId(tenantId);
+        var existing = await _service.GetAsync(tid, id, ct);
+        if (existing is null) return NotFound();
+        if (await IsLockedForEditingAsync(existing, tid, ct)) return NonDefaultEnvironmentLocked();
 
         Exception? ex = null;
         object? updated = null;
         try
         {
-            updated = await _service.UpdateAsync(EffectiveTenantId(tenantId), id, new UpdateScheduledTaskRequest(
+            updated = await _service.UpdateAsync(tid, id, new UpdateScheduledTaskRequest(
                 dto.AgentId, dto.Name, dto.Description,
                 dto.ScheduleType, dto.ScheduledAtUtc, dto.RunAtTime, dto.DayOfWeek,
                 dto.TimeZoneId, dto.PayloadType, dto.PromptText, dto.ParametersJson,
@@ -145,6 +171,39 @@ public class SchedulerController : ControllerBase
         return Ok(updated);
     }
 
+    // ── PUT /api/schedules/{id}/runtime-overrides ───────────────────────────
+    // Template parameters and the run-as-user identity are environment-specific execution knobs
+    // (e.g. different sample data, or a different real user's credentials, per environment) —
+    // unlike the rest of a scheduled task's config (timing, prompt, agent), which should stay
+    // pinned to whatever was promoted. Deliberately NOT gated by IsLockedForEditingAsync, and
+    // deliberately narrow (only these fields, set directly) so it can never be used as a backdoor
+    // to edit anything else on a locked task. ScheduledTaskSnapshotSerializer preserves an existing
+    // row's ParametersJson/RunAsUser* across re-promotion, so a value saved here survives the next
+    // time this task is promoted/rolled back.
+    [HttpPut("{id}/runtime-overrides")]
+    public async Task<IActionResult> UpdateRuntimeOverrides(
+        string id,
+        [FromBody] UpdateScheduledTaskRuntimeOverridesDto dto,
+        [FromQuery] int tenantId = 1,
+        CancellationToken ct = default)
+    {
+        if (dto is null) return BadRequest(new { error = "Request body is required." });
+
+        Exception? ex = null;
+        object? updated = null;
+        try
+        {
+            updated = await _service.UpdateRuntimeOverridesAsync(
+                EffectiveTenantId(tenantId), id, dto.ParametersJson,
+                dto.RunAsUserId, dto.RunAsUserEmail, dto.RunAsUserLabel, ct);
+        }
+        catch (KeyNotFoundException) { return NotFound(); }
+        catch (Exception e) { ex = e; }
+
+        if (ex is not null) return StatusCode(500, new { error = ex.Message });
+        return Ok(updated);
+    }
+
     // ── PUT /api/schedules/{id}/draft — additive, does NOT touch the live row. ──────────────
     [HttpPut("{id}/draft")]
     public async Task<IActionResult> SaveDraft(
@@ -154,6 +213,7 @@ public class SchedulerController : ControllerBase
         var tid = EffectiveTenantId(tenantId);
         var task = await _service.GetAsync(tid, id, ct);
         if (task is null) return NotFound();
+        if (await IsLockedForEditingAsync(task, tid, ct)) return NonDefaultEnvironmentLocked();
         if (task.LogicalId is not { } logicalId || task.EnvironmentId is not { } environmentId)
             return BadRequest(new { error = "Scheduled task is missing environment/logical identity — cannot draft." });
 
@@ -199,6 +259,7 @@ public class SchedulerController : ControllerBase
         var tid = EffectiveTenantId(tenantId);
         var task = await _service.GetAsync(tid, id, ct);
         if (task is null) return NotFound();
+        if (await IsLockedForEditingAsync(task, tid, ct)) return NonDefaultEnvironmentLocked();
         if (task.LogicalId is not { } logicalId || task.EnvironmentId is not { } environmentId)
             return BadRequest(new { error = "Scheduled task is missing environment/logical identity — cannot publish." });
 
@@ -455,6 +516,14 @@ public sealed record UpdateScheduledTaskDto(
     string? RunAsUserId = null,
     string? RunAsUserEmail = null,
     string? RunAsUserLabel = null);
+
+/// <summary>Body for PUT /api/schedules/{id}/runtime-overrides — the only fields still editable
+/// directly on a scheduled task promoted to a non-default environment.</summary>
+public sealed record UpdateScheduledTaskRuntimeOverridesDto(
+    string? ParametersJson,
+    string? RunAsUserId,
+    string? RunAsUserEmail,
+    string? RunAsUserLabel);
 
 public sealed record UpsertNotificationSettingsDto(
     string? GlobalNotifyEmails,

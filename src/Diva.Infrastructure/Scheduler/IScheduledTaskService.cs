@@ -8,6 +8,17 @@ public interface IScheduledTaskService
     Task<ScheduledTaskEntity?> GetAsync(int tenantId, string taskId, CancellationToken ct);
     Task<List<ScheduledTaskEntity>> ListAsync(int tenantId, CancellationToken ct);
     Task<ScheduledTaskEntity> UpdateAsync(int tenantId, string taskId, UpdateScheduledTaskRequest request, CancellationToken ct);
+
+    /// <summary>
+    /// Narrow update for the two fields still editable on a task promoted to a non-default
+    /// environment (template parameters + run-as-user identity). Unlike <see cref="UpdateAsync"/>,
+    /// every field is set directly (no "null means leave alone" semantics) — callers must pass
+    /// the desired final value for all four parameters.
+    /// </summary>
+    Task<ScheduledTaskEntity> UpdateRuntimeOverridesAsync(
+        int tenantId, string taskId, string? parametersJson,
+        string? runAsUserId, string? runAsUserEmail, string? runAsUserLabel, CancellationToken ct);
+
     Task DeleteAsync(int tenantId, string taskId, CancellationToken ct);
     Task<ScheduledTaskEntity> SetEnabledAsync(int tenantId, string taskId, bool enabled, CancellationToken ct);
     Task<ScheduledTaskRunEntity> TriggerNowAsync(int tenantId, string taskId, CancellationToken ct);

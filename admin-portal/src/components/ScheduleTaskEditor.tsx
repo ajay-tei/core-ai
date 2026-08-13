@@ -14,6 +14,7 @@ import {
   api,
   type AgentSummary, type ScheduledTask, type CreateScheduleDto, type UserProfile,
 } from "@/api";
+import { useEnvironment } from "@/hooks/useEnvironment";
 import { TIMEZONES, DAY_NAMES } from "@/lib/scheduleConstants";
 import { PromptQuickFixDialog } from "@/components/PromptQuickFixDialog";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,7 @@ export function ScheduleTaskEditor({ cloneMode = false }: { cloneMode?: boolean 
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const mode: "create" | "edit" | "clone" = !id ? "create" : cloneMode ? "clone" : "edit";
+  const { environments } = useEnvironment();
 
   const [agents, setAgents]     = useState<AgentSummary[]>([]);
   const [users,  setUsers]      = useState<UserProfile[]>([]);
@@ -51,7 +53,17 @@ export function ScheduleTaskEditor({ cloneMode = false }: { cloneMode?: boolean 
   const [successKeywords, setSuccessKeywords] = useState("");
   const [runAsUserId,   setRunAsUserId]   = useState("");
   const [saving,        setSaving]        = useState(false);
+  const [savingOverrides, setSavingOverrides] = useState(false);
   const [quickFixOpen,  setQuickFixOpen]  = useState(false);
+
+  // Scheduled tasks are meant to be authored in the tenant's default environment and promoted
+  // outward — editing a non-default-environment copy directly would let it drift from what was
+  // actually promoted. Untagged (legacy) tasks and create/clone (always a new row) stay editable.
+  const defaultEnvironmentId = environments.find((e) => e.isDefault)?.id;
+  const isReadOnly = mode === "edit" && Boolean(
+    source?.environmentId && defaultEnvironmentId && source.environmentId !== defaultEnvironmentId
+  );
+  const taskEnvName = environments.find((e) => e.id === source?.environmentId)?.displayName;
 
   useEffect(() => {
     api.listAgents().then(setAgents).catch(() => setAgents([]));
@@ -101,6 +113,7 @@ export function ScheduleTaskEditor({ cloneMode = false }: { cloneMode?: boolean 
   }, [loading, mode, source, agents]);
 
   const save = async () => {
+    if (isReadOnly) { toast.error("This scheduled task belongs to a non-default environment and cannot be edited directly."); return; }
     if (!agentId)            { toast.error("Select an agent."); return; }
     if (!name.trim())        { toast.error("Name is required."); return; }
     if (!promptText.trim())  { toast.error("Prompt text is required."); return; }
@@ -146,6 +159,35 @@ export function ScheduleTaskEditor({ cloneMode = false }: { cloneMode?: boolean 
     finally { setSaving(false); }
   };
 
+  // Narrow save for the two fields still editable on a locked (non-default-environment) task.
+  const handleSaveRuntimeOverrides = async () => {
+    if (!source) return;
+    let parsedParams: string | undefined;
+    if (payloadType === "template") {
+      try { JSON.parse(parametersRaw); parsedParams = parametersRaw; }
+      catch { toast.error("Parameters JSON is not valid."); return; }
+    } else {
+      parsedParams = source.parametersJson; // not shown/edited for this payload type — leave as-is
+    }
+
+    setSavingOverrides(true);
+    try {
+      const runAsUser = runAsUserId ? users.find(u => u.userId === runAsUserId) : undefined;
+      const updated = await api.updateScheduleRuntimeOverrides(source.id, {
+        parametersJson: parsedParams,
+        runAsUserId:    runAsUserId || "",
+        runAsUserEmail: runAsUser?.email || undefined,
+        runAsUserLabel: runAsUser ? (runAsUser.displayName || runAsUser.email || runAsUser.userId) : undefined,
+      }, 1);
+      setSource(updated);
+      toast.success("Template parameters and run-as user saved for this environment.");
+    } catch (e: unknown) {
+      toast.error("Failed to save", { description: String(e) });
+    } finally {
+      setSavingOverrides(false);
+    }
+  };
+
   if (loading) {
     return <div className="p-8 text-sm text-muted-foreground">Loading…</div>;
   }
@@ -167,12 +209,23 @@ export function ScheduleTaskEditor({ cloneMode = false }: { cloneMode?: boolean 
         </div>
       </div>
 
+      {isReadOnly && (
+        <div className="flex items-center justify-between rounded-md border border-blue-600/40 bg-blue-500/10 px-4 py-2.5 text-sm">
+          <span>
+            This schedule belongs to <strong>{taskEnvName ?? "a non-default environment"}</strong> and cannot be
+            edited directly. Edit the version in the default environment and use <strong>Promote</strong> to bring
+            your changes here. Template parameters and the run-as user can still be changed below.
+          </span>
+        </div>
+      )}
+
       {/* Agent & name */}
       <Card>
         <CardHeader>
           <CardTitle>Agent & Name</CardTitle>
           <CardDescription>Which agent runs, and what to call this schedule.</CardDescription>
         </CardHeader>
+        <fieldset disabled={isReadOnly} className="contents">
         <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="space-y-1.5">
             <Label>Agent *</Label>
@@ -198,6 +251,7 @@ export function ScheduleTaskEditor({ cloneMode = false }: { cloneMode?: boolean 
             />
           </div>
         </CardContent>
+        </fieldset>
       </Card>
 
       {/* Timing */}
@@ -206,6 +260,7 @@ export function ScheduleTaskEditor({ cloneMode = false }: { cloneMode?: boolean 
           <CardTitle>Timing</CardTitle>
           <CardDescription>When and how often this schedule runs.</CardDescription>
         </CardHeader>
+        <fieldset disabled={isReadOnly} className="contents">
         <CardContent className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <div className="space-y-1.5">
             <Label>Schedule Type</Label>
@@ -267,6 +322,7 @@ export function ScheduleTaskEditor({ cloneMode = false }: { cloneMode?: boolean 
             <Label htmlFor="task-enabled">Enabled (run according to schedule)</Label>
           </div>
         </CardContent>
+        </fieldset>
       </Card>
 
       {/* Prompt */}
@@ -276,6 +332,7 @@ export function ScheduleTaskEditor({ cloneMode = false }: { cloneMode?: boolean 
           <CardDescription>What the agent should do when it runs.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <fieldset disabled={isReadOnly} className="contents">
           <div className="space-y-1.5">
             <Label>Payload Type</Label>
             <Select value={payloadType} onValueChange={setPayloadType}>
@@ -329,10 +386,14 @@ export function ScheduleTaskEditor({ cloneMode = false }: { cloneMode?: boolean 
             onOpenChange={setQuickFixOpen}
             onAccept={(improved) => setPromptText(improved)}
           />
+          </fieldset>
 
           {payloadType === "template" && (
             <div className="space-y-1.5">
-              <Label>Template Parameters (JSON)</Label>
+              <div className="flex items-center justify-between">
+                <Label>Template Parameters (JSON)</Label>
+                {isReadOnly && <span className="text-xs text-blue-600">Editable on locked schedules</span>}
+              </div>
               <Textarea
                 value={parametersRaw}
                 onChange={e => setParametersRaw(e.target.value)}
@@ -373,12 +434,25 @@ export function ScheduleTaskEditor({ cloneMode = false }: { cloneMode?: boolean 
         </CardContent>
       </Card>
 
+      {isReadOnly && (
+        <div className="flex items-center justify-between gap-3 rounded-md border border-blue-600/40 bg-blue-500/10 px-3 py-2">
+          <p className="text-xs text-muted-foreground">
+            The rest of this schedule is locked, but template parameters and the run-as user can
+            still be tuned per-environment.
+          </p>
+          <Button size="sm" variant="secondary" onClick={handleSaveRuntimeOverrides} disabled={savingOverrides}>
+            {savingOverrides ? "Saving..." : "Save overrides"}
+          </Button>
+        </div>
+      )}
+
       {/* Notifications */}
       <Card>
         <CardHeader>
           <CardTitle>Notifications</CardTitle>
           <CardDescription>Get emailed about run outcomes.</CardDescription>
         </CardHeader>
+        <fieldset disabled={isReadOnly} className="contents">
         <CardContent className="space-y-3">
           <div>
             <Label className="text-xs text-muted-foreground">Notify emails (comma-separated)</Label>
@@ -411,12 +485,13 @@ export function ScheduleTaskEditor({ cloneMode = false }: { cloneMode?: boolean 
             <p className="text-xs text-muted-foreground mt-1">If set, at least one phrase must appear in the final agent response; otherwise the run is marked as failed.</p>
           </div>
         </CardContent>
+        </fieldset>
       </Card>
 
       {/* Actions */}
       <div className="flex justify-end gap-3 pb-8">
         <Button variant="outline" onClick={() => navigate("/schedules")} disabled={saving}>Cancel</Button>
-        <Button onClick={save} disabled={saving} className="gap-2">
+        <Button onClick={save} disabled={saving || isReadOnly} className="gap-2">
           <Save className="size-4" />
           {saving ? "Saving…" : mode === "edit" ? "Save Changes" : mode === "clone" ? "Clone Schedule" : "Create Schedule"}
         </Button>

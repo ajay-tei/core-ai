@@ -364,7 +364,7 @@ public class ScheduledTaskSnapshotSerializerTests : IDisposable
         return agent;
     }
 
-    private async Task<ScheduledTaskEntity> SeedTaskAsync(int environmentId, string agentId, string name = "daily-report", string? runAsUserId = "alice")
+    private async Task<ScheduledTaskEntity> SeedTaskAsync(int environmentId, string agentId, string name = "daily-report", string? runAsUserId = "alice", string? parametersJson = null)
     {
         using var db = new DivaDbContext(_options);
         var task = new ScheduledTaskEntity
@@ -378,6 +378,7 @@ public class ScheduledTaskSnapshotSerializerTests : IDisposable
             PayloadType = "prompt",
             PromptText = "Generate the daily report.",
             IsEnabled = true,
+            ParametersJson = parametersJson,
             RunAsUserId = runAsUserId,
             RunAsUserEmail = runAsUserId is null ? null : $"{runAsUserId}@example.com",
             RunAsUserLabel = runAsUserId,
@@ -462,6 +463,48 @@ public class ScheduledTaskSnapshotSerializerTests : IDisposable
         // Source keeps its own RunAsUser values — promotion creates an independent copy.
         var source = await db.ScheduledTasks.SingleAsync(t => t.EnvironmentId == sourceEnvId);
         Assert.Equal("alice", source.RunAsUserId);
+    }
+
+    [Fact]
+    public async Task MaterializeAsync_ExistingTargetRow_PreservesParametersJson_NotOverwrittenBySource()
+    {
+        // Pins a real feature: template parameters are editable directly on a promoted (locked)
+        // task (PUT /api/schedules/{id}/runtime-overrides) and must survive the next re-promotion
+        // from source -- unlike the rest of a task's config, which is meant to stay pinned to
+        // whatever was promoted. Only a brand-new row inherits the source's starting value; an
+        // already-existing row keeps its own value untouched.
+        var sourceEnvId = await SeedEnvironmentAsync("dev", 0, isDefault: true);
+        var targetEnvId = await SeedEnvironmentAsync("qa", 1);
+        var agent = await SeedAgentAsync(sourceEnvId);
+        var task = await SeedTaskAsync(sourceEnvId, agent.Id, parametersJson: "{\"region\":\"dev\"}");
+
+        // First promotion: the brand-new target row inherits source's starting ParametersJson.
+        var snapshot = await _serializer.SerializeAsync(TenantId, sourceEnvId, task.LogicalId!.Value, CancellationToken.None);
+        await _serializer.MaterializeAsync(TenantId, targetEnvId, task.LogicalId!.Value, snapshot!.SnapshotJson, CancellationToken.None);
+
+        using (var db = new DivaDbContext(_options))
+        {
+            var firstPromote = await db.ScheduledTasks.SingleAsync(t => t.EnvironmentId == targetEnvId);
+            Assert.Equal("{\"region\":\"dev\"}", firstPromote.ParametersJson);
+
+            // Simulate PUT /api/schedules/{id}/runtime-overrides customizing the promoted row.
+            firstPromote.ParametersJson = "{\"region\":\"qa-only\"}";
+            await db.SaveChangesAsync();
+        }
+
+        // Source changes and is re-promoted.
+        using (var db = new DivaDbContext(_options))
+        {
+            var src = await db.ScheduledTasks.SingleAsync(t => t.EnvironmentId == sourceEnvId);
+            src.ParametersJson = "{\"region\":\"dev-updated\"}";
+            await db.SaveChangesAsync();
+        }
+        var snapshot2 = await _serializer.SerializeAsync(TenantId, sourceEnvId, task.LogicalId!.Value, CancellationToken.None);
+        await _serializer.MaterializeAsync(TenantId, targetEnvId, task.LogicalId!.Value, snapshot2!.SnapshotJson, CancellationToken.None);
+
+        using var verify = new DivaDbContext(_options);
+        var target = await verify.ScheduledTasks.SingleAsync(t => t.EnvironmentId == targetEnvId);
+        Assert.Equal("{\"region\":\"qa-only\"}", target.ParametersJson); // kept, not overwritten by source's "dev-updated"
     }
 
     [Fact]
