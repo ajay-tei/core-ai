@@ -4,6 +4,57 @@
 
 ---
 
+## [2026-08-13] Feature: block deleting actively-used Agents/ScheduledTasks/MCP servers/credentials
+
+**Problem**: nothing stopped an admin from deleting an Agent or ScheduledTask that was actively
+deployed to one or more environments (breaking that environment's ability to run it), or an MCP
+server/credential still referenced by an enabled agent (breaking that agent's tool access at
+runtime, silently, until its next invocation).
+
+**Fix**:
+- `IPromotionLedgerService` gained `GetDeployedEnvironmentIdsAsync(tenantId, logicalId, ct)` —
+  returns every environment Id that currently has a live deployment record for a logical object
+  (i.e. has ever been promoted, published, manually saved, or rolled back into it since the
+  2026-08-13 ledger-recording fixes). `AgentsController.Delete` and `SchedulerController.Delete`
+  now call this first and return `409 Conflict` (naming the environment(s) by display name) if the
+  result is non-empty — blocking deletion of an Agent/ScheduledTask that's deployed *anywhere*,
+  regardless of which environment the row being deleted itself belongs to. A never-promoted,
+  never-manually-saved-since-the-ledger-fix object has no deployment footprint and deletes freely.
+  (`src/Diva.Core/Models/PromotionModels.cs`, `src/Diva.Infrastructure/Promotion/
+  PromotionLedgerService.cs`, `src/Diva.Host/Controllers/AgentsController.cs`,
+  `src/Diva.Host/Controllers/SchedulerController.cs`)
+- `McpServersController.Delete` now blocks (`409 Conflict`) if any **enabled** agent in the tenant
+  references the server by name via `McpServerRefsJson`. `CredentialsController.Delete` now blocks
+  if any enabled agent uses the credential **directly** (an inline `ToolBindings` entry's
+  `CredentialRef`) or **indirectly** (via a shared MCP server the agent references whose
+  `DefaultCredentialRef`/`UserGroupCredentials` points at this credential). A disabled agent's
+  reference does not block deletion in either case. (`src/Diva.Host/Controllers/
+  McpServersController.cs`, `src/Diva.Host/Controllers/CredentialsController.cs`)
+- `McpServerManager.tsx`/`CredentialManager.tsx` delete handlers now surface the actual backend
+  error (previously a generic "Failed to delete..." with the reason silently discarded), matching
+  `AgentList.tsx`'s existing pattern — otherwise the new blocking message would never be seen.
+
+**Known consequence (accepted, not fixed here)**: there is no "undeploy"/"remove environment
+deployment" action anywhere in the platform today, so once an Agent/ScheduledTask has a deployment
+record in an environment, it stays permanently blocked from deletion (from any environment) unless
+that record is removed directly in the database. This was an explicit, deliberate choice — the
+alternative (only counting an environment other than the row's own, or requiring an explicit
+"disable first") was considered and rejected in favor of the strictest interpretation.
+
+**Tests**: `GetDeployedEnvironmentIdsAsync_NeverRecorded_ReturnsEmpty`,
+`GetDeployedEnvironmentIdsAsync_ReturnsEveryEnvironmentWithADeployment` (`tests/Diva.TenantAdmin.Tests/
+PromotionLedgerServiceTests.cs`). No controller-level tests added for the delete-guards themselves —
+consistent with the existing lack of controller test coverage for `AgentsController`/
+`SchedulerController`/`McpServersController`/`CredentialsController` generally (no test project
+exercises `Diva.Host` controllers directly in this repo).
+
+**Verification**: `dotnet build Diva.slnx` 0 errors; `Diva.TenantAdmin.Tests` 329/329 (327 + 2 new),
+`Diva.Agents.Tests` 355/356 (same single pre-existing unrelated `ContextWindowTests` failure),
+`Diva.Tools.Tests` 78/78. `tsc -b` clean; ESLint baseline unchanged at 36 problems (26 errors, 10
+warnings).
+
+---
+
 ## [2026-08-13] Feature: Version History + Rollback UI for scheduled tasks, and a ledger-recording gap fix
 
 **Problem**: investigated how scheduled task history/versioning is maintained and whether rollback

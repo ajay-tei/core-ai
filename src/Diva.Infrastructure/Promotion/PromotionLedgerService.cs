@@ -180,6 +180,15 @@ public sealed class PromotionLedgerService : IPromotionLedgerService
         return version is null ? null : new LiveVersionInfo(version.Id, version.Version);
     }
 
+    public async Task<IReadOnlyList<int>> GetDeployedEnvironmentIdsAsync(int tenantId, Guid logicalId, CancellationToken ct)
+    {
+        using var db = _db.CreateDbContext();
+        return await db.EnvironmentDeployments.AsNoTracking()
+            .Where(d => d.LogicalId == logicalId && d.TenantId == tenantId)
+            .Select(d => d.EnvironmentId)
+            .ToListAsync(ct);
+    }
+
     public async Task<PromotableVersionDto?> GetVersionAsync(int tenantId, int versionId, CancellationToken ct)
     {
         using var db = _db.CreateDbContext();

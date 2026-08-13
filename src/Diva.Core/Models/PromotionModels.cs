@@ -73,6 +73,14 @@ public interface IPromotionLedgerService
     /// <summary>Which version is currently live in a specific environment, or null if never deployed there.</summary>
     Task<LiveVersionInfo?> GetLiveVersionAsync(int tenantId, Guid logicalId, int environmentId, CancellationToken ct);
 
+    /// <summary>
+    /// Ids of every environment that currently has a live deployment for this logical object
+    /// (i.e. has ever been promoted, published, manually saved, or rolled back into it). Empty
+    /// means the object has no deployment footprint anywhere — safe to delete. Used to block
+    /// deleting an agent/scheduled task that's actively deployed somewhere.
+    /// </summary>
+    Task<IReadOnlyList<int>> GetDeployedEnvironmentIdsAsync(int tenantId, Guid logicalId, CancellationToken ct);
+
     /// <summary>Field-level diff between two recorded versions' SnapshotJson.</summary>
     Task<IReadOnlyList<SnapshotFieldDiff>> DiffVersionsAsync(int tenantId, int fromVersionId, int toVersionId, CancellationToken ct);
 }

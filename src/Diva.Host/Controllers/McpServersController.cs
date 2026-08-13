@@ -304,11 +304,45 @@ public class McpServersController : ControllerBase
         var entity = await db.TenantMcpServers.FirstOrDefaultAsync(s => s.Id == id && s.TenantId == tid, ct);
         if (entity is null) return NotFound();
 
+        var usedBy = await FindActiveAgentsReferencingServerAsync(db, tid, entity.Name, ct);
+        if (usedBy.Count > 0)
+        {
+            return new ObjectResult(new
+            {
+                error = $"Cannot delete MCP server '{entity.Name}' — it is used by active agent(s): {string.Join(", ", usedBy)}.",
+            })
+            { StatusCode = StatusCodes.Status409Conflict };
+        }
+
         db.TenantMcpServers.Remove(entity);
         await db.SaveChangesAsync(ct);
 
         _logger.LogInformation("Shared MCP server deleted: {Name} for tenant {TenantId}", entity.Name, tid);
         return NoContent();
+    }
+
+    // An agent references a shared server by Name via McpServerRefsJson (never by Id) — only
+    // enabled agents count as "actively used"; a disabled agent's reference doesn't block deletion.
+    private static async Task<List<string>> FindActiveAgentsReferencingServerAsync(
+        DivaDbContext db, int tenantId, string serverName, CancellationToken ct)
+    {
+        var candidates = await db.AgentDefinitions
+            .Where(a => a.TenantId == tenantId && a.IsEnabled && a.McpServerRefsJson != null)
+            .Select(a => new { a.DisplayName, a.Name, a.McpServerRefsJson })
+            .ToListAsync(ct);
+
+        var result = new List<string>();
+        foreach (var a in candidates)
+        {
+            string[]? refs;
+            try { refs = System.Text.Json.JsonSerializer.Deserialize<string[]>(a.McpServerRefsJson!); }
+            catch (System.Text.Json.JsonException) { continue; }
+            if (refs is not null && refs.Contains(serverName, StringComparer.OrdinalIgnoreCase))
+            {
+                result.Add(string.IsNullOrWhiteSpace(a.DisplayName) ? a.Name : a.DisplayName);
+            }
+        }
+        return result;
     }
 
     private static McpServerDto ToDto(TenantMcpServerEntity s) => new(

@@ -206,7 +206,7 @@ export function McpServerManager() {
       await api.deleteMcpServer(id);
       toast.success(`MCP server "${name}" deleted`);
       reload();
-    } catch { toast.error("Failed to delete MCP server"); }
+    } catch (e: unknown) { toast.error("Failed to delete MCP server", { description: String(e) }); }
   };
 
   const addMapping = () =>

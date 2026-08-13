@@ -229,11 +229,74 @@ public class CredentialsController : ControllerBase
         var entity = await db.McpCredentials.FirstOrDefaultAsync(c => c.Id == id && c.TenantId == tid, ct);
         if (entity is null) return NotFound();
 
+        var usedBy = await FindActiveAgentsUsingCredentialAsync(db, tid, entity.Name, ct);
+        if (usedBy.Count > 0)
+        {
+            return new ObjectResult(new
+            {
+                error = $"Cannot delete credential '{entity.Name}' — it is used by active agent(s): {string.Join(", ", usedBy)}.",
+            })
+            { StatusCode = StatusCodes.Status409Conflict };
+        }
+
         db.McpCredentials.Remove(entity);
         await db.SaveChangesAsync(ct);
         await _credentialResolver.InvalidateAsync(tid, entity.Name, ct);
         await _mcpClientCache.EvictAllAsync();
         return NoContent();
+    }
+
+    // A credential reaches an agent two ways: directly (an inline ToolBindings entry's
+    // CredentialRef) or indirectly (a shared McpServer's DefaultCredentialRef/UserGroupCredentials
+    // that the agent references by name via McpServerRefsJson). Only enabled agents count as
+    // "actively used" — a disabled agent's reference doesn't block deletion.
+    private static async Task<List<string>> FindActiveAgentsUsingCredentialAsync(
+        DivaDbContext db, int tenantId, string credentialName, CancellationToken ct)
+    {
+        var serverSet = (await db.TenantMcpServers
+            .Where(s => s.TenantId == tenantId
+                && (s.DefaultCredentialRef == credentialName || s.UserGroupCredentials.Any(g => g.CredentialRef == credentialName)))
+            .Select(s => s.Name)
+            .ToListAsync(ct))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var candidates = await db.AgentDefinitions
+            .Where(a => a.TenantId == tenantId && a.IsEnabled)
+            .Select(a => new { a.DisplayName, a.Name, a.ToolBindings, a.McpServerRefsJson })
+            .ToListAsync(ct);
+
+        var result = new List<string>();
+        foreach (var a in candidates)
+        {
+            var usesDirectly = false;
+            if (!string.IsNullOrEmpty(a.ToolBindings))
+            {
+                try
+                {
+                    var bindings = System.Text.Json.JsonSerializer.Deserialize<List<McpToolBinding>>(
+                        a.ToolBindings, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    usesDirectly = bindings?.Any(b => string.Equals(b.CredentialRef, credentialName, StringComparison.OrdinalIgnoreCase)) ?? false;
+                }
+                catch (System.Text.Json.JsonException) { /* malformed bindings — ignore */ }
+            }
+
+            var usesViaSharedServer = false;
+            if (!usesDirectly && serverSet.Count > 0 && !string.IsNullOrEmpty(a.McpServerRefsJson))
+            {
+                try
+                {
+                    var refs = System.Text.Json.JsonSerializer.Deserialize<string[]>(a.McpServerRefsJson);
+                    usesViaSharedServer = refs?.Any(r => serverSet.Contains(r)) ?? false;
+                }
+                catch (System.Text.Json.JsonException) { /* malformed refs — ignore */ }
+            }
+
+            if (usesDirectly || usesViaSharedServer)
+            {
+                result.Add(string.IsNullOrWhiteSpace(a.DisplayName) ? a.Name : a.DisplayName);
+            }
+        }
+        return result;
     }
 
     // POST /api/admin/credentials/{id}/rotate?tenantId=1

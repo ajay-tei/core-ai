@@ -215,4 +215,32 @@ public class PromotionLedgerServiceTests : IDisposable
         var qaLiveVersion = await db.PromotableVersions.SingleAsync(v => v.Id == qaDeployment.LiveVersionId);
         Assert.Equal("{\"v\":1}", qaLiveVersion.SnapshotJson);
     }
+
+    [Fact]
+    public async Task GetDeployedEnvironmentIdsAsync_NeverRecorded_ReturnsEmpty()
+    {
+        var result = await _ledger.GetDeployedEnvironmentIdsAsync(TenantId, Guid.NewGuid(), CancellationToken.None);
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public async Task GetDeployedEnvironmentIdsAsync_ReturnsEveryEnvironmentWithADeployment()
+    {
+        var devEnvId = await SeedEnvironmentAsync();
+        int qaEnvId;
+        using (var envDb = new DivaDbContext(_options))
+        {
+            qaEnvId = (await PromotionTestHelpers.CreateEnvironmentAsync(envDb, TenantId, "qa", 1)).Id;
+        }
+        var logicalId = Guid.NewGuid();
+        var v1 = await _ledger.RecordVersionAsync(TenantId, logicalId, "Agent", "weather-agent", devEnvId, "{\"v\":1}", "manual", null, "alice", null, CancellationToken.None);
+        await _ledger.RecordVersionAsync(TenantId, logicalId, "Agent", "weather-agent", qaEnvId, "{\"v\":1}", "promotion", v1.Version.Id, "alice", null, CancellationToken.None);
+
+        var result = await _ledger.GetDeployedEnvironmentIdsAsync(TenantId, logicalId, CancellationToken.None);
+
+        Assert.Equal(2, result.Count);
+        Assert.Contains(devEnvId, result);
+        Assert.Contains(qaEnvId, result);
+    }
 }
+

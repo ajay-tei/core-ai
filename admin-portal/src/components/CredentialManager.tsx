@@ -50,7 +50,7 @@ export function CredentialManager() {
       await api.deleteCredential(id);
       toast.success(`Credential "${name}" deleted`);
       reload();
-    } catch { toast.error("Failed to delete credential"); }
+    } catch (e: unknown) { toast.error("Failed to delete credential", { description: String(e) }); }
   };
 
   const handleToggleActive = async (cred: McpCredential) => {

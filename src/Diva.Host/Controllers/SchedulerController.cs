@@ -318,8 +318,13 @@ public class SchedulerController : ControllerBase
         [FromQuery] int tenantId = 1,
         CancellationToken ct = default)
     {
+        var tid = EffectiveTenantId(tenantId);
+        var existing = await _service.GetAsync(tid, id, ct);
+        if (existing is null) return NotFound();
+        if (await ActivelyDeployedBlockAsync(tid, existing.LogicalId, ct) is { } block) return block;
+
         Exception? ex = null;
-        try { await _service.DeleteAsync(EffectiveTenantId(tenantId), id, ct); }
+        try { await _service.DeleteAsync(tid, id, ct); }
         catch (KeyNotFoundException) { return NotFound(); }
         catch (Exception e) { ex = e; }
 
@@ -330,6 +335,24 @@ public class SchedulerController : ControllerBase
         }
 
         return NoContent();
+    }
+
+    // Promoted objects live independently per environment, but EnvironmentDeployments still
+    // points to this row's version as "live" for whichever environment(s) recorded it — deleting
+    // it out from under that pointer would break that environment's ability to run it.
+    private async Task<IActionResult?> ActivelyDeployedBlockAsync(int tenantId, Guid? logicalId, CancellationToken ct)
+    {
+        if (logicalId is not { } lid) return null;
+        var envIds = await _ledger.GetDeployedEnvironmentIdsAsync(tenantId, lid, ct);
+        if (envIds.Count == 0) return null;
+
+        var envs = await _environments.ListAsync(tenantId, ct);
+        var names = envIds.Select(id => envs.FirstOrDefault(e => e.Id == id)?.DisplayName ?? $"#{id}");
+        return new ObjectResult(new
+        {
+            error = $"This scheduled task is actively deployed to {string.Join(", ", names)} and cannot be deleted while deployed there.",
+        })
+        { StatusCode = StatusCodes.Status409Conflict };
     }
 
     // ── PATCH /api/schedules/{id}/enabled ──────────────────────────────────
