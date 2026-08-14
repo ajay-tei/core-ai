@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Runtime.CompilerServices;
 using Diva.Agents.Registry;
 using Diva.Agents.Workers;
 using Diva.Core.Configuration;
@@ -17,6 +18,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
+
+[assembly: InternalsVisibleTo("Diva.Agents.Tests")]
 
 namespace Diva.Host.Controllers;
 
@@ -108,6 +111,33 @@ public class AgentsController : ControllerBase
         catch (JsonException) { return []; }
     }
 
+    // Non-admins can never choose/override which environment's agents they see or reach by ID —
+    // mirrors the rule TenantContextMiddleware already enforces for the X-Environment header
+    // (a regular user's EnvironmentId is always the tenant's resolved default, never spoofable).
+    // Admin behavior is unchanged: an absent/omitted query param still means "no environment filter".
+    internal static int? EffectiveEnvironmentIdForList(TenantContext tenant, int? requestedEnvironmentId) =>
+        (tenant.IsAdmin || tenant.IsMasterAdmin) ? requestedEnvironmentId : tenant.EnvironmentId;
+
+    internal static bool IsOutsideCallersEnvironment(AgentDefinitionEntity agent, TenantContext tenant) =>
+        !tenant.IsAdmin && !tenant.IsMasterAdmin && agent.EnvironmentId is not null && agent.EnvironmentId != tenant.EnvironmentId;
+
+    // Agents referenced in another agent's DelegateAgentIdsJson are internal sub-agents — declutter
+    // the non-admin browse list (they're still fully reachable directly by ID; this doesn't touch
+    // CanInvokeAgent/CanInvokeAgentAsync). Malformed JSON blobs are skipped, not thrown.
+    internal static HashSet<string> ComputeSubAgentIds(IEnumerable<string> delegateAgentIdsJsonBlobs)
+    {
+        var ids = new HashSet<string>();
+        foreach (var json in delegateAgentIdsJsonBlobs)
+        {
+            try
+            {
+                if (JsonSerializer.Deserialize<string[]>(json) is { } parsed) ids.UnionWith(parsed);
+            }
+            catch (JsonException) { /* malformed — ignore */ }
+        }
+        return ids;
+    }
+
     // ── GET /api/agents?environmentId= ───────────────────────────────────────
     [HttpGet]
     public async Task<IActionResult> List([FromQuery] int? environmentId = null, [FromQuery] string? accessGroupId = null, CancellationToken ct = default)
@@ -115,8 +145,9 @@ public class AgentsController : ControllerBase
         var tenant = Tenant;
         using var db = _db.CreateDbContext(tenant);
         var ownAgentsQuery = db.AgentDefinitions.AsQueryable();
-        if (environmentId is > 0)
-            ownAgentsQuery = ownAgentsQuery.Where(a => a.EnvironmentId == environmentId || a.EnvironmentId == null);
+        var effectiveEnvironmentId = EffectiveEnvironmentIdForList(tenant, environmentId);
+        if (effectiveEnvironmentId is > 0)
+            ownAgentsQuery = ownAgentsQuery.Where(a => a.EnvironmentId == effectiveEnvironmentId || a.EnvironmentId == null);
         var ownAgents = await ownAgentsQuery
             .OrderByDescending(a => a.CreatedAt)
             .Select(a => new AgentSummaryDto(a.Id, a.Name, a.DisplayName, a.AgentType, a.Status, a.IsEnabled, a.CreatedAt, false, null, null, a.LlmConfigId))
@@ -143,6 +174,15 @@ public class AgentsController : ControllerBase
         {
             var denied = await _agentGroups.GetDeniedAgentIdsAsync(tenant, ct);
             all = all.Where(a => !denied.Contains(a.Id));
+
+            // Sub-agents (referenced as another agent's delegate/tool) are internal implementation
+            // details — don't clutter the browse/chat list with them directly.
+            var delegateRefs = await ownAgentsQuery
+                .Where(a => a.DelegateAgentIdsJson != null)
+                .Select(a => a.DelegateAgentIdsJson!)
+                .ToListAsync(ct);
+            var subAgentIds = ComputeSubAgentIds(delegateRefs);
+            all = all.Where(a => !subAgentIds.Contains(a.Id));
         }
 
         if (!string.IsNullOrWhiteSpace(accessGroupId))
@@ -170,8 +210,9 @@ public class AgentsController : ControllerBase
         var tenant = Tenant;
         using var db = _db.CreateDbContext(tenant);
         var ownAgentsQuery = db.AgentDefinitions.AsQueryable();
-        if (environmentId is > 0)
-            ownAgentsQuery = ownAgentsQuery.Where(a => a.EnvironmentId == environmentId || a.EnvironmentId == null);
+        var effectiveEnvironmentId = EffectiveEnvironmentIdForList(tenant, environmentId);
+        if (effectiveEnvironmentId is > 0)
+            ownAgentsQuery = ownAgentsQuery.Where(a => a.EnvironmentId == effectiveEnvironmentId || a.EnvironmentId == null);
         var ownAgentRows = await ownAgentsQuery
             .OrderByDescending(a => a.CreatedAt)
             .Select(a => new { a.Id, a.Name, a.DisplayName, a.AgentType, a.Status, a.IsEnabled, a.CreatedAt, a.LlmConfigId, a.LogicalId, a.EnvironmentId })
@@ -213,6 +254,15 @@ public class AgentsController : ControllerBase
         {
             var denied = await _agentGroups.GetDeniedAgentIdsAsync(tenant, ct);
             all = all.Where(a => !denied.Contains(a.Id));
+
+            // Sub-agents (referenced as another agent's delegate/tool) are internal implementation
+            // details — don't clutter the browse/chat list with them directly.
+            var delegateRefs = await ownAgentsQuery
+                .Where(a => a.DelegateAgentIdsJson != null)
+                .Select(a => a.DelegateAgentIdsJson!)
+                .ToListAsync(ct);
+            var subAgentIds = ComputeSubAgentIds(delegateRefs);
+            all = all.Where(a => !subAgentIds.Contains(a.Id));
         }
 
         if (!string.IsNullOrWhiteSpace(accessGroupId))
@@ -245,7 +295,11 @@ public class AgentsController : ControllerBase
 
         using var db = _db.CreateDbContext(tenant);
         var agent = await db.AgentDefinitions.FindAsync([id], ct);
-        if (agent is not null) return Ok(agent);
+        if (agent is not null)
+        {
+            if (IsOutsideCallersEnvironment(agent, tenant)) return NotFound();
+            return Ok(agent);
+        }
 
         // Fall through to group templates
         var groupTemplates = await _groups.GetAgentTemplatesForTenantAsync(tenant.TenantId, ct);
@@ -909,11 +963,15 @@ public class AgentsController : ControllerBase
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /// Resolves an agent by ID: checks own tenant definitions first, then group templates.
+    /// A non-admin can never resolve an agent tagged to a different environment than their own
+    /// (see <see cref="IsOutsideCallersEnvironment"/>) — closes the gap where an out-of-environment
+    /// agent could otherwise still be invoked directly by ID even though List/ListPaged hide it.
     private async Task<AgentDefinitionEntity?> ResolveAgentAsync(string id, TenantContext tenant, CancellationToken ct)
     {
         using var db = _db.CreateDbContext(tenant);
         var agent = await db.AgentDefinitions.FindAsync([id], ct);
-        if (agent is not null) return agent;
+        if (agent is not null)
+            return IsOutsideCallersEnvironment(agent, tenant) ? null : agent;
 
         var groupTemplates = await _groups.GetAgentTemplatesForTenantAsync(tenant.TenantId, ct);
         var template = groupTemplates.FirstOrDefault(t => t.Id == id);

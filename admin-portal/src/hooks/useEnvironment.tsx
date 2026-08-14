@@ -57,7 +57,12 @@ export function EnvironmentProvider({ children }: { children: ReactNode; })
     }
 
     setLoading(true);
-    api.listEnvironments()
+    // Non-admins can't read the admin-only environment list (would 403) — they get a narrower,
+    // read-only endpoint that returns just their own server-resolved environment (always 0 or 1
+    // item today). Sharing this same resolution/state logic below means the switcher needs zero
+    // changes if a future multi-environment-access feature ever returns more than one.
+    const fetchEnvironments = auth.isAdmin() ? api.listEnvironments() : api.getAccessibleEnvironments();
+    fetchEnvironments
       .then((envs) =>
       {
         setEnvironments(envs);

@@ -4,6 +4,58 @@
 
 ---
 
+## [2026-08-13] Security fix: viewer-role environment scoping on AgentsController + sub-agent hiding + accessible-environments endpoint
+
+**Problem**: a non-admin (viewer) user who was correctly and un-spoofably resolved to their
+tenant's default environment by `TenantContextMiddleware` could still see and directly invoke
+agents belonging to OTHER environments, because `AgentsController` never enforced the
+already-resolved `TenantContext.EnvironmentId` as a filter — it only honored the `environmentId`
+query param and the `X-Environment` header for admins, but non-admin requests to `List`,
+`ListPaged`, `Get`, and the invoke paths (`Invoke`/`InvokeStream`/`CredentialGroups`, all backed by
+`ResolveAgentAsync`) had no equivalent server-side check. Separately, viewer users had no way to
+even see which environment they were scoped to, because `EnvironmentSwitcher` was fed by
+`api.listEnvironments()`, an admin-only endpoint — the dropdown silently rendered nothing.
+Additionally, agents that exist purely as delegate/sub-agents of another agent
+(`DelegateAgentIdsJson`) were showing up in the top-level list for non-admins alongside their
+parent, cluttering the UI with agents nobody should invoke directly.
+
+**Fix**:
+- `AgentsController.cs`: added three pure `internal static` helpers —
+  `EffectiveEnvironmentIdForList` (non-admins always use `tenant.EnvironmentId`, ignoring any
+  client-supplied `environmentId`; admins/master-admins pass through the requested value),
+  `IsOutsideCallersEnvironment` (true when a non-admin's tenant environment doesn't match the
+  agent's `EnvironmentId`), and `ComputeSubAgentIds` (unions all `DelegateAgentIdsJson` blobs into
+  a set of child agent IDs to exclude from the list). `List` and `ListPaged` now filter through
+  `EffectiveEnvironmentIdForList` and additionally hide any agent whose ID appears as someone
+  else's delegate (non-admins only). `Get` and `ResolveAgentAsync` (the shared helper for
+  `Invoke`/`InvokeStream`/`CredentialGroups`) now return 404/null when
+  `IsOutsideCallersEnvironment` is true, closing the direct-invoke-by-ID gap.
+  (`src/Diva.Host/Controllers/AgentsController.cs`)
+- New read-only, non-admin-reachable `GET /api/environments/accessible` endpoint returning the
+  caller's own resolved environment as a single-item list (list-shaped for future multi-environment
+  support without frontend rework). (`src/Diva.Host/Controllers/EnvironmentAccessController.cs`)
+- `useEnvironment.tsx` now calls `api.getAccessibleEnvironments()` for non-admins instead of the
+  admin-only `listEnvironments()`; `EnvironmentSwitcher` required no changes since it already
+  renders based on the resolved list length. (`admin-portal/src/api.ts`,
+  `admin-portal/src/hooks/useEnvironment.tsx`)
+- Testing pattern: added `[assembly: InternalsVisibleTo("Diva.Agents.Tests")]` to
+  `AgentsController.cs` and a new `<ProjectReference>` to `Diva.Host.csproj` from
+  `Diva.Agents.Tests.csproj` (test-only, no production layering violation), plus
+  `AgentsControllerScopingTests.cs` with 13 pure unit tests for the three helpers.
+
+**Known limitation**: sub-agent hiding only recognizes one-directional
+`DelegateAgentIdsJson` references; mutual/peer delegation between two agents would not hide either
+from the list. Full multi-environment ACL (a user granted access to more than one environment) was
+explicitly scoped out of this change — see "Further Considerations" discussion; would require a
+new grant entity modeled on Agent Access Groups (Phase 28) if ever needed.
+
+**Verification**: full-solution `dotnet build Diva.slnx` — 0 errors. `dotnet test` per project:
+`Diva.Agents.Tests` 367 passed (2 pre-existing unrelated failures from separate parallel WIP),
+`Diva.TenantAdmin.Tests` 329 passed, `Diva.Tools.Tests` 78 passed. Frontend `tsc -b` clean; ESLint
+baseline unchanged at 36 problems (26 errors, 10 warnings).
+
+---
+
 ## [2026-08-13] Feature: "View Available Tools" popup in Agent Builder's Tools tab
 
 **Problem**: an agent's Tools tab lets you attach shared MCP servers (`McpServerRefsJson`) and

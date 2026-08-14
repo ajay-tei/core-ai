@@ -2302,6 +2302,10 @@ export const api = {
   // ── Environments (foundation) ────────────────────────────────────────────────
   listEnvironments: (tenantId = 1) =>
     request<TenantEnvironment[]>(`/api/admin/environments?tenantId=${ tenantId }`),
+  // Non-admin-reachable counterpart to listEnvironments — returns only the caller's own
+  // server-resolved environment (always 0 or 1 item today).
+  getAccessibleEnvironments: () =>
+    request<TenantEnvironment[]>("/api/environments/accessible"),
   getEnvironment: (id: number, tenantId = 1) =>
     request<TenantEnvironment>(`/api/admin/environments/${ id }?tenantId=${ tenantId }`),
   createEnvironment: (dto: EnvironmentRequest) =>
