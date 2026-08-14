@@ -146,7 +146,10 @@ public class AgentsController : ControllerBase
         using var db = _db.CreateDbContext(tenant);
         var ownAgentsQuery = db.AgentDefinitions.AsQueryable();
         var effectiveEnvironmentId = EffectiveEnvironmentIdForList(tenant, environmentId);
-        if (effectiveEnvironmentId is > 0)
+        // For non-admins, effectiveEnvironmentId is never null (see EffectiveEnvironmentIdForList) —
+        // 0 means "no accessible environment" (allow-list-only ACL, nothing granted) and must still
+        // filter down to untagged/legacy agents only, never fall through to "no filter".
+        if (effectiveEnvironmentId is > 0 || !(tenant.IsAdmin || tenant.IsMasterAdmin))
             ownAgentsQuery = ownAgentsQuery.Where(a => a.EnvironmentId == effectiveEnvironmentId || a.EnvironmentId == null);
         var ownAgents = await ownAgentsQuery
             .OrderByDescending(a => a.CreatedAt)
@@ -211,7 +214,7 @@ public class AgentsController : ControllerBase
         using var db = _db.CreateDbContext(tenant);
         var ownAgentsQuery = db.AgentDefinitions.AsQueryable();
         var effectiveEnvironmentId = EffectiveEnvironmentIdForList(tenant, environmentId);
-        if (effectiveEnvironmentId is > 0)
+        if (effectiveEnvironmentId is > 0 || !(tenant.IsAdmin || tenant.IsMasterAdmin))
             ownAgentsQuery = ownAgentsQuery.Where(a => a.EnvironmentId == effectiveEnvironmentId || a.EnvironmentId == null);
         var ownAgentRows = await ownAgentsQuery
             .OrderByDescending(a => a.CreatedAt)

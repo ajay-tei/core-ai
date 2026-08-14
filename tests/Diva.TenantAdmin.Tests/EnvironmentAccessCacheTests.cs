@@ -56,14 +56,15 @@ public class EnvironmentAccessCacheTests : IDisposable
         EnvironmentId = 0,
     };
 
-    private TenantEnvironmentEntity SeedEnvironment(string slug, string[]? allowedRoles = null)
+    private TenantEnvironmentEntity SeedEnvironment(string slug, string[]? allowedRoles = null, int rank = 0, bool isDefault = false)
     {
         var env = new TenantEnvironmentEntity
         {
             TenantId = TenantId,
             Slug = slug,
             DisplayName = slug,
-            Rank = 0,
+            Rank = rank,
+            IsDefault = isDefault,
             AllowedRolesJson = allowedRoles is { Length: > 0 } ? System.Text.Json.JsonSerializer.Serialize(allowedRoles) : null,
         };
         _db.TenantEnvironments.Add(env);
@@ -104,14 +105,14 @@ public class EnvironmentAccessCacheTests : IDisposable
         Assert.True(ok);
     }
 
-    // ── Unrestricted environments ─────────────────────────────────────────────
+    // ── Unrestricted environments (allow-list only — hidden until explicitly granted) ────────
 
     [Fact]
-    public async Task CanAccess_UnrestrictedEnvironment_GrantedToAnyone()
+    public async Task CanAccess_UnrestrictedEnvironment_DeniedToNonAdmin()
     {
         var env = SeedEnvironment("dev");
         var ok = await _access.CanAccessEnvironmentAsync(env.Id, User("alice"), CancellationToken.None);
-        Assert.True(ok);
+        Assert.False(ok);
     }
 
     // ── Role / SSO-group match ────────────────────────────────────────────────
@@ -176,17 +177,26 @@ public class EnvironmentAccessCacheTests : IDisposable
     // ── GetAccessibleEnvironmentIdsAsync ──────────────────────────────────────
 
     [Fact]
-    public async Task GetAccessibleEnvironmentIds_ReturnsOnlyGrantedSubset()
+    public async Task GetAccessibleEnvironmentIds_ExcludesUnrestrictedAndNonMatchingEnvironments()
     {
-        var open = SeedEnvironment("dev");
+        SeedEnvironment("dev");
         var restricted = SeedEnvironment("staging", ["finance"]);
         SeedEnvironment("prod", ["ops"]);
 
         var ids = await _access.GetAccessibleEnvironmentIdsAsync(User("alice", roles: ["finance"]), CancellationToken.None);
 
-        Assert.Contains(open.Id, ids);
-        Assert.Contains(restricted.Id, ids);
-        Assert.Equal(2, ids.Count);
+        Assert.Equal([restricted.Id], ids);
+    }
+
+    [Fact]
+    public async Task GetAccessibleEnvironmentIds_NoGrantsAnywhere_ReturnsEmpty()
+    {
+        SeedEnvironment("dev");
+        SeedEnvironment("staging", ["finance"]);
+
+        var ids = await _access.GetAccessibleEnvironmentIdsAsync(User("bob", roles: ["sales"]), CancellationToken.None);
+
+        Assert.Empty(ids);
     }
 
     [Fact]
@@ -198,6 +208,49 @@ public class EnvironmentAccessCacheTests : IDisposable
 
         var ids = await _access.GetAccessibleEnvironmentIdsAsync(User("root", isAdmin: true), CancellationToken.None);
         Assert.Equal(3, ids.Count);
+    }
+
+    // ── ResolveEffectiveEnvironmentIdAsync ─────────────────────────────────────
+
+    [Fact]
+    public async Task ResolveEffective_NonAdmin_GrantedToDefault_ReturnsDefault()
+    {
+        var dev = SeedEnvironment("dev", ["eng"], rank: 0, isDefault: true);
+        SeedEnvironment("prod", ["ops"], rank: 1);
+
+        var id = await _access.ResolveEffectiveEnvironmentIdAsync(User("alice", roles: ["eng"]), CancellationToken.None);
+        Assert.Equal(dev.Id, id);
+    }
+
+    [Fact]
+    public async Task ResolveEffective_NonAdmin_NotGrantedToDefault_FallsBackToLowestRankAccessible()
+    {
+        SeedEnvironment("dev", ["eng"], rank: 0, isDefault: true);
+        var staging = SeedEnvironment("staging", ["finance"], rank: 1);
+        SeedEnvironment("prod", ["finance"], rank: 2);
+
+        var id = await _access.ResolveEffectiveEnvironmentIdAsync(User("bob", roles: ["finance"]), CancellationToken.None);
+        Assert.Equal(staging.Id, id);
+    }
+
+    [Fact]
+    public async Task ResolveEffective_NonAdmin_NoAccessibleEnvironments_ReturnsZero()
+    {
+        SeedEnvironment("dev", ["eng"], rank: 0, isDefault: true);
+        SeedEnvironment("prod", ["ops"], rank: 1);
+
+        var id = await _access.ResolveEffectiveEnvironmentIdAsync(User("carol", roles: ["sales"]), CancellationToken.None);
+        Assert.Equal(0, id);
+    }
+
+    [Fact]
+    public async Task ResolveEffective_Admin_ReturnsTenantDefault_EvenWhenRestricted()
+    {
+        var dev = SeedEnvironment("dev", ["eng"], rank: 0, isDefault: true);
+        SeedEnvironment("prod", ["ops"], rank: 1);
+
+        var id = await _access.ResolveEffectiveEnvironmentIdAsync(User("root", isAdmin: true), CancellationToken.None);
+        Assert.Equal(dev.Id, id);
     }
 
     // ── Cache invalidation ─────────────────────────────────────────────────────

@@ -11,6 +11,8 @@ namespace Diva.Infrastructure.Auth;
 /// AllowedRolesJson + linked user groups (EnvironmentUserGroupEntity), caching the
 /// per-tenant rules in <see cref="IMemoryCache"/> (5-min TTL) since environment
 /// resolution runs on every authenticated request (TenantContextMiddleware).
+/// Allow-list only: an environment with neither AllowedRolesJson nor a linked user group grants
+/// access to NOBODY except admins/master-admins, who always bypass this check.
 /// Singleton-safe: creates a new DbContext per call via <see cref="IDatabaseProviderFactory"/>.
 /// </summary>
 public sealed class EnvironmentAccessCache : IEnvironmentAccessResolver
@@ -29,10 +31,7 @@ public sealed class EnvironmentAccessCache : IEnvironmentAccessResolver
         _cache = cache;
     }
 
-    private sealed record AccessRule(int EnvironmentId, HashSet<string> AllowedRoles, HashSet<int> AllowedUserGroupIds)
-    {
-        public bool IsUnrestricted => AllowedRoles.Count == 0 && AllowedUserGroupIds.Count == 0;
-    }
+    private sealed record AccessRule(int EnvironmentId, int Rank, bool IsDefault, HashSet<string> AllowedRoles, HashSet<int> AllowedUserGroupIds);
 
     private async Task<List<AccessRule>> GetRulesAsync(int tenantId, CancellationToken ct)
     {
@@ -48,6 +47,8 @@ public sealed class EnvironmentAccessCache : IEnvironmentAccessResolver
 
         var rules = envs.Select(e => new AccessRule(
             e.Id,
+            e.Rank,
+            e.IsDefault,
             Deserialize(e.AllowedRolesJson),
             new HashSet<int>(e.UserGroupLinks.Select(l => l.UserGroupId)))).ToList();
 
@@ -55,10 +56,10 @@ public sealed class EnvironmentAccessCache : IEnvironmentAccessResolver
         return rules;
     }
 
+    // Allow-list only: an environment with neither AllowedRoles nor a linked user group grants
+    // access to NOBODY (except admins, who bypass this check entirely at the call sites below).
     private static bool IsGranted(AccessRule rule, TenantContext tenant, HashSet<int> userGroupIds)
     {
-        if (rule.IsUnrestricted) return true;
-
         foreach (var r in tenant.UserRoles) if (rule.AllowedRoles.Contains(r)) return true;
         foreach (var g in tenant.UserGroups) if (rule.AllowedRoles.Contains(g)) return true;
         foreach (var gid in userGroupIds) if (rule.AllowedUserGroupIds.Contains(gid)) return true;
@@ -73,7 +74,6 @@ public sealed class EnvironmentAccessCache : IEnvironmentAccessResolver
         var rules = await GetRulesAsync(tenant.TenantId, ct);
         var rule = rules.FirstOrDefault(r => r.EnvironmentId == environmentId);
         if (rule is null) return false;
-        if (rule.IsUnrestricted) return true;
 
         var userGroupIds = (await _userGroups.GetGroupIdsForUserAsync(tenant, ct)).ToHashSet();
         return IsGranted(rule, tenant, userGroupIds);
@@ -84,11 +84,22 @@ public sealed class EnvironmentAccessCache : IEnvironmentAccessResolver
         var rules = await GetRulesAsync(tenant.TenantId, ct);
         if (tenant.IsAdmin || tenant.IsMasterAdmin) return rules.Select(r => r.EnvironmentId).ToList();
 
-        var userGroupIds = rules.Any(r => r.AllowedUserGroupIds.Count > 0)
-            ? (await _userGroups.GetGroupIdsForUserAsync(tenant, ct)).ToHashSet()
-            : [];
-
+        var userGroupIds = (await _userGroups.GetGroupIdsForUserAsync(tenant, ct)).ToHashSet();
         return rules.Where(r => IsGranted(r, tenant, userGroupIds)).Select(r => r.EnvironmentId).ToList();
+    }
+
+    public async Task<int> ResolveEffectiveEnvironmentIdAsync(TenantContext tenant, CancellationToken ct)
+    {
+        var rules = await GetRulesAsync(tenant.TenantId, ct);
+        if (tenant.IsAdmin || tenant.IsMasterAdmin)
+            return rules.FirstOrDefault(r => r.IsDefault)?.EnvironmentId ?? 0;
+
+        var userGroupIds = (await _userGroups.GetGroupIdsForUserAsync(tenant, ct)).ToHashSet();
+        var accessible = rules.Where(r => IsGranted(r, tenant, userGroupIds)).ToList();
+        if (accessible.Count == 0) return 0;
+
+        var defaultRule = accessible.FirstOrDefault(r => r.IsDefault);
+        return defaultRule?.EnvironmentId ?? accessible.OrderBy(r => r.Rank).First().EnvironmentId;
     }
 
     public void InvalidateForTenant(int tenantId) => _cache.Remove(CachePrefix + tenantId);

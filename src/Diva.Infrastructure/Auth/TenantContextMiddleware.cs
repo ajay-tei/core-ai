@@ -184,10 +184,13 @@ public sealed class TenantContextMiddleware
         // Environment resolution (Phase E, extended Phase 5): an explicit X-Environment header is
         // honored for admins unconditionally (staging/preview access in the admin portal), and for
         // non-admins only when IEnvironmentAccessResolver grants that specific environment (per-
-        // environment AllowedRolesJson / linked user groups) — never trusted blindly, or this would
-        // reintroduce the spoofing hole the original design prevented. Falls back to the tenant's
-        // IsDefault environment for everyone else (the sole fallback for all untagged/legacy traffic
-        // and for any non-admin without an explicit grant to the requested environment).
+        // environment AllowedRolesJson / linked user groups, allow-list only — an environment with
+        // neither configured grants access to NOBODY) — never trusted blindly, or this would
+        // reintroduce the spoofing hole the original design prevented. With no header (or a denied
+        // one), admins fall back to the tenant's IsDefault environment unconditionally (unchanged);
+        // non-admins fall back to their best ACCESSIBLE environment (default if granted, else lowest
+        // Rank, else 0 if they have no accessible environment at all — AgentsController and friends
+        // treat that as "see nothing" for a non-admin, never "no filter").
         var requestedEnvironmentHeader = context.Request.Headers["X-Environment"].FirstOrDefault();
         int resolvedEnvironmentId;
         if (int.TryParse(requestedEnvironmentHeader, out var explicitEnvId) && explicitEnvId > 0 &&
@@ -197,7 +200,9 @@ public sealed class TenantContextMiddleware
         }
         else
         {
-            resolvedEnvironmentId = await ResolveDefaultEnvironmentIdAsync(dbFactory, tenantContext.TenantId, context.RequestAborted);
+            resolvedEnvironmentId = tenantContext.IsAdmin || tenantContext.IsMasterAdmin
+                ? await ResolveDefaultEnvironmentIdAsync(dbFactory, tenantContext.TenantId, context.RequestAborted)
+                : await environmentAccess.ResolveEffectiveEnvironmentIdAsync(tenantContext, context.RequestAborted);
         }
 
         tenantContext = tenantContext.WithEnvironment(resolvedEnvironmentId);

@@ -18,6 +18,12 @@ public interface IEnvironmentAccessResolver
     /// <summary>Ids of every one of the tenant's environments the caller may access.</summary>
     Task<IReadOnlyCollection<int>> GetAccessibleEnvironmentIdsAsync(TenantContext tenant, CancellationToken ct);
 
+    /// <summary>Resolves the best environment id for a caller with no explicit environment request:
+    /// the tenant's default if the caller is granted access to it (or unconditionally for admins),
+    /// else the caller's lowest-Rank accessible environment, else 0 (a non-admin with no accessible
+    /// environment at all).</summary>
+    Task<int> ResolveEffectiveEnvironmentIdAsync(TenantContext tenant, CancellationToken ct);
+
     /// <summary>Evicts the cached access rules for a tenant after a write.</summary>
     void InvalidateForTenant(int tenantId);
 }

@@ -4,6 +4,58 @@
 
 ---
 
+## [2026-08-14] Policy change: environment ACL flipped to allow-list-only (hidden unless explicitly granted)
+
+**Problem**: Phase 5 (2026-08-13) made an environment's `AllowedRolesJson`/linked user groups
+*optional* restrictions — an environment with neither configured was open to everyone
+("unrestricted"), for backward compatibility. Confirmed with the user this was not the wanted
+behavior: an environment a non-admin has no explicit role/user-group grant for should never appear
+for them, period — including ones nobody has bothered to restrict yet.
+
+**Fix**: `EnvironmentAccessCache` is now allow-list only. `IsGranted` no longer has an
+"unrestricted → true" shortcut — an environment with no matching role/SSO-group and no matching
+linked user group grants access to **nobody** except admins/master-admins (who always bypass this
+entirely, unchanged). This applies to `CanAccessEnvironmentAsync`, `GetAccessibleEnvironmentIdsAsync`
+(used by the `/api/environments/accessible` dropdown endpoint), and the new
+`ResolveEffectiveEnvironmentIdAsync`.
+
+**Knock-on fixes required for consistency** (a non-admin resolving to "no accessible environment"
+must never fall through to "see everything"):
+- `TenantContextMiddleware`'s fallback (no/denied `X-Environment` header) no longer blindly resolves
+  a non-admin to the tenant's default environment. New `IEnvironmentAccessResolver
+  .ResolveEffectiveEnvironmentIdAsync`: default environment if the caller is granted access to it
+  (or unconditionally for admins — admin behavior is fully unchanged), else the caller's
+  lowest-`Rank` accessible environment, else `0` if they have no accessible environment at all.
+- `AgentsController.List`/`ListPaged`: previously `if (effectiveEnvironmentId is > 0)` treated `0`
+  as "no filter" (fine for an admin with no query param, wrong for a non-admin with zero
+  accessible environments — that combination would have leaked every environment's agents). Now
+  filters unconditionally for non-admins regardless of value, so `0` correctly narrows the result
+  to only untagged/legacy agents (`EnvironmentId == null`), never "all agents."
+  (`src/Diva.Infrastructure/Auth/EnvironmentAccessCache.cs`,
+  `src/Diva.Core/Configuration/IEnvironmentAccessResolver.cs`,
+  `src/Diva.Infrastructure/Auth/TenantContextMiddleware.cs`,
+  `src/Diva.Host/Controllers/AgentsController.cs`)
+
+**Important operational note**: because every existing tenant's environments currently have no
+`AllowedRolesJson`/linked user groups configured (the feature just shipped), this change means
+**every non-admin user in every tenant will see an empty environment dropdown, and will only see
+untagged/legacy agents (not environment-tagged ones), until an admin explicitly grants at least one
+role or user group to at least one environment** (typically the tenant's default). This is a
+deliberate, confirmed policy choice, not a bug — admins should configure environment ACLs (Allowed
+Roles / Allowed User Groups on the Environments admin page) before non-admins need agent access
+again.
+
+**Tests**: `EnvironmentAccessCacheTests.cs` updated — the former "unrestricted → granted" tests
+flipped to "unrestricted → denied for non-admin" (admin/master-admin bypass tests unchanged); new
+`ResolveEffectiveEnvironmentIdAsync` tests (default-granted, default-not-granted-falls-back-to-
+lowest-rank-accessible, zero-accessible-returns-0, admin-always-returns-default).
+
+**Verification**: `dotnet build Diva.slnx` 0 errors; `dotnet test` — `Diva.TenantAdmin.Tests`
+346/346 (341 + 5 new/changed), `Diva.Agents.Tests` 368/369 (1 pre-existing unrelated failure,
+tolerated per established convention).
+
+---
+
 ## [2026-08-13] Feature: multi-environment access for non-admins (Phase 5 — environment ACL via roles + reusable user groups)
 
 **Problem**: the environment-scoping fix earlier the same day made non-admins strictly single-
