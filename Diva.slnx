@@ -18,5 +18,6 @@
   <Folder Name="/tools/">
     <Project Path="tools/DbMigrate/DbMigrate.csproj" />
     <Project Path="tools/DivaFsMcpServer/DivaFsMcpServer.csproj" />
+    <Project Path="tools/LoadTest/Diva.LoadTest.csproj" />
   </Folder>
 </Solution>

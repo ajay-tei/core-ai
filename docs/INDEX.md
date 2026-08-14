@@ -140,6 +140,7 @@ MkDocs Material site in `agent-docs/` — explanation-only architecture docs for
 | [agents.md](agents.md) | Dev cycle guide — ReAct loop patterns, key files, test conventions, SSE event types, deferred items |
 | [rule-packs-guide.md](rule-packs-guide.md) | Complete Rule Pack usage guide: hook points, compatibility matrix, parameter reference, API payload examples, troubleshooting |
 | [hardening-backlog.md](hardening-backlog.md) | Agentic flow robustness backlog — 18 tracked items (P0/P1/P2/Tests/Docs); check off when fixed |
+| [scalability-load-review.md](scalability-load-review.md) | Backend agent API scalability/load review — concurrency findings (MCP cache stampede fix, retry jitter fix, rate-limiting gap, SQLite write-concurrency risk), rollout checklist; companion to `tools/LoadTest` |
 | [phase-22-embeddable-widget.md](phase-22-embeddable-widget.md) | Phase 22 — Embeddable Chat Widget: architecture, all implemented components, security notes, verification checklist, file index |
 
 ## AI Assistant Instructions

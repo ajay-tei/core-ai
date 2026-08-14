@@ -1704,7 +1704,10 @@ public sealed class AnthropicAgentRunner : IAgentRunner
             {
                 lastEx = ex;
                 attempt++;
-                var delayMs = _agentOpts.Retry.BaseDelayMs * (1 << attempt);  // 2s, 4s, 8s
+                var maxDelayMs = _agentOpts.Retry.BaseDelayMs * (1 << attempt);  // 2s, 4s, 8s ceiling
+                // Equal jitter: half fixed + half random, so concurrent requests hitting the same
+                // provider-side rate limit don't all retry in lockstep and re-create the spike.
+                var delayMs = maxDelayMs / 2 + Random.Shared.Next(0, maxDelayMs / 2 + 1);
                 _logger.LogWarning(
                     "LLM transient error (attempt {A}/{Max}): {Msg}. Retrying in {D}ms",
                     attempt, _agentOpts.Retry.MaxRetries, ex.Message, delayMs);

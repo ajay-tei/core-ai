@@ -4,6 +4,45 @@
 
 ---
 
+## [2026-08-14] Scalability review: concurrent-load fixes + new load test tool
+
+**Problem**: needed to know whether the agent execution API (ReAct loop + MCP tool calls) can
+handle concurrent agentic requests from hundreds of users, and had no load testing tool to verify it.
+
+**Review**: full request-path audit (Kestrel → `TenantContextMiddleware` → `AgentsController` →
+`AnthropicAgentRunner` → MCP/LLM → DB) — see `docs/scalability-load-review.md` for the complete
+findings and a prioritized (P0/P1/P2) rollout checklist. Two concurrency bugs found were fixed
+directly:
+- **MCP client cache stampede**: `McpClientCache.GetOrConnectAsync`/`EvictAndReconnectAsync` had a
+  check-then-act race — concurrent cold-cache requests for the same agent each raced to spawn their
+  own MCP connection/docker process. Fixed with a per-cache-key `SemaphoreSlim` gate + double-checked
+  locking. (`src/Diva.Infrastructure/LiteLLM/McpClientCache.cs`)
+- **Synchronized retry storms**: `AnthropicAgentRunner.CallWithRetryAsync`'s backoff was
+  deterministic (2s/4s/8s), so concurrent requests hitting a shared provider rate limit retried in
+  lockstep. Switched to equal jitter (half fixed + half random).
+  (`src/Diva.Infrastructure/LiteLLM/AnthropicAgentRunner.cs`)
+
+Remaining findings (no rate limiting on `/invoke`/`/invoke/stream`, SQLite write-concurrency risk,
+no global outbound LLM concurrency cap, single-container deployment) are documented as
+recommendations, not auto-changed — they affect request-handling behavior or deployment topology
+and need a deployment-specific decision.
+
+**New tooling**: `tools/LoadTest` — dependency-free .NET console load generator for
+`POST /api/agents/{id}/invoke` and `.../invoke/stream`. Scenarios: `burst` (instant spike), `soak`
+(sustained), `ramp` (step concurrency to find the breaking point, with a time-series report).
+Streaming mode parses the actual SSE event timeline (time-to-first-token, time-to-first-tool-call,
+tool-call/iteration counts) — the scenario most relevant to concurrent MCP tool-call load. Talks to
+the API purely over HTTP/SSE, so it can point at any deployment. See `tools/LoadTest/README.md`.
+
+**Verification**: `dotnet build Diva.slnx` 0 errors; `dotnet test` — `Diva.Agents.Tests` 368/369
+(1 pre-existing unrelated failure, `ContextWindowTests
+.RunAsync_CallsMaybeCompactAnthropicBeforeLlmCall`, confirmed via `git stash` to fail on `main`
+independent of these changes), `Diva.TenantAdmin.Tests` 347/347. Load test tool smoke-tested
+end-to-end against a live local instance (auto-discovery, error handling/grouping, ramp stepping,
+CSV export all confirmed working).
+
+---
+
 ## [2026-08-14] Bug fix: manual Save Changes/Publish never populated the System Prompt History dialog
 
 **Problem**: `AgentBuilder.tsx`'s "System Prompt History" dialog (backed by the separate,
