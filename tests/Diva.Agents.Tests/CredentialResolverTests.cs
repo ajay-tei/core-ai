@@ -206,7 +206,11 @@ public class CredentialResolverTests : IDisposable
         {
             db.TenantEnvironments.Add(new TenantEnvironmentEntity
             {
-                TenantId = TenantId, Slug = "prod", DisplayName = "Prod", Rank = 1, IsDefault = false,
+                TenantId = TenantId,
+                Slug = "prod",
+                DisplayName = "Prod",
+                Rank = 1,
+                IsDefault = false,
             });
             await db.SaveChangesAsync();
         }

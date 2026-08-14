@@ -36,7 +36,7 @@ public class McpClientCacheTests : IAsyncDisposable
         Func<CancellationToken, Task<Dictionary<string, McpClient>>> factory =
             _ => { calls++; return Task.FromResult(new Dictionary<string, McpClient>()); };
 
-        var first  = await _cache.GetOrConnectAsync(agent, factory, default);
+        var first = await _cache.GetOrConnectAsync(agent, factory, default);
         var second = await _cache.GetOrConnectAsync(agent, factory, default);
 
         Assert.Equal(1, calls);           // factory called only once

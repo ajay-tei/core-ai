@@ -34,11 +34,11 @@ public class TenantGroupServiceTests : IDisposable
         _db = new DivaDbContext(opts);
         _db.Database.EnsureCreated();
 
-        _cache           = new MemoryCache(new MemoryCacheOptions());
-        _llmResolver     = Substitute.For<ILlmConfigResolver>();
-        var factory      = new DirectDbFactory(opts);
+        _cache = new MemoryCache(new MemoryCacheOptions());
+        _llmResolver = Substitute.For<ILlmConfigResolver>();
+        var factory = new DirectDbFactory(opts);
         _membershipCache = new GroupMembershipCache(factory, _cache, NullLogger<GroupMembershipCache>.Instance);
-        _service         = new TenantGroupService(
+        _service = new TenantGroupService(
             factory,
             _membershipCache,
             _llmResolver,
