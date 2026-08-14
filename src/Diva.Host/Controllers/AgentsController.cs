@@ -344,6 +344,7 @@ public class AgentsController : ControllerBase
         if (existing is null) return NotFound();
         if (await IsLockedForEditingAsync(existing, Tenant.TenantId, ct)) return NonDefaultEnvironmentLocked();
 
+        var previousSystemPrompt = existing.SystemPrompt;
         ApplyAgentUpdate(existing, dto);
 
         await db.SaveChangesAsync(ct);
@@ -361,6 +362,15 @@ public class AgentsController : ControllerBase
                     Tenant.TenantId, logicalId, "Agent", snapshot.Name, environmentId,
                     snapshot.SnapshotJson, "manual", null, Tenant.UserId, null, ct);
             }
+        }
+
+        // The System Prompt History dialog is a separate, narrower, prompt-text-only record —
+        // previously only AI-Optimizer/session-analysis flows and explicit restores wrote to it,
+        // so a plain manual Save Changes never showed up there at all.
+        if (existing.SystemPrompt != previousSystemPrompt)
+        {
+            await _assistant.SavePromptVersionAsync(
+                existing.Id, Tenant.TenantId, existing.SystemPrompt ?? "", "manual", null, Tenant.UserId, ct);
         }
 
         return Ok(existing);
@@ -521,6 +531,7 @@ public class AgentsController : ControllerBase
         var dto = JsonSerializer.Deserialize<AgentDefinitionEntity>(draft.DraftJson)
             ?? throw new InvalidOperationException("Invalid draft JSON.");
 
+        var previousSystemPrompt = existing.SystemPrompt;
         ApplyAgentUpdate(existing, dto);
         await db.SaveChangesAsync(ct);
 
@@ -530,6 +541,12 @@ public class AgentsController : ControllerBase
             await _ledger.RecordVersionAsync(
                 tenant.TenantId, logicalId, "Agent", snapshot.Name, environmentId,
                 snapshot.SnapshotJson, "publish", null, tenant.UserId, null, ct);
+        }
+
+        if (existing.SystemPrompt != previousSystemPrompt)
+        {
+            await _assistant.SavePromptVersionAsync(
+                existing.Id, tenant.TenantId, existing.SystemPrompt ?? "", "publish", null, tenant.UserId, ct);
         }
 
         await _drafts.ClearDraftAsync(tenant.TenantId, "Agent", logicalId, environmentId, ct);

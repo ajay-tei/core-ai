@@ -4,6 +4,36 @@
 
 ---
 
+## [2026-08-14] Bug fix: manual Save Changes/Publish never populated the System Prompt History dialog
+
+**Problem**: `AgentBuilder.tsx`'s "System Prompt History" dialog (backed by the separate,
+narrower `AgentPromptHistoryEntity` — distinct from the full agent Version History/promotion
+ledger) only ever received entries from AI-Optimizer-applied changes, the Session Prompt Advisor's
+"session_analysis" flow, and explicit "Restore" actions. A plain manual edit — typing a new system
+prompt and clicking Save Changes or Publish, the most common way prompts actually change — never
+called `IAgentSetupAssistant.SavePromptVersionAsync` at all, so the dialog silently never reflected
+real editing activity, only ever showing whatever the last automated/restore event happened to be.
+
+**Fix**: `AgentsController.Update` (`PUT /api/agents/{id}`) and `Publish`
+(`POST /api/agents/{id}/publish`) now each capture the agent's system prompt before applying the
+incoming change, and — only when it actually differs afterward (avoiding no-op history spam when
+some other field was edited) — call `_assistant.SavePromptVersionAsync(..., source: "manual"|
+"publish", ...)` alongside the existing general version-ledger recording that was already there.
+No frontend change needed: `loadPromptHistory()` already re-fetches `GET
+/api/agents/{id}/prompt-history` on demand, so the dialog now correctly shows every meaningfully
+changed manual save/publish, not just automated ones.
+(`src/Diva.Host/Controllers/AgentsController.cs`)
+
+**Verification**: `dotnet build Diva.slnx` 0 errors; `dotnet test` — `Diva.TenantAdmin.Tests`
+347/347 (unchanged, covers the underlying `SavePromptVersionAsync`/history service), `Diva.Agents.Tests`
+368/369 (1 pre-existing unrelated failure, tolerated). No new controller-level test added — no
+existing precedent in this codebase for full DB-backed integration tests of controller actions
+(confirmed against `AgentsControllerScopingTests.cs`, which only tests extracted static helpers);
+the underlying service method being newly wired up is already covered by
+`AgentSetupAssistantTests.cs`.
+
+---
+
 ## [2026-08-14] Policy change: Agent Access Groups flipped to allow-list-only (same as environment ACL)
 
 **Problem**: matching the same request/decision just made for environment ACL — an agent that
