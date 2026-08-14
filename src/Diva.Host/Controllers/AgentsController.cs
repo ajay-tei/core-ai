@@ -175,7 +175,7 @@ public class AgentsController : ControllerBase
         // Non-admin users (e.g. user / viewer) only see agents they may invoke.
         if (!tenant.IsAdmin && !tenant.IsMasterAdmin)
         {
-            var denied = await _agentGroups.GetDeniedAgentIdsAsync(tenant, ct);
+            var denied = await _agentGroups.GetDeniedAgentIdsAsync(all.Select(a => a.Id), tenant, ct);
             all = all.Where(a => !denied.Contains(a.Id));
 
             // Sub-agents (referenced as another agent's delegate/tool) are internal implementation
@@ -255,7 +255,7 @@ public class AgentsController : ControllerBase
         // Non-admin users (e.g. user / viewer) only see agents they may invoke.
         if (!tenant.IsAdmin && !tenant.IsMasterAdmin)
         {
-            var denied = await _agentGroups.GetDeniedAgentIdsAsync(tenant, ct);
+            var denied = await _agentGroups.GetDeniedAgentIdsAsync(all.Select(a => a.Id), tenant, ct);
             all = all.Where(a => !denied.Contains(a.Id));
 
             // Sub-agents (referenced as another agent's delegate/tool) are internal implementation

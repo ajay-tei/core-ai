@@ -29,16 +29,18 @@ public interface IAgentGroupService
     Task<bool> DeleteAsync(int tenantId, string id, CancellationToken ct);
 
     /// <summary>
-    /// Returns true if the given tenant context is allowed to invoke the agent.
-    /// Agents not in any *restricted* group are always allowed (backward compatible).
+    /// Returns true if the given tenant context is allowed to invoke the agent. Allow-list only:
+    /// an agent that belongs to no access group at all, or whose group(s) grant nobody (empty
+    /// allow-lists), is invisible to everyone except admins/master-admins (who always bypass this).
     /// </summary>
     Task<bool> CanInvokeAgentAsync(string agentId, TenantContext tenant, CancellationToken ct);
 
     /// <summary>
-    /// Returns the set of agent IDs the tenant context is NOT allowed to invoke
-    /// (i.e. restricted agents the user/key has no grant for). Used to filter listings.
+    /// Returns the subset of <paramref name="candidateAgentIds"/> the tenant context is NOT allowed
+    /// to invoke — allow-list only, so this includes agents with no access group at all, not just
+    /// ones whose group(s) explicitly deny them. Used to filter listings. Always empty for admins.
     /// </summary>
-    Task<HashSet<string>> GetDeniedAgentIdsAsync(TenantContext tenant, CancellationToken ct);
+    Task<HashSet<string>> GetDeniedAgentIdsAsync(IEnumerable<string> candidateAgentIds, TenantContext tenant, CancellationToken ct);
 
     /// <summary>
     /// Returns the set of user-group ids referenced by the agent's restricted access groups

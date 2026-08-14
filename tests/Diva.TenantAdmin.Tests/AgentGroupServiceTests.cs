@@ -60,22 +60,22 @@ public class AgentGroupServiceTests : IDisposable
         await _service.CreateAsync(TenantId, new AgentGroupDto(name, null, agentIds, allowedUsers, allowedRoles, []), null, CancellationToken.None);
     }
 
-    // ── Backward compatibility ────────────────────────────────────────────────
+    // ── Allow-list only (hidden unless explicitly granted) ────────────────────
 
     [Fact]
-    public async Task CanInvoke_AgentNotInAnyGroup_Allowed()
+    public async Task CanInvoke_AgentNotInAnyGroup_Denied()
     {
         await SeedGroupAsync("Finance", ["agent-a"], ["alice"], []);
         var ok = await _service.CanInvokeAgentAsync("agent-other", User("bob"), CancellationToken.None);
-        Assert.True(ok);
+        Assert.False(ok);
     }
 
     [Fact]
-    public async Task CanInvoke_UnrestrictedGroup_Allowed()
+    public async Task CanInvoke_UnrestrictedGroup_Denied()
     {
-        await SeedGroupAsync("Open", ["agent-a"], [], []);  // empty allow-lists => not restricted
+        await SeedGroupAsync("Open", ["agent-a"], [], []);  // empty allow-lists ⇒ grants nobody
         var ok = await _service.CanInvokeAgentAsync("agent-a", User("bob"), CancellationToken.None);
-        Assert.True(ok);
+        Assert.False(ok);
     }
 
     // ── User / role / group matching ──────────────────────────────────────────
@@ -154,16 +154,29 @@ public class AgentGroupServiceTests : IDisposable
     // ── Denied set ────────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task GetDeniedAgentIds_ReturnsRestrictedAgentsWithoutGrant()
+    public async Task GetDeniedAgentIds_DeniesUngrantedAndUngroupedAgents()
     {
         await SeedGroupAsync("Finance", ["agent-a", "agent-b"], ["alice"], []);
-        await SeedGroupAsync("Open", ["agent-c"], [], []);
+        await SeedGroupAsync("Open", ["agent-c"], [], []);  // empty allow-lists ⇒ grants nobody now
 
-        var denied = await _service.GetDeniedAgentIdsAsync(User("bob"), CancellationToken.None);
+        var denied = await _service.GetDeniedAgentIdsAsync(
+            ["agent-a", "agent-b", "agent-c", "agent-not-in-any-group"], User("bob"), CancellationToken.None);
 
         Assert.Contains("agent-a", denied);
         Assert.Contains("agent-b", denied);
-        Assert.DoesNotContain("agent-c", denied);   // unrestricted
+        Assert.Contains("agent-c", denied);                 // group grants nobody → denied
+        Assert.Contains("agent-not-in-any-group", denied);  // no group at all → denied
+    }
+
+    [Fact]
+    public async Task GetDeniedAgentIds_Admin_NeverDenied()
+    {
+        await SeedGroupAsync("Finance", ["agent-a"], ["alice"], []);
+
+        var denied = await _service.GetDeniedAgentIdsAsync(
+            ["agent-a", "agent-not-in-any-group"], User("root", roles: ["admin"]), CancellationToken.None);
+
+        Assert.Empty(denied);
     }
 
     // ── Cache invalidation ────────────────────────────────────────────────────
@@ -183,14 +196,16 @@ public class AgentGroupServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task DeleteAsync_RemovesRestriction()
+    public async Task DeleteAsync_RemovesGroupMembership_StillDeniedUnderAllowListOnly()
     {
         var group = await _service.CreateAsync(TenantId, new AgentGroupDto("Finance", null, ["agent-a"], ["alice"], [], []), null, CancellationToken.None);
         Assert.False(await _service.CanInvokeAgentAsync("agent-a", User("bob"), CancellationToken.None));
 
         await _service.DeleteAsync(TenantId, group.Id, CancellationToken.None);
 
-        Assert.True(await _service.CanInvokeAgentAsync("agent-a", User("bob"), CancellationToken.None));
+        // Allow-list only: deleting the agent's only group leaves it in NO group at all, which is
+        // still denied (not "open" like the old backward-compatible default).
+        Assert.False(await _service.CanInvokeAgentAsync("agent-a", User("bob"), CancellationToken.None));
     }
 
     // ── Tenant isolation ──────────────────────────────────────────────────────
@@ -198,9 +213,11 @@ public class AgentGroupServiceTests : IDisposable
     [Fact]
     public async Task CanInvoke_OtherTenantGroup_DoesNotRestrict()
     {
-        // Group created for tenant 1; tenant 2 user should be unaffected.
+        // Group created for tenant 1; tenant 2 has no group of its own for "agent-a", so under
+        // allow-list-only it's denied — but for the tenant-isolation reason (no OWN group), not
+        // because tenant 1's restriction somehow leaked across tenants.
         await SeedGroupAsync("Finance", ["agent-a"], ["alice"], []);
         var otherTenant = new TenantContext { TenantId = 2, UserId = "bob" };
-        Assert.True(await _service.CanInvokeAgentAsync("agent-a", otherTenant, CancellationToken.None));
+        Assert.False(await _service.CanInvokeAgentAsync("agent-a", otherTenant, CancellationToken.None));
     }
 }

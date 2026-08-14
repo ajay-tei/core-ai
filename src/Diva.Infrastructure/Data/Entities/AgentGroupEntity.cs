@@ -1,11 +1,10 @@
 namespace Diva.Infrastructure.Data.Entities;
 
 /// <summary>
-/// A tenant-scoped collection of agents with an optional access control list.
-/// When a group has a non-empty allow-list (users or roles), its member agents
-/// become "restricted": only granted users/roles (or API keys with an explicit
-/// group grant) may invoke them. A group with empty allow-lists imposes no
-/// restriction (agents remain open to all tenant users).
+/// A tenant-scoped collection of agents with an access control list. Allow-list only: an agent
+/// that belongs to no group at all, or whose only group(s) have empty allow-lists, is invisible/
+/// non-invocable to everyone except admins (or an API key with an explicit group grant). Only
+/// granted users/roles/user-groups may invoke a group's member agents.
 ///
 /// Distinct from <see cref="TenantGroupEntity"/> (which groups *tenants* to share
 /// agent templates). This groups *agents* within a single tenant for authorization.

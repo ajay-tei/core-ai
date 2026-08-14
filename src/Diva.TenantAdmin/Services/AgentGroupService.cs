@@ -38,8 +38,10 @@ public sealed class AgentGroupService : IAgentGroupService
         _logger = logger;
     }
 
-    /// <summary>One restricted group's grants, indexed per member agent in the cache map.</summary>
-    private sealed record RestrictedGroup(
+    /// <summary>One group's grants for a member agent — used to evaluate whether ANY of an agent's
+    /// containing groups actually grants the caller. Allow-list only: a group with no allow-list
+    /// entries at all grants access to NOBODY (except admins, checked separately).</summary>
+    private sealed record GroupGrant(
         string GroupId,
         HashSet<string> AllowedUserIds,
         HashSet<string> AllowedRoles,
@@ -133,30 +135,35 @@ public sealed class AgentGroupService : IAgentGroupService
     public async Task<bool> CanInvokeAgentAsync(string agentId, TenantContext tenant, CancellationToken ct)
     {
         if (string.IsNullOrEmpty(agentId)) return true;
+        if (tenant.IsAdmin || tenant.IsMasterAdmin) return true;
 
-        var map = await GetRestrictedMapAsync(tenant.TenantId, ct);
+        var map = await GetAgentGroupMapAsync(tenant.TenantId, ct);
+        // Allow-list only: an agent not in ANY group (or in groups that grant nobody) is hidden.
         if (!map.TryGetValue(agentId, out var groups) || groups.Count == 0)
-            return true;  // not in any restricted group → open (backward compatible)
+            return false;
 
         var userGroupIds = await ResolveUserGroupIdsAsync(groups, tenant, ct);
         return groups.Any(g => IsGranted(g, tenant, userGroupIds));
     }
 
-    public async Task<HashSet<string>> GetDeniedAgentIdsAsync(TenantContext tenant, CancellationToken ct)
+    public async Task<HashSet<string>> GetDeniedAgentIdsAsync(IEnumerable<string> candidateAgentIds, TenantContext tenant, CancellationToken ct)
     {
-        var map = await GetRestrictedMapAsync(tenant.TenantId, ct);
         var denied = new HashSet<string>(StringComparer.Ordinal);
-        if (map.Count == 0) return denied;
+        if (tenant.IsAdmin || tenant.IsMasterAdmin) return denied;
 
-        // Resolve the caller's user-group ids once for the whole map.
+        var map = await GetAgentGroupMapAsync(tenant.TenantId, ct);
+
+        // Resolve the caller's user-group ids once for the whole candidate set.
         var anyGroupUsesUserGroups = map.Values.Any(list => list.Any(g => g.AllowedUserGroupIds.Count > 0));
         var userGroupIds = anyGroupUsesUserGroups
             ? (await _userGroups.GetGroupIdsForUserAsync(tenant, ct)).ToHashSet()
             : new HashSet<int>();
 
-        foreach (var (agentId, groups) in map)
+        foreach (var agentId in candidateAgentIds)
         {
-            if (!groups.Any(g => IsGranted(g, tenant, userGroupIds)))
+            if (string.IsNullOrEmpty(agentId)) continue;
+            // Allow-list only: not in ANY group, or in groups but none of them grant this caller.
+            if (!map.TryGetValue(agentId, out var groups) || groups.Count == 0 || !groups.Any(g => IsGranted(g, tenant, userGroupIds)))
                 denied.Add(agentId);
         }
         return denied;
@@ -166,7 +173,7 @@ public sealed class AgentGroupService : IAgentGroupService
     {
         if (string.IsNullOrEmpty(agentId)) return new HashSet<int>();
 
-        var map = await GetRestrictedMapAsync(tenantId, ct);
+        var map = await GetAgentGroupMapAsync(tenantId, ct);
         if (!map.TryGetValue(agentId, out var groups) || groups.Count == 0)
             return new HashSet<int>();
 
@@ -178,13 +185,13 @@ public sealed class AgentGroupService : IAgentGroupService
 
     /// <summary>Resolves the caller's user-group ids only if at least one candidate group uses them.</summary>
     private async Task<HashSet<int>> ResolveUserGroupIdsAsync(
-        List<RestrictedGroup> groups, TenantContext tenant, CancellationToken ct)
+        List<GroupGrant> groups, TenantContext tenant, CancellationToken ct)
     {
         if (!groups.Any(g => g.AllowedUserGroupIds.Count > 0)) return new HashSet<int>();
         return (await _userGroups.GetGroupIdsForUserAsync(tenant, ct)).ToHashSet();
     }
 
-    private static bool IsGranted(RestrictedGroup group, TenantContext tenant, HashSet<int> userGroupIds)
+    private static bool IsGranted(GroupGrant group, TenantContext tenant, HashSet<int> userGroupIds)
     {
         // Admins always pass.
         if (tenant.IsAdmin || tenant.IsMasterAdmin) return true;
@@ -217,13 +224,14 @@ public sealed class AgentGroupService : IAgentGroupService
     }
 
     /// <summary>
-    /// Builds (or returns cached) map of agentId → restricted groups containing it.
-    /// Only groups with a non-empty allow-list (users or roles) are "restricted".
+    /// Builds (or returns cached) map of agentId → ALL groups containing it (allow-list only —
+    /// every group is tracked, including ones with empty allow-lists, since an agent must belong
+    /// to at least one group that actually grants the caller to be visible/invocable at all).
     /// </summary>
-    private async Task<Dictionary<string, List<RestrictedGroup>>> GetRestrictedMapAsync(int tenantId, CancellationToken ct)
+    private async Task<Dictionary<string, List<GroupGrant>>> GetAgentGroupMapAsync(int tenantId, CancellationToken ct)
     {
         var key = CachePrefix + tenantId;
-        if (_cache.TryGetValue(key, out Dictionary<string, List<RestrictedGroup>>? cached) && cached is not null)
+        if (_cache.TryGetValue(key, out Dictionary<string, List<GroupGrant>>? cached) && cached is not null)
             return cached;
 
         using var db = _db.CreateDbContext();
@@ -233,22 +241,15 @@ public sealed class AgentGroupService : IAgentGroupService
             .AsNoTracking()
             .ToListAsync(ct);
 
-        var map = new Dictionary<string, List<RestrictedGroup>>(StringComparer.Ordinal);
+        var map = new Dictionary<string, List<GroupGrant>>(StringComparer.Ordinal);
 
         foreach (var g in groups)
         {
-            var allowedUsers = Deserialize(g.AllowedUserIdsJson);
-            var allowedRoles = Deserialize(g.AllowedRolesJson);
-            var allowedUserGroupIds = g.UserGroupLinks.Select(l => l.UserGroupId).ToArray();
-
-            // Not restricted unless there is at least one allow-list entry.
-            if (allowedUsers.Length == 0 && allowedRoles.Length == 0 && allowedUserGroupIds.Length == 0) continue;
-
-            var info = new RestrictedGroup(
+            var info = new GroupGrant(
                 g.Id,
-                new HashSet<string>(allowedUsers, StringComparer.OrdinalIgnoreCase),
-                new HashSet<string>(allowedRoles, StringComparer.OrdinalIgnoreCase),
-                new HashSet<int>(allowedUserGroupIds));
+                new HashSet<string>(Deserialize(g.AllowedUserIdsJson), StringComparer.OrdinalIgnoreCase),
+                new HashSet<string>(Deserialize(g.AllowedRolesJson), StringComparer.OrdinalIgnoreCase),
+                new HashSet<int>(g.UserGroupLinks.Select(l => l.UserGroupId)));
 
             foreach (var agentId in Deserialize(g.AgentIdsJson))
             {

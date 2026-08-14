@@ -4,6 +4,48 @@
 
 ---
 
+## [2026-08-14] Policy change: Agent Access Groups flipped to allow-list-only (same as environment ACL)
+
+**Problem**: matching the same request/decision just made for environment ACL — an agent that
+belongs to no access group at all, or whose only group(s) have empty allow-lists, was "open to
+everyone" (backward compatible). Requested: an agent should only be visible/invocable if it belongs
+to a group that actually grants the current user.
+
+**Fix**: `AgentGroupService`'s per-agent group map now tracks **every** group an agent belongs to
+(previously it silently skipped groups with empty allow-lists, so their member agents never
+appeared in the map at all and were treated as unrestricted). `CanInvokeAgentAsync` now returns
+`false` for a non-admin when the agent isn't in the map (no group) or none of its groups grant the
+caller — previously returned `true` ("not restricted \u21d2 open"). Admins/master-admins still bypass
+entirely, unchanged.
+
+`GetDeniedAgentIdsAsync` signature changed: `(IEnumerable<string> candidateAgentIds, TenantContext
+tenant, CancellationToken ct)` — it now needs the full candidate agent-id list to correctly deny
+agents that have **zero** group membership (previously it only ever iterated agent ids that already
+appeared in the restricted-groups map, so an ungrouped agent could never be added to the denied
+set). Both `AgentsController.List`/`ListPaged` call sites updated to pass `all.Select(a => a.Id)`.
+(`src/Diva.TenantAdmin/Services/AgentGroupService.cs`, `IAgentGroupService.cs`,
+`src/Diva.Host/Controllers/AgentsController.cs`,
+`src/Diva.Infrastructure/Data/Entities/AgentGroupEntity.cs` doc comment)
+
+**Important operational note**: any agent not currently assigned to at least one Agent Access Group
+(with at least one Allowed Role/User/User-Group configured) will become invisible and non-invocable
+to every non-admin user immediately on deploy, until an admin adds it to a group with an actual
+grant. This mirrors the environment ACL policy change earlier today and carries the same real
+production impact, not just a display change.
+
+**Tests**: `AgentGroupServiceTests.cs` — flipped `CanInvoke_AgentNotInAnyGroup_*` and
+`CanInvoke_UnrestrictedGroup_*` from `_Allowed` to `_Denied`; `GetDeniedAgentIds_*` rewritten for the
+new signature (now also covers an ungrouped candidate id) plus a new admin-never-denied test;
+`DeleteAsync_RemovesRestriction` renamed/flipped (removing an agent's only group now leaves it
+denied, not open); `CanInvoke_OtherTenantGroup_DoesNotRestrict` assertion flipped (still proves
+tenant isolation, just with the new default-deny outcome).
+
+**Verification**: `dotnet build Diva.slnx` 0 errors (one transient CS0535 on first attempt was a
+parallel-build race, resolved on retry — see repo notes); `dotnet test` — `Diva.TenantAdmin.Tests`
+347/347, `Diva.Agents.Tests` 368/369 (1 pre-existing unrelated failure, tolerated).
+
+---
+
 ## [2026-08-14] Policy change: environment ACL flipped to allow-list-only (hidden unless explicitly granted)
 
 **Problem**: Phase 5 (2026-08-13) made an environment's `AllowedRolesJson`/linked user groups
