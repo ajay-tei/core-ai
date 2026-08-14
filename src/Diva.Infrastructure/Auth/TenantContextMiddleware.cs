@@ -52,6 +52,7 @@ public sealed class TenantContextMiddleware
         ITenantClaimsExtractor extractor,
         IUserLoginTracker loginTracker,
         IPlatformApiKeyService apiKeyService,
+        IEnvironmentAccessResolver environmentAccess,
         IDatabaseProviderFactory dbFactory)
     {
         // Always bypass for health checks, swagger, and auth callbacks
@@ -180,14 +181,17 @@ public sealed class TenantContextMiddleware
         var requestSiteId = context.Request.Headers["X-Site-ID"].FirstOrDefault();
         var tenantContext = extractor.Extract(principal, token, requestSiteId);
 
-        // Environment resolution (Phase E): an explicit X-Environment header is honored ONLY for
-        // admins (staging/preview access in the admin portal) — rejected for non-admin roles to
-        // avoid a regular user spoofing their way into a different environment's data. Falls back
-        // to the tenant's IsDefault environment for everyone else (the sole fallback for all
-        // untagged/legacy traffic).
+        // Environment resolution (Phase E, extended Phase 5): an explicit X-Environment header is
+        // honored for admins unconditionally (staging/preview access in the admin portal), and for
+        // non-admins only when IEnvironmentAccessResolver grants that specific environment (per-
+        // environment AllowedRolesJson / linked user groups) — never trusted blindly, or this would
+        // reintroduce the spoofing hole the original design prevented. Falls back to the tenant's
+        // IsDefault environment for everyone else (the sole fallback for all untagged/legacy traffic
+        // and for any non-admin without an explicit grant to the requested environment).
         var requestedEnvironmentHeader = context.Request.Headers["X-Environment"].FirstOrDefault();
         int resolvedEnvironmentId;
-        if (tenantContext.IsAdmin && int.TryParse(requestedEnvironmentHeader, out var explicitEnvId) && explicitEnvId > 0)
+        if (int.TryParse(requestedEnvironmentHeader, out var explicitEnvId) && explicitEnvId > 0 &&
+            (tenantContext.IsAdmin || await environmentAccess.CanAccessEnvironmentAsync(explicitEnvId, tenantContext, context.RequestAborted)))
         {
             resolvedEnvironmentId = explicitEnvId;
         }

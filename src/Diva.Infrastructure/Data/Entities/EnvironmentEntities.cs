@@ -39,5 +39,12 @@ public class TenantEnvironmentEntity : ITenantEntity
     /// </summary>
     public string? ClientGroup { get; set; }
 
+    /// <summary>JSON array of roles / SSO groups granted access. Null/empty (and no
+    /// <see cref="UserGroupLinks"/>) = unrestricted, open to every tenant user.</summary>
+    public string? AllowedRolesJson { get; set; }
+
+    /// <summary>User groups granted access to this environment.</summary>
+    public ICollection<EnvironmentUserGroupEntity> UserGroupLinks { get; set; } = new List<EnvironmentUserGroupEntity>();
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

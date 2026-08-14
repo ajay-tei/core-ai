@@ -86,6 +86,7 @@ public class DivaDbContext : DbContext
     public DbSet<UserGroupMemberEntity> UserGroupMembers => Set<UserGroupMemberEntity>();
     public DbSet<UserGroupRoleEntity> UserGroupRoles => Set<UserGroupRoleEntity>();
     public DbSet<AgentGroupUserGroupEntity> AgentGroupUserGroups => Set<AgentGroupUserGroupEntity>();
+    public DbSet<EnvironmentUserGroupEntity> EnvironmentUserGroups => Set<EnvironmentUserGroupEntity>();
     public DbSet<McpServerUserGroupCredentialEntity> McpServerUserGroupCredentials => Set<McpServerUserGroupCredentialEntity>();
 
     // ── Phase 24: Agent Optimization ──────────────────────────────────────────
@@ -600,6 +601,20 @@ public class DivaDbContext : DbContext
         modelBuilder.Entity<AgentGroupUserGroupEntity>()
             .HasIndex(e => new { e.AgentGroupId, e.UserGroupId }).IsUnique();
         modelBuilder.Entity<AgentGroupUserGroupEntity>()
+            .HasIndex(e => e.TenantId);
+
+        modelBuilder.Entity<EnvironmentUserGroupEntity>()
+            .HasQueryFilter(e => _currentTenantId == 0 || e.TenantId == _currentTenantId);
+        modelBuilder.Entity<EnvironmentUserGroupEntity>()
+            .HasOne(j => j.Environment).WithMany(e => e.UserGroupLinks).HasForeignKey(j => j.EnvironmentId)
+            .OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<EnvironmentUserGroupEntity>()
+            .HasOne(j => j.UserGroup).WithMany().HasForeignKey(j => j.UserGroupId)
+            // Multiple cascade paths guard (same rationale as AgentGroupUserGroup).
+            .OnDelete(isSqlite ? DeleteBehavior.Cascade : DeleteBehavior.NoAction);
+        modelBuilder.Entity<EnvironmentUserGroupEntity>()
+            .HasIndex(e => new { e.EnvironmentId, e.UserGroupId }).IsUnique();
+        modelBuilder.Entity<EnvironmentUserGroupEntity>()
             .HasIndex(e => e.TenantId);
 
         modelBuilder.Entity<McpServerUserGroupCredentialEntity>()

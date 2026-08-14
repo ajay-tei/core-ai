@@ -4,6 +4,71 @@
 
 ---
 
+## [2026-08-13] Feature: multi-environment access for non-admins (Phase 5 — environment ACL via roles + reusable user groups)
+
+**Problem**: the environment-scoping fix earlier the same day made non-admins strictly single-
+environment (always the tenant's resolved default), with no way to grant a viewer/user role access
+to more than one environment. There was also no admin UI to configure any such grant.
+
+**Fix**: `TenantEnvironmentEntity` gains an optional access-control layer — `AllowedRolesJson`
+(role/SSO-group string match) and `UserGroupLinks` (a junction to the existing, reusable,
+admin-managed `UserGroupEntity`, which itself already supports both explicit members and role
+auto-include rules). Both empty = unrestricted, open to every tenant user (backward compatible).
+Modeled directly on the existing Agent Access Groups pattern (`AgentGroupEntity`/
+`AgentGroupUserGroupEntity`) for consistency, and deliberately does NOT duplicate a raw
+per-individual-user-id field — a `UserGroupEntity` can already represent "just one explicit user".
+
+- New `EnvironmentUserGroupEntity` junction (mirrors `AgentGroupUserGroupEntity` field-for-field).
+  New migrations `AddEnvironmentUserGroups` for both SQLite (`src/Diva.Infrastructure`) and SQL
+  Server (`src/Diva.Infrastructure.SqlServer`).
+- New `IEnvironmentAccessResolver` (`Diva.Core.Configuration`) + `EnvironmentAccessCache`
+  (`Diva.Infrastructure.Auth`) — the actual grant-check + `IMemoryCache` (5-min TTL) caching logic,
+  placed in Core/Infrastructure (not TenantAdmin) specifically so `TenantContextMiddleware` can
+  inject it without violating the Core → Infrastructure → Tools → TenantAdmin → Agents → Host
+  layering rule. Mirrors `IUserGroupResolver`/`UserGroupMembershipCache`'s existing shape exactly,
+  and reuses `IUserGroupResolver.GetGroupIdsForUserAsync` as-is for user-group membership — zero
+  new membership-resolution logic needed.
+- `TenantContextMiddleware`: an `X-Environment` header from a non-admin is no longer unconditionally
+  rejected — it's honored when `IEnvironmentAccessResolver.CanAccessEnvironmentAsync` grants that
+  specific environment, and still falls back to the tenant's default otherwise. Admin behavior is
+  unchanged (always honored). This never blindly trusts the header — every non-admin request is
+  still validated against the caller's actual grants, so the original anti-spoofing guarantee holds.
+- `EnvironmentService` (`Diva.TenantAdmin`) persists `AllowedRolesJson`/`UserGroupLinks` on
+  create/update and invalidates `IEnvironmentAccessResolver`'s cache on every write.
+- `EnvironmentsController` (admin CRUD) and `EnvironmentAccessController` (`GET
+  /api/environments/accessible`, non-admin-reachable) both now return/accept the ACL fields;
+  `/accessible` returns every environment the caller is actually granted (not always exactly one).
+- Frontend: extracted `AgentGroups.tsx`'s local `CheckableList` multi-select into a shared
+  `admin-portal/src/components/ui/checkable-list.tsx` (used by both Agent Groups and the new
+  Environment editor). `EnvironmentManager.tsx` gains "Allowed Roles" (chip input) and "Allowed
+  User Groups" (`CheckableList`) fields. `EnvironmentSwitcher`/`useEnvironment.tsx` need zero
+  changes — they already render whatever list length the endpoint returns.
+  (`src/Diva.Core/Configuration/IEnvironmentAccessResolver.cs`,
+  `src/Diva.Infrastructure/Auth/EnvironmentAccessCache.cs`,
+  `src/Diva.Infrastructure/Data/Entities/UserGroupEntities.cs`,
+  `src/Diva.Infrastructure/Data/Entities/EnvironmentEntities.cs`,
+  `src/Diva.Infrastructure/Data/DivaDbContext.cs`,
+  `src/Diva.Infrastructure/Auth/TenantContextMiddleware.cs`,
+  `src/Diva.TenantAdmin/Services/EnvironmentService.cs`,
+  `src/Diva.Host/Controllers/EnvironmentsController.cs`,
+  `src/Diva.Host/Controllers/EnvironmentAccessController.cs`, `src/Diva.Host/Program.cs`,
+  `admin-portal/src/components/ui/checkable-list.tsx`, `admin-portal/src/components/AgentGroups.tsx`,
+  `admin-portal/src/components/EnvironmentManager.tsx`, `admin-portal/src/api.ts`)
+
+**Tests**: new `EnvironmentAccessCacheTests.cs` (12 tests) covering admin/master-admin bypass,
+unrestricted environments, role/SSO-group match, user-group membership match (member vs.
+non-member), unknown environment id, `GetAccessibleEnvironmentIdsAsync` filtering, and cache
+invalidation after a rule update.
+
+**Verification**: `dotnet build Diva.slnx` 0 errors; `dotnet test` — `Diva.TenantAdmin.Tests`
+341/341 (329 + 12 new), `Diva.Tools.Tests` 78/78, `DivaFsMcpServer.Tests` 14/14, `Diva.Agents.Tests`
+368/369 (1 pre-existing unrelated `ContextWindowTests` failure, tolerated per established
+convention). `tsc -b` clean; ESLint baseline unchanged at 36 problems (26 errors, 10 warnings) — the
+`EnvironmentManager.tsx:54` flag is a pre-existing `useEffect(load, [])` pattern, not introduced by
+this change.
+
+---
+
 ## [2026-08-13] Security fix: viewer-role environment scoping on AgentsController + sub-agent hiding + accessible-environments endpoint
 
 **Problem**: a non-admin (viewer) user who was correctly and un-spoofably resolved to their

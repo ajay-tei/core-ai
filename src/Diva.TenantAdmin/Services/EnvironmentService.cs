@@ -1,3 +1,4 @@
+using Diva.Core.Configuration;
 using Diva.Infrastructure.Data;
 using Diva.Infrastructure.Data.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -6,7 +7,9 @@ using Microsoft.Extensions.Logging;
 namespace Diva.TenantAdmin.Services;
 
 /// <summary>Request payload for creating/updating a tenant environment.</summary>
-public sealed record EnvironmentDto(string Slug, string DisplayName, int Rank, bool IsDefault, string? ClientGroup = null);
+public sealed record EnvironmentDto(
+    string Slug, string DisplayName, int Rank, bool IsDefault, string? ClientGroup = null,
+    string[]? AllowedRoles = null, int[]? AllowedUserGroupIds = null);
 
 public interface IEnvironmentService
 {
@@ -31,11 +34,13 @@ public interface IEnvironmentService
 public sealed class EnvironmentService : IEnvironmentService
 {
     private readonly IDatabaseProviderFactory _db;
+    private readonly IEnvironmentAccessResolver _access;
     private readonly ILogger<EnvironmentService> _logger;
 
-    public EnvironmentService(IDatabaseProviderFactory db, ILogger<EnvironmentService> logger)
+    public EnvironmentService(IDatabaseProviderFactory db, IEnvironmentAccessResolver access, ILogger<EnvironmentService> logger)
     {
         _db = db;
+        _access = access;
         _logger = logger;
     }
 
@@ -44,6 +49,7 @@ public sealed class EnvironmentService : IEnvironmentService
         using var db = _db.CreateDbContext();
         return await db.TenantEnvironments
             .Where(e => e.TenantId == tenantId)
+            .Include(e => e.UserGroupLinks)
             .OrderBy(e => e.Rank)
             .AsNoTracking()
             .ToListAsync(ct);
@@ -53,6 +59,7 @@ public sealed class EnvironmentService : IEnvironmentService
     {
         using var db = _db.CreateDbContext();
         return await db.TenantEnvironments
+            .Include(e => e.UserGroupLinks)
             .AsNoTracking()
             .FirstOrDefaultAsync(e => e.Id == id && e.TenantId == tenantId, ct);
     }
@@ -85,10 +92,13 @@ public sealed class EnvironmentService : IEnvironmentService
             Rank = dto.Rank,
             IsDefault = dto.IsDefault,
             ClientGroup = string.IsNullOrWhiteSpace(dto.ClientGroup) ? null : dto.ClientGroup.Trim(),
+            AllowedRolesJson = Serialize(dto.AllowedRoles),
+            UserGroupLinks = BuildUserGroupLinks(tenantId, dto.AllowedUserGroupIds),
             CreatedAt = DateTime.UtcNow,
         };
         db.TenantEnvironments.Add(entity);
         await db.SaveChangesAsync(ct);
+        _access.InvalidateForTenant(tenantId);
         _logger.LogInformation("Environment created: {Slug} ({Id}) for tenant {TenantId}", entity.Slug, entity.Id, tenantId);
         return (entity, null);
     }
@@ -96,7 +106,9 @@ public sealed class EnvironmentService : IEnvironmentService
     public async Task<(TenantEnvironmentEntity? Entity, string? Error)> UpdateAsync(int tenantId, int id, EnvironmentDto dto, CancellationToken ct)
     {
         using var db = _db.CreateDbContext();
-        var entity = await db.TenantEnvironments.FirstOrDefaultAsync(e => e.Id == id && e.TenantId == tenantId, ct);
+        var entity = await db.TenantEnvironments
+            .Include(e => e.UserGroupLinks)
+            .FirstOrDefaultAsync(e => e.Id == id && e.TenantId == tenantId, ct);
         if (entity is null) return (null, "Environment not found.");
 
         var slug = dto.Slug.Trim().ToLowerInvariant();
@@ -120,7 +132,11 @@ public sealed class EnvironmentService : IEnvironmentService
         entity.Rank = dto.Rank;
         entity.IsDefault = dto.IsDefault;
         entity.ClientGroup = string.IsNullOrWhiteSpace(dto.ClientGroup) ? null : dto.ClientGroup.Trim();
+        entity.AllowedRolesJson = Serialize(dto.AllowedRoles);
+        db.EnvironmentUserGroups.RemoveRange(entity.UserGroupLinks);
+        entity.UserGroupLinks = BuildUserGroupLinks(tenantId, dto.AllowedUserGroupIds);
         await db.SaveChangesAsync(ct);
+        _access.InvalidateForTenant(tenantId);
         return (entity, null);
     }
 
@@ -145,8 +161,22 @@ public sealed class EnvironmentService : IEnvironmentService
             // constraint violation into an actionable message rather than a raw 500.
             return (false, "This environment still has agents, MCP servers, scheduled tasks, or agent groups tagged to it. Reassign or remove them first.");
         }
+        _access.InvalidateForTenant(tenantId);
         return (true, null);
     }
+
+    private static List<EnvironmentUserGroupEntity> BuildUserGroupLinks(int tenantId, int[]? userGroupIds)
+    {
+        if (userGroupIds is not { Length: > 0 }) return [];
+        return userGroupIds
+            .Where(id => id > 0)
+            .Distinct()
+            .Select(id => new EnvironmentUserGroupEntity { TenantId = tenantId, UserGroupId = id })
+            .ToList();
+    }
+
+    private static string? Serialize(string[]? values)
+        => values is { Length: > 0 } ? System.Text.Json.JsonSerializer.Serialize(values) : null;
 
     /// <summary>Clears IsDefault on every other environment for the tenant (only one default at a time).</summary>
     private static async Task ClearOtherDefaultsAsync(DivaDbContext db, int tenantId, int? currentId, CancellationToken ct)

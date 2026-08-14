@@ -86,6 +86,23 @@ public class AgentGroupUserGroupEntity : ITenantEntity
 }
 
 /// <summary>
+/// Junction granting a <see cref="TenantEnvironmentEntity"/> to a <see cref="UserGroupEntity"/>.
+/// A user in the referenced user group may access the environment (see
+/// <see cref="Diva.Core.Configuration.IEnvironmentAccessResolver"/>).
+/// </summary>
+public class EnvironmentUserGroupEntity : ITenantEntity
+{
+    public int Id { get; set; }
+    public int TenantId { get; set; }
+
+    public int EnvironmentId { get; set; }
+    public TenantEnvironmentEntity? Environment { get; set; }
+
+    public int UserGroupId { get; set; }
+    public UserGroupEntity? UserGroup { get; set; }
+}
+
+/// <summary>
 /// Per-user-group credential mapping for a shared <see cref="TenantMcpServerEntity"/>.
 /// When a non-API-key caller invokes an agent using the referenced server, the effective
 /// credential is chosen from the user's matching group. On a multi-group conflict the row

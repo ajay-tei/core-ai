@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, type TenantEnvironment, type EnvironmentRequest } from "@/api";
+import { api, type TenantEnvironment, type EnvironmentRequest, type UserGroup } from "@/api";
 import { useEnvironment } from "@/hooks/useEnvironment";
 import { EnvironmentBadge } from "@/components/ui/environment-badge";
 import { Button } from "@/components/ui/button";
@@ -7,11 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { CheckableList } from "@/components/ui/checkable-list";
 import { Plus, Trash2, Pencil, Save, X, Layers } from "lucide-react";
 import { toast } from "sonner";
 
-const EMPTY_FORM: EnvironmentRequest = { slug: "", displayName: "", rank: 0, isDefault: false, clientGroup: "" };
+const EMPTY_FORM: EnvironmentRequest = { slug: "", displayName: "", rank: 0, isDefault: false, clientGroup: "", allowedRoles: [], allowedUserGroupIds: [] };
 
 /** Groups environments by ClientGroup (shared/untagged tier first, then one section per client,
  *  alphabetical), each internally sorted by Rank — keeps the list scannable as clients are added. */
@@ -33,10 +35,12 @@ export function EnvironmentManager()
 {
   const { reload: reloadSwitcher } = useEnvironment();
   const [environments, setEnvironments] = useState<TenantEnvironment[]>([]);
+  const [userGroups, setUserGroups] = useState<UserGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<EnvironmentRequest>(EMPTY_FORM);
+  const [roleInput, setRoleInput] = useState("");
 
   const load = () =>
   {
@@ -48,6 +52,7 @@ export function EnvironmentManager()
   };
 
   useEffect(load, []);
+  useEffect(() => { api.listUserGroups().then(setUserGroups).catch(() => setUserGroups([])); }, []);
 
   const openCreate = () =>
   {
@@ -56,13 +61,18 @@ export function EnvironmentManager()
     const nextRank = environments.length > 0 ? Math.max(...environments.map((e) => e.rank)) + 1 : 0;
     setForm({ ...EMPTY_FORM, rank: nextRank });
     setEditingId(null);
+    setRoleInput("");
     setShowForm(true);
   };
 
   const openEdit = (env: TenantEnvironment) =>
   {
-    setForm({ slug: env.slug, displayName: env.displayName, rank: env.rank, isDefault: env.isDefault, clientGroup: env.clientGroup ?? "" });
+    setForm({
+      slug: env.slug, displayName: env.displayName, rank: env.rank, isDefault: env.isDefault,
+      clientGroup: env.clientGroup ?? "", allowedRoles: env.allowedRoles, allowedUserGroupIds: env.allowedUserGroupIds,
+    });
     setEditingId(env.id);
+    setRoleInput("");
     setShowForm(true);
   };
 
@@ -71,7 +81,37 @@ export function EnvironmentManager()
     setShowForm(false);
     setEditingId(null);
     setForm(EMPTY_FORM);
+    setRoleInput("");
   };
+
+  // User-group grants are stored as number[]; CheckableList operates on string values.
+  const toggleUserGroup = (value: string) =>
+  {
+    const id = Number(value);
+    const current = form.allowedUserGroupIds ?? [];
+    setForm({
+      ...form,
+      allowedUserGroupIds: current.includes(id) ? current.filter((v) => v !== id) : [...current, id],
+    });
+  };
+
+  const selectAllUserGroups = (values: string[]) =>
+  {
+    const current = form.allowedUserGroupIds ?? [];
+    setForm({ ...form, allowedUserGroupIds: Array.from(new Set([...current, ...values.map(Number)])) });
+  };
+
+  const clearUserGroups = () => setForm({ ...form, allowedUserGroupIds: [] });
+
+  const addRole = () =>
+  {
+    const r = roleInput.trim();
+    if (!r) return;
+    if (!(form.allowedRoles ?? []).includes(r)) setForm({ ...form, allowedRoles: [...(form.allowedRoles ?? []), r] });
+    setRoleInput("");
+  };
+
+  const removeRole = (r: string) => setForm({ ...form, allowedRoles: (form.allowedRoles ?? []).filter((x) => x !== r) });
 
   const handleSave = async () =>
   {
@@ -183,6 +223,43 @@ export function EnvironmentManager()
                 shared Dev/QA tier. Two environments tagged to different clients can never be promoted
                 into each other directly.
               </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Allowed User Groups</Label>
+              <p className="text-xs text-muted-foreground">Leave both user groups and roles empty to keep this environment open to everyone in the tenant.</p>
+              <CheckableList
+                options={userGroups.map((ug) => ({
+                  value: String(ug.id),
+                  primary: ug.name,
+                  secondary: ug.description || `${ug.members.length} member(s)`,
+                }))}
+                selected={(form.allowedUserGroupIds ?? []).map(String)}
+                onToggle={toggleUserGroup}
+                onSelectAll={selectAllUserGroups}
+                onClear={clearUserGroups}
+                searchPlaceholder="Search user groups…"
+                emptyText="No user groups defined yet."
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Allowed Roles / SSO Groups</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={roleInput}
+                  onChange={(e) => setRoleInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addRole(); } }}
+                  placeholder="Type a role or SSO group name and press Enter"
+                />
+                <Button type="button" variant="outline" onClick={addRole}>Add</Button>
+              </div>
+              <div className="flex flex-wrap gap-2 pt-1">
+                {(form.allowedRoles ?? []).map((r) => (
+                  <Badge key={r} variant="secondary" className="gap-1">
+                    {r}
+                    <X className="h-3 w-3 cursor-pointer" onClick={() => removeRole(r)} />
+                  </Badge>
+                ))}
+              </div>
             </div>
             <div className="flex gap-2">
               <Button onClick={handleSave}><Save className="h-4 w-4 mr-1" /> {editingId !== null ? "Save" : "Create"}</Button>

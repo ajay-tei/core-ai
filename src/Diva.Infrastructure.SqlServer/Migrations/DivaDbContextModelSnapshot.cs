@@ -653,6 +653,35 @@ namespace Diva.Infrastructure.SqlServer.Migrations
                     b.ToTable("EnvironmentDeployments");
                 });
 
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.EnvironmentUserGroupEntity", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("EnvironmentId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("TenantId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("UserGroupId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("UserGroupId");
+
+                    b.HasIndex("EnvironmentId", "UserGroupId")
+                        .IsUnique();
+
+                    b.ToTable("EnvironmentUserGroups");
+                });
+
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.FewShotExampleEntity", b =>
                 {
                     b.Property<int>("Id")
@@ -2160,6 +2189,9 @@ namespace Diva.Infrastructure.SqlServer.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("AllowedRolesJson")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("ClientGroup")
                         .HasColumnType("nvarchar(max)");
 
@@ -2909,6 +2941,25 @@ namespace Diva.Infrastructure.SqlServer.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.EnvironmentUserGroupEntity", b =>
+                {
+                    b.HasOne("Diva.Infrastructure.Data.Entities.TenantEnvironmentEntity", "Environment")
+                        .WithMany("UserGroupLinks")
+                        .HasForeignKey("EnvironmentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Diva.Infrastructure.Data.Entities.UserGroupEntity", "UserGroup")
+                        .WithMany()
+                        .HasForeignKey("UserGroupId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
+
+                    b.Navigation("Environment");
+
+                    b.Navigation("UserGroup");
+                });
+
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.GroupAgentTemplateEntity", b =>
                 {
                     b.HasOne("Diva.Infrastructure.Data.Entities.TenantGroupEntity", "Group")
@@ -3223,6 +3274,11 @@ namespace Diva.Infrastructure.SqlServer.Migrations
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.TenantEntity", b =>
                 {
                     b.Navigation("Sites");
+                });
+
+            modelBuilder.Entity("Diva.Infrastructure.Data.Entities.TenantEnvironmentEntity", b =>
+                {
+                    b.Navigation("UserGroupLinks");
                 });
 
             modelBuilder.Entity("Diva.Infrastructure.Data.Entities.TenantGroupEntity", b =>

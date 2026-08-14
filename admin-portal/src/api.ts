@@ -1281,6 +1281,8 @@ export interface TenantEnvironment
   isDefault: boolean;
   createdAt: string;
   clientGroup?: string;
+  allowedRoles: string[];
+  allowedUserGroupIds: number[];
 }
 
 export interface EnvironmentRequest
@@ -1291,6 +1293,8 @@ export interface EnvironmentRequest
   isDefault: boolean;
   tenantId?: number;
   clientGroup?: string;
+  allowedRoles?: string[];
+  allowedUserGroupIds?: number[];
 }
 
 // ── Draft / Publish (Phase C) + Promotion (Phase D) ───────────────────────────

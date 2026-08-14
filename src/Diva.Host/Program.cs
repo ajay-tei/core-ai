@@ -322,8 +322,7 @@ builder.Services.AddSingleton<IUserGroupResolver, UserGroupMembershipCache>();
 builder.Services.AddSingleton<IUserGroupService, UserGroupService>();
 builder.Services.AddSingleton<IAgentGroupService, AgentGroupService>();
 
-// ── Environment-based agent management (foundation) ───────────────────────────────────
-builder.Services.AddSingleton<IEnvironmentService, EnvironmentService>();
+// ── Environment-based agent management (foundation) ───────────────────────────────────builder.Services.AddSingleton<IEnvironmentAccessResolver, EnvironmentAccessCache>();builder.Services.AddSingleton<IEnvironmentService, EnvironmentService>();
 
 // ── Generic Versioning Ledger (Track 2 Phase B) ────────────────────────────────────────
 builder.Services.AddSingleton<IPromotionLedgerService, PromotionLedgerService>();
