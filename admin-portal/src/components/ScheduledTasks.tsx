@@ -5,7 +5,7 @@ import {
   type AgentSummary, type ScheduledTask, type ScheduledTaskListParams,
   type ScheduledTaskRun, type ScheduleRunListParams,
   type ScheduledTaskExport, type ScheduleExportEnvelope, type TenantFeedbackSettings,
-  type PagedResult,
+  type PagedResult, type AgentGroup,
 } from "@/api";
 import { usePagedList } from "@/hooks/usePagedList";
 import { useEnvironment } from "@/hooks/useEnvironment";
@@ -26,6 +26,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuSeparator, DropdownMenuTrigger,
@@ -92,6 +95,17 @@ export function ScheduledTasks() {
   const [deleteId,     setDeleteId]     = useState<string | null>(null);
   const [promotionTask, setPromotionTask] = useState<ScheduledTask | null>(null);
   const [versionHistoryTask, setVersionHistoryTask] = useState<ScheduledTask | null>(null);
+
+  // Agent Access Groups filter (Phase 28) — scoped to the current environment, same pattern
+  // used on the Agents list page.
+  const [accessGroups, setAccessGroups] = useState<AgentGroup[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    api.listAgentGroups(undefined, currentEnvironmentId || undefined)
+      .then(list => { if (!cancelled) setAccessGroups(list); })
+      .catch(() => { if (!cancelled) setAccessGroups([]); });
+    return () => { cancelled = true; };
+  }, [currentEnvironmentId]);
 
   // Import state
   const [importOpen,      setImportOpen]      = useState(false);
@@ -252,7 +266,22 @@ export function ScheduledTasks() {
         pageSize={params.pageSize}
         onPageSizeChange={pageSize => update({ pageSize })}
         pageSizeOptions={[25, 50, 100]}
-      />
+      >
+        <Select
+          value={params.accessGroupId || "all"}
+          onValueChange={v => update({ accessGroupId: v === "all" ? undefined : v })}
+        >
+          <SelectTrigger className="w-56">
+            <SelectValue placeholder="All access groups" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All access groups</SelectItem>
+            {accessGroups.map(g => (
+              <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </ListToolbar>
 
       {loading ? (
         <div className="rounded-md border">

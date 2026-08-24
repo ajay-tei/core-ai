@@ -111,6 +111,26 @@ public class AgentsController : ControllerBase
         catch (JsonException) { return []; }
     }
 
+    // Admin-only "run chat as user" (Agent Chat "Run as" selector) — substitutes the target
+    // user's identity onto the tenant context so MCP credential-group selection and agent-access-
+    // group ACL evaluation reflect what that user would actually get. Returns ErrorStatus=200 (no
+    // Error) when runAsUserId is empty (the common case), so callers only need one null check.
+    private async Task<(TenantContext Tenant, string? Error, int ErrorStatus)> ResolveRunAsUserAsync(
+        TenantContext tenant, string? runAsUserId, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(runAsUserId)) return (tenant, null, 200);
+        if (!tenant.IsAdmin && !tenant.IsMasterAdmin)
+            return (tenant, "Only admins can run a chat session as another user.", 403);
+
+        using var db = _db.CreateDbContext(tenant);
+        var profile = await db.UserProfiles.AsNoTracking()
+            .FirstOrDefaultAsync(u => u.TenantId == tenant.TenantId && u.UserId == runAsUserId, ct);
+        if (profile is null) return (tenant, "Selected user was not found.", 400);
+
+        var agentAccess = profile.AgentAccessOverrides.Length > 0 ? profile.AgentAccessOverrides : profile.AgentAccess;
+        return (tenant.WithRunAsUser(profile.UserId, profile.Email, profile.DisplayName, profile.Roles, agentAccess), null, 200);
+    }
+
     // Non-admins can never choose/override which environment's agents they see or reach by ID —
     // mirrors the rule TenantContextMiddleware already enforces for the X-Environment header
     // (a regular user's EnvironmentId is always the tenant's resolved default, never spoofable).
@@ -649,6 +669,9 @@ public class AgentsController : ControllerBase
         var tenant = Tenant;
         if (req.PreferredUserGroupId is > 0)
             tenant = tenant.WithPreferredUserGroup(req.PreferredUserGroupId);
+        var (runAsTenant, runAsError, runAsStatus) = await ResolveRunAsUserAsync(tenant, req.RunAsUserId, ct);
+        if (runAsError is not null) return StatusCode(runAsStatus, new { error = runAsError });
+        tenant = runAsTenant;
         var agent = await ResolveAgentAsync(id, tenant, ct);
         if (agent is null) return NotFound();
         if (!agent.IsEnabled) return BadRequest(new { error = "Agent is disabled." });
@@ -671,6 +694,14 @@ public class AgentsController : ControllerBase
         var tenant = Tenant;
         if (req.PreferredUserGroupId is > 0)
             tenant = tenant.WithPreferredUserGroup(req.PreferredUserGroupId);
+        var (runAsTenant, runAsError, runAsStatus) = await ResolveRunAsUserAsync(tenant, req.RunAsUserId, ct);
+        if (runAsError is not null)
+        {
+            Response.StatusCode = runAsStatus;
+            await Response.WriteAsync(runAsError, ct);
+            return;
+        }
+        tenant = runAsTenant;
         var agent = await ResolveAgentAsync(id, tenant, ct);
         if (agent is null) { Response.StatusCode = 404; return; }
         if (!agent.IsEnabled) { Response.StatusCode = 400; return; }
@@ -1137,6 +1168,7 @@ public record AgentInvokeRequest(
     int? LlmConfigId = null,
     bool ForwardSsoToMcp = false,
     int? PreferredUserGroupId = null,
+    string? RunAsUserId = null,
     List<ContentPart>? Attachments = null);
 public record ImprovePromptRequest(
     string Instruction,

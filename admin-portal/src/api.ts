@@ -1454,6 +1454,7 @@ export interface ScheduledTaskListParams
   page?: number;
   pageSize?: number;
   environmentId?: number;
+  accessGroupId?: string;
 }
 
 export interface ScheduledTaskRun
@@ -1712,6 +1713,7 @@ export const api = {
     llmConfigId?: number,
     forwardSsoToMcp = true,
     preferredUserGroupId?: number,
+    runAsUserId?: string,
   ): Promise<void> =>
   {
     return (async () =>
@@ -1719,7 +1721,7 @@ export const api = {
       const res = await fetch(`${ BASE }/api/agents/${ id }/invoke/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({ query, sessionId, modelId: modelId || undefined, llmConfigId, forwardSsoToMcp, preferredUserGroupId }),
+        body: JSON.stringify({ query, sessionId, modelId: modelId || undefined, llmConfigId, forwardSsoToMcp, preferredUserGroupId, runAsUserId }),
         signal,
       });
       if (!res.ok || !res.body) throw new Error(`${ res.status } ${ res.statusText }`);
@@ -1924,6 +1926,7 @@ export const api = {
     if (params.page) qs.set("page", String(params.page));
     if (params.pageSize) qs.set("pageSize", String(params.pageSize));
     if (params.environmentId) qs.set("environmentId", String(params.environmentId));
+    if (params.accessGroupId) qs.set("accessGroupId", params.accessGroupId);
     return request<PagedResult<ScheduledTask>>(`/api/schedules?${ qs }`);
   },
   getSchedule: (id: string, tenantId = 1) =>
@@ -2677,6 +2680,8 @@ export interface ToolCallDetail
   delegatedAgentName?: string;
   linkedA2ATaskId?: string;
   childSessionId?: string;
+  /** Wall-clock duration from tool_call to tool_result, in milliseconds. */
+  durationMs?: number;
 }
 
 export interface IterationDetail
@@ -2696,6 +2701,8 @@ export interface IterationDetail
   outputTokens: number;
   cacheReadTokens: number;
   cacheCreationTokens: number;
+  /** Wall-clock duration of this iteration (LLM call + tool execution + hooks), in milliseconds. */
+  durationMs?: number;
   toolCalls: ToolCallDetail[];
 }
 

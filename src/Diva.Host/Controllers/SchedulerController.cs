@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Diva.Core.Configuration;
 using Diva.Core.Extensions;
 using Diva.Core.Models;
@@ -24,6 +25,7 @@ public class SchedulerController : ControllerBase
     private readonly IPromotionLedgerService _ledger;
     private readonly IPromotableSnapshotSerializer _snapshotSerializer;
     private readonly IEnvironmentService _environments;
+    private readonly IAgentGroupService _agentGroups;
 
     public SchedulerController(
         IScheduledTaskService service,
@@ -33,7 +35,8 @@ public class SchedulerController : ControllerBase
         IEntityDraftService drafts,
         IPromotionLedgerService ledger,
         IEnumerable<IPromotableSnapshotSerializer> snapshotSerializers,
-        IEnvironmentService environments)
+        IEnvironmentService environments,
+        IAgentGroupService agentGroups)
     {
         _service = service;
         _logger = logger;
@@ -43,6 +46,7 @@ public class SchedulerController : ControllerBase
         _ledger = ledger;
         _snapshotSerializer = snapshotSerializers.First(s => s.ObjectType == "ScheduledTask");
         _environments = environments;
+        _agentGroups = agentGroups;
     }
 
     private int EffectiveTenantId(int requestedTenantId)
@@ -77,9 +81,11 @@ public class SchedulerController : ControllerBase
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 25,
         [FromQuery] int? environmentId = null,
+        [FromQuery] string? accessGroupId = null,
         CancellationToken ct = default)
     {
-        var tasks = await _service.ListAsync(EffectiveTenantId(tenantId), ct);
+        var effectiveTenantId = EffectiveTenantId(tenantId);
+        var tasks = await _service.ListAsync(effectiveTenantId, ct);
         var filtered = tasks.AsEnumerable();
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -90,7 +96,22 @@ public class SchedulerController : ControllerBase
         }
         if (environmentId is > 0)
             filtered = filtered.Where(t => t.EnvironmentId == environmentId || t.EnvironmentId == null);
+        if (!string.IsNullOrWhiteSpace(accessGroupId))
+        {
+            var memberIds = await ResolveAccessGroupMemberIdsAsync(effectiveTenantId, accessGroupId, ct);
+            filtered = filtered.Where(t => memberIds.Contains(t.AgentId));
+        }
         return Ok(filtered.ToPagedResult(page, pageSize));
+    }
+
+    // Mirrors AgentsController.ResolveAccessGroupMemberIdsAsync — resolves an Agent Access
+    // Group (Phase 28) to its member agent IDs so schedules can be filtered by group.
+    private async Task<HashSet<string>> ResolveAccessGroupMemberIdsAsync(int tenantId, string accessGroupId, CancellationToken ct)
+    {
+        var group = await _agentGroups.GetAsync(tenantId, accessGroupId, ct);
+        if (group is null || string.IsNullOrEmpty(group.AgentIdsJson)) return [];
+        try { return JsonSerializer.Deserialize<string[]>(group.AgentIdsJson)?.ToHashSet() ?? []; }
+        catch (JsonException) { return []; }
     }
 
     // ── GET /api/schedules/{id} ─────────────────────────────────────────────

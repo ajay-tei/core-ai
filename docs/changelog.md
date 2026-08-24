@@ -4,6 +4,72 @@
 
 ---
 
+## [2026-08-24] Agent Chat: admin "Run as user" testing mode
+
+**Problem**: admins had no way to verify what a specific user would actually experience chatting
+with an agent — MCP credential-group selection and agent-access-group ACL evaluation both depend
+on the caller's identity (user id/email/roles), so an admin's own test chat could pass while a real
+user's would be denied or use the wrong shared credentials, with no way to reproduce it without
+that user's own login.
+
+**Fix**: added `TenantContext.WithRunAsUser(userId, email, displayName, roles, agentAccess)` — an
+instance method (alongside the existing `WithPreferredUserGroup`) that copies the admin's own live
+context (environment, site, session, tokens) and only substitutes the identity fields that drive
+per-user behavior. This is distinct from the pre-existing static `TenantContext.RunAsUser(...)`
+factory used by `SchedulerHostedService` for background scheduled-task runs, which builds a
+standalone context with no live environment/tokens — right for a job, wrong for an interactive
+admin request. `AgentInvokeRequest.RunAsUserId` is resolved by a new admin-only
+`ResolveRunAsUserAsync` helper in `AgentsController` (403 for non-admins), looks up the target
+`UserProfileEntity` by `(TenantId, UserId)`, and applies its roles plus effective `AgentAccess`
+(`AgentAccessOverrides` when set, else `AgentAccess`) — the target's own SSO groups aren't
+persisted anywhere queryable outside their live JWT, so `UserGroups` is cleared rather than guessed.
+Wired into both `Invoke` and `InvokeStream`.
+(`src/Diva.Core/Models/TenantContext.cs`, `src/Diva.Host/Controllers/AgentsController.cs`)
+
+**Admin portal**: `AgentChat.tsx` gets an admin-only "Run as user" picker in the chat header
+(alongside the existing credential-group picker), locked once a conversation starts, plus an amber
+banner while active reminding the admin that responses reflect the selected user's credentials and
+access, not their own. `api.ts`'s `streamAgent` takes the new `runAsUserId` param.
+(`admin-portal/src/components/AgentChat.tsx`, `admin-portal/src/api.ts`)
+
+**Caveat**: matching the existing scheduled-task "run as user" convention, the resulting session is
+persisted under the target user's identity (`AgentSessionService` sets `UserId = tenant.UserId`),
+not the admin's — an admin session-browser view can't yet distinguish a real user session from an
+admin's test-as-that-user session except by content/timestamp.
+
+**Verification**: `dotnet build Diva.slnx` 0 errors; `dotnet test` — `Diva.TenantAdmin.Tests`
+347/347, `Diva.Agents.Tests` 368/369 (1 pre-existing flaky failure,
+`ContextWindowTests.RunAsync_CallsMaybeCompactAnthropicBeforeLlmCall`, unrelated — already
+documented as a known NSubstitute race in this suite). Admin-portal TypeScript project builds clean
+(`tsc -b --noEmit`). Deployed to local Docker and smoke-tested (`POST /invoke/stream` with
+`runAsUserId` returns 401 unauthenticated, confirming the route/field are live).
+
+---
+
+## [2026-08-24] Scheduled Tasks: filter list by Agent Access Group
+
+**Problem**: the Scheduled Tasks admin list had no way to narrow the list down to schedules whose
+agent belongs to a specific Agent Access Group (Phase 28), unlike the Agents list page which already
+had this filter.
+
+**Fix**: `SchedulerController.List` (`GET /api/schedules`) takes a new `accessGroupId` query param,
+resolved via a `ResolveAccessGroupMemberIdsAsync` helper (mirrors `AgentsController`'s existing
+one) that loads the `AgentGroupEntity` via `IAgentGroupService.GetAsync` and filters tasks whose
+`AgentId` is a member. `SchedulerController` now takes `IAgentGroupService` (already
+`AddSingleton`-registered).
+(`src/Diva.Host/Controllers/SchedulerController.cs`)
+
+**Admin portal**: `ScheduledTasks.tsx` gets an "All access groups" dropdown filter in the list
+toolbar, populated from `api.listAgentGroups`, scoped to the current environment — same UX as the
+existing filter on the Agents list. `ScheduledTaskListParams`/`listSchedules` gained `accessGroupId`.
+(`admin-portal/src/components/ScheduledTasks.tsx`, `admin-portal/src/api.ts`)
+
+**Verification**: `dotnet build Diva.slnx` 0 errors. Admin-portal TypeScript project builds clean
+(`tsc -b --noEmit`). Deployed to local Docker and smoke-tested (`GET /api/schedules?accessGroupId=`
+returns 401 unauthenticated, confirming the route/param are live).
+
+---
+
 ## [2026-08-14] Scalability review: concurrent-load fixes + new load test tool
 
 **Problem**: needed to know whether the agent execution API (ReAct loop + MCP tool calls) can

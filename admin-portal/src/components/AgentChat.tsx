@@ -25,6 +25,7 @@ import {
   type TurnSummary,
   type IterationDetail,
   type CredentialGroupOption,
+  type UserProfile,
 } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -458,6 +459,11 @@ export function AgentChat() {
   const [credentialGroups, setCredentialGroups] = useState<CredentialGroupOption[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState<number | undefined>(undefined);
 
+  // "Run as user" (admin-only) — lets an admin verify/test another user's chat behavior
+  // (MCP credential-group selection, agent-access-group ACL) without needing that user's login.
+  const [runAsUsers, setRunAsUsers] = useState<UserProfile[]>([]);
+  const [runAsUserId, setRunAsUserId] = useState<string | undefined>(undefined);
+
   const [liveIterations, setLiveIterations] = useState<Iteration[]>([]);
   const [liveStatus, setLiveStatus] = useState<string>("");
   const [livePlan, setLivePlan] = useState<{ steps: string[]; revised: boolean } | null>(null);
@@ -549,6 +555,12 @@ export function AgentChat() {
       .catch(() => setCredentialGroups([]));
   }, [agentId]);
 
+  // Load the tenant's user profiles for the "Run as user" picker — admin-only endpoint.
+  useEffect(() => {
+    if (!isAdmin) return;
+    api.listUserProfiles().then(setRunAsUsers).catch(() => setRunAsUsers([]));
+  }, [isAdmin]);
+
   // Re-resolve the LLM config whenever the selected config changes.
   // Uses the resolver endpoint so the model list matches the correct provider.
   useEffect(() => {
@@ -589,6 +601,7 @@ export function AgentChat() {
     setMessages([]);
     setSessionId(undefined);
     setSelectedGroupId(undefined);
+    setRunAsUserId(undefined);
     setResumedTurns(null);
     setLiveIterations([]);
     setLiveTimeline([]);
@@ -772,7 +785,7 @@ export function AgentChat() {
     };
 
     try {
-      await api.streamAgent(agent.id, query, sessionId, handleChunk, abort.signal, selectedModel || undefined, selectedConfigId, true, selectedGroupId);
+      await api.streamAgent(agent.id, query, sessionId, handleChunk, abort.signal, selectedModel || undefined, selectedConfigId, true, selectedGroupId, runAsUserId);
       if (pendingMsg) {
         setMessages((m) => [...m, pendingMsg!]);
       }
@@ -827,6 +840,32 @@ export function AgentChat() {
       {/* LLM config/model pickers and Detailed toggle are admin-only. */}
       {isAdmin && (
         <>
+          {/* Run as user — lets an admin verify/test another user's chat behavior (MCP
+              credential-group selection, agent-access-group ACL) instead of their own. */}
+          {runAsUsers.length > 0 && (
+            <Select
+              value={runAsUserId ?? "__self__"}
+              onValueChange={(v) => setRunAsUserId(v === "__self__" ? undefined : v)}
+              disabled={loading || messages.length > 0}
+            >
+              <SelectTrigger
+                className="w-full md:w-48 h-8 text-xs"
+                title={messages.length > 0
+                  ? "Run-as user is locked for this session. Clear the chat to change it."
+                  : "Run this chat as another user (testing)"}
+              >
+                <SelectValue placeholder="Run as user" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__self__" className="text-xs">Run as myself</SelectItem>
+                {runAsUsers.map((u) => (
+                  <SelectItem key={u.userId} value={u.userId} className="text-xs">
+                    {u.displayName || u.email || u.userId}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           {/* LLM Config picker — lets user test agent against different providers */}
           {availableLlmConfigs.length > 0 && (
             <Select
@@ -915,6 +954,19 @@ export function AgentChat() {
       {/* Messages */}
       <ScrollArea className="flex-1 pr-4">
         <div className="space-y-6 pb-4">
+          {runAsUserId && (
+            <div className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-muted-foreground">
+              <User className="size-3.5 text-amber-400 shrink-0" />
+              <span>
+                Testing as <span className="font-medium text-foreground">
+                  {runAsUsers.find((u) => u.userId === runAsUserId)?.displayName
+                    || runAsUsers.find((u) => u.userId === runAsUserId)?.email
+                    || runAsUserId}
+                </span> — responses reflect that user's credentials and access, not yours.
+              </span>
+            </div>
+          )}
+
           {resumedTurns !== null && (
             <div className="flex items-center gap-2 rounded-md border border-sky-500/30 bg-sky-500/5 px-3 py-2 text-xs text-muted-foreground">
               <History className="size-3.5 text-sky-400 shrink-0" />

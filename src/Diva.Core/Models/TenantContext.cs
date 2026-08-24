@@ -176,6 +176,47 @@ public sealed class TenantContext
         SsoForwardHeaders = SsoForwardHeaders,
     };
 
+    /// <summary>
+    /// Returns a copy of this context with the given user's identity substituted, for admin-driven
+    /// "run chat as user" testing (Agent Chat "Run as" selector — admin-only, enforced by the
+    /// caller). Unlike <see cref="RunAsUser"/> (which builds a standalone background/system
+    /// context for scheduled tasks), this PRESERVES the admin's own environment/session/tokens and
+    /// only swaps the identity fields that drive per-user behavior (MCP credential-group
+    /// selection, agent-access-group ACL evaluation) — so environment-scoped resolution still
+    /// matches what the admin was actually looking at. <paramref name="roles"/>/<paramref
+    /// name="agentAccess"/> should be the target profile's own persisted values
+    /// (<c>UserProfileEntity.Roles</c> / effective AgentAccess) so role-based behavior (including
+    /// this becoming a no-op admin bypass if the target user is themselves an admin) matches what
+    /// that user would really get. The target's own SSO groups are not persisted anywhere queryable
+    /// outside their live JWT, so <c>UserGroups</c> is cleared rather than guessed.
+    /// </summary>
+    public TenantContext WithRunAsUser(string userId, string email, string displayName, string[] roles, string[] agentAccess) => new()
+    {
+        TenantId = TenantId,
+        TenantName = TenantName,
+        UserId = userId,
+        UserEmail = email,
+        UserName = displayName,
+        Role = Role,
+        UserRoles = roles,
+        UserGroups = [],
+        AgentAccess = agentAccess,
+        GroupAccess = GroupAccess,
+        SiteIds = SiteIds,
+        CurrentSiteId = CurrentSiteId,
+        EnvironmentId = EnvironmentId,
+        AccessToken = AccessToken,
+        TokenExpiry = TokenExpiry,
+        TeamApiKey = TeamApiKey,
+        InboundApiKey = InboundApiKey,
+        PlatformApiKeyId = PlatformApiKeyId,
+        PreferredUserGroupId = PreferredUserGroupId,
+        CorrelationId = CorrelationId,
+        SessionId = SessionId,
+        CustomHeaders = CustomHeaders,
+        SsoForwardHeaders = SsoForwardHeaders,
+    };
+
     /// <summary>Returns a copy of this context with <paramref name="environmentId"/> set. Used by
     /// TenantContextMiddleware (Phase E) to apply the resolved environment after the JWT claims
     /// extractor has already built the rest of the context.</summary>
