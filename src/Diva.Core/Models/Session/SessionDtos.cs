@@ -105,6 +105,8 @@ public sealed class IterationDetail
     public int OutputTokens { get; init; }
     public int CacheReadTokens { get; init; }
     public int CacheCreationTokens { get; init; }
+    /// <summary>Wall-clock duration of this iteration (LLM call + tool execution + hooks), in milliseconds.</summary>
+    public long? DurationMs { get; init; }
     public List<ToolCallDetail> ToolCalls { get; init; } = [];
 }
 
@@ -120,6 +122,8 @@ public sealed class ToolCallDetail
     public string? LinkedA2ATaskId { get; init; }
     /// <summary>Resolved from TraceDelegationChain by LinkedA2ATaskId — the child session created for this delegation.</summary>
     public string? ChildSessionId { get; init; }
+    /// <summary>Wall-clock duration from tool_call to tool_result, in milliseconds.</summary>
+    public long? DurationMs { get; init; }
 }
 
 // ── Session tree ────────────────────────────────────────────────────────────

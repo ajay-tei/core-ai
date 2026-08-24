@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
-import { ChevronDown, ChevronRight, ArrowLeft, Copy, Download, Trash2, Maximize2, MessageSquare } from "lucide-react";
+import { ChevronDown, ChevronRight, ArrowLeft, Copy, Download, Trash2, Maximize2, MessageSquare, Clock } from "lucide-react";
 
 const MSG_PREVIEW_THRESHOLD = 300;
 
@@ -316,6 +316,11 @@ function IterationCard({ iteration }: { iteration: IterationDetail }) {
           {iteration.continuationWindow > 1 && (
             <span className="text-xs text-muted-foreground">Window {iteration.continuationWindow}</span>
           )}
+          {fmtDuration(iteration.durationMs) && (
+            <span className="text-xs text-muted-foreground flex items-center gap-0.5">
+              <Clock className="size-3" /> {fmtDuration(iteration.durationMs)}
+            </span>
+          )}
           {iteration.modelId && (
             <Badge variant="outline" className="text-xs">{iteration.modelId}</Badge>
           )}
@@ -479,4 +484,9 @@ function fmtDate(iso: string, timeOnly = false) {
 
 function fmtNum(n: number) {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+}
+
+function fmtDuration(ms?: number) {
+  if (ms == null) return null;
+  return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
 }

@@ -41,11 +41,17 @@ public sealed class AgentStreamChunk
     /// <summary>MCP tool name (tool_call / tool_result events).</summary>
     public string? ToolName { get; init; }
 
+    /// <summary>Provider tool-call id (e.g. Anthropic tool_use id) — pairs a tool_result with its tool_call unambiguously when the same tool name is invoked more than once in an iteration.</summary>
+    public string? ToolCallId { get; init; }
+
     /// <summary>JSON-serialised tool input parameters (tool_call event).</summary>
     public string? ToolInput { get; init; }
 
     /// <summary>Raw tool output text (tool_result event).</summary>
     public string? ToolOutput { get; init; }
+
+    /// <summary>Authoritative wall-clock duration of the tool execution itself (tool_result event) — null for agent-delegation calls, which run a nested ReAct loop rather than a single timed MCP call.</summary>
+    public long? ToolDurationMs { get; init; }
 
     /// <summary>Attached to the verification event.</summary>
     public VerificationResult? Verification { get; init; }

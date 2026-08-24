@@ -18,6 +18,27 @@ dotnet run --project tools/LoadTest -- --help
 
 No other project needs to build first — this tool has zero references to the rest of the solution.
 
+## Convenience wrapper: `Run-LoadTest.ps1`
+
+For repeated manual runs, `Run-LoadTest.ps1` wraps the `dotnet run` invocation with named parameters
+and masks the API key in its echoed command line:
+
+```powershell
+$env:DIVA_LOAD_TEST_KEY = "tei_..."   # set once per shell session — never pass the raw key as a literal
+./tools/LoadTest/Run-LoadTest.ps1 -AgentId <id> -Scenario burst -Users 5
+./tools/LoadTest/Run-LoadTest.ps1 -AgentId <id> -Scenario ramp -RampMaxUsers 100 -Duration 300 -OutputCsv ramp.csv
+```
+
+Run `Get-Help ./tools/LoadTest/Run-LoadTest.ps1 -Full` for all parameters.
+
+## In-progress status + end-of-run summary
+
+Every scenario prints a status line every 5 seconds while it runs (`[t=25s] 1/2 done  ok=1  failed=0
+in-flight=1  users=2`), since each request can take 20-70+ seconds against a real LLM — this
+confirms the run is alive rather than hung. A "Test run complete — compiling summary..." line marks
+the transition into the final report (latency percentiles, error breakdown, tool-call stats).
+
+
 ## Quick examples
 
 ```powershell

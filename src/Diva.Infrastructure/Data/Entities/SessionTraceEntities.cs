@@ -98,6 +98,8 @@ public class TraceIterationEntity
     public int CacheCreationTokens { get; set; }
     public bool IsCorrection { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    /// <summary>Wall-clock time from this iteration's start to its end (LLM call + tool execution + hooks).</summary>
+    public long? DurationMs { get; set; }
 
     public TraceSessionTurnEntity Turn { get; set; } = null!;
     public List<TraceToolCallEntity> ToolCalls { get; set; } = [];
@@ -122,6 +124,8 @@ public class TraceToolCallEntity
     public string? DelegatedAgentName { get; set; }
     public string? LinkedA2ATaskId { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    /// <summary>Wall-clock time from the tool_call chunk to its matching tool_result chunk.</summary>
+    public long? DurationMs { get; set; }
 
     public TraceIterationEntity Iteration { get; set; } = null!;
 }

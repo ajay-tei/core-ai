@@ -71,6 +71,8 @@ var results = opts.Scenario switch
 };
 var testEnd = DateTime.UtcNow;
 
+Console.WriteLine();
+Console.WriteLine("Test run complete — compiling summary...");
 StatsReporter.PrintSummary($"Results — {opts.Scenario} / {opts.Mode}", results, testStart, testEnd);
 if (opts.Scenario is ScenarioKind.Soak or ScenarioKind.Ramp)
     StatsReporter.PrintTimeSeries(results);

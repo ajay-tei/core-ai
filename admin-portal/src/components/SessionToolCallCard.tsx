@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ChevronDown, ChevronRight, Bot, Wrench, ExternalLink, Maximize2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Bot, Wrench, ExternalLink, Maximize2, Clock } from "lucide-react";
 import type { ToolCallDetail } from "../api";
 import { ToolResultTable } from "./chat/ToolResultTable";
 import { SqlBlock } from "./chat/SqlBlock";
@@ -35,6 +35,11 @@ export default function SessionToolCallCard({ toolCall }: Props) {
               : toolCall.toolName}
           </span>
           <Badge variant="outline" className="ml-auto text-xs shrink-0">#{toolCall.sequence}</Badge>
+          {toolCall.durationMs != null && (
+            <span className="text-xs text-muted-foreground flex items-center gap-0.5 shrink-0">
+              <Clock className="size-3" /> {fmtDuration(toolCall.durationMs)}
+            </span>
+          )}
           {isDelegation && toolCall.linkedA2ATaskId && (
             <span className="text-xs text-muted-foreground font-mono">
               {toolCall.linkedA2ATaskId.slice(0, 8)}
@@ -136,6 +141,10 @@ export default function SessionToolCallCard({ toolCall }: Props) {
       </Dialog>
     </Card>
   );
+}
+
+function fmtDuration(ms: number) {
+  return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
 }
 
 function tryFormat(s: string): string {

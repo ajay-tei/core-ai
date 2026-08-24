@@ -8,4 +8,5 @@ public sealed class ToolExecutorResult
     public IReadOnlyList<ContentPart>? ContentParts { get; init; }
     public bool Failed { get; init; }
     public Exception? Error { get; init; }
+    public long DurationMs { get; init; }
 }

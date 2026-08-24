@@ -16,7 +16,16 @@ public sealed class McpClientCache : IAsyncDisposable
     private sealed record CachedEntry(
         Dictionary<string, McpClient> Clients,
         string BindingsHash,
-        DateTime CreatedAt);
+        DateTime CreatedAt,
+        ToolCacheEntry? ToolCache = null);
+
+    /// <summary>Tool list cache, nested inside CachedEntry so it resets automatically whenever the
+    /// connection entry does (bindings change, TTL expiry, stale-session eviction) — no separate
+    /// invalidation logic needed.</summary>
+    private sealed record ToolCacheEntry(
+        Dictionary<string, McpClient> Map,
+        List<McpClientTool> Tools,
+        DateTime CachedAt);
 
     private readonly ConcurrentDictionary<string, CachedEntry> _cache = new();
     // Per-cache-key async gate: serializes concurrent cold-cache connects for the same key so a
@@ -26,6 +35,10 @@ public sealed class McpClientCache : IAsyncDisposable
     // discriminator/suffix combinations, same order of magnitude as _cache itself.
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new();
     private readonly TimeSpan _ttl = TimeSpan.FromMinutes(30);
+    // Shorter than _ttl: matches CredentialResolver's cache window (also 2 min) — long enough to
+    // absorb a concurrent burst of requests re-listing tools from the same downstream MCP server,
+    // short enough that a server-side tool-schema change shows up without needing a reconnect.
+    private readonly TimeSpan _toolTtl = TimeSpan.FromMinutes(2);
 
     /// <summary>
     /// Returns cached clients if the agent's bindings are unchanged and within TTL;
@@ -99,6 +112,62 @@ public sealed class McpClientCache : IAsyncDisposable
         {
             gate.Release();
         }
+    }
+
+    /// <summary>
+    /// Returns the cached tool list (map + raw tools) for an agent's already-connected MCP clients
+    /// if listed within the last 2 minutes; otherwise calls <paramref name="listFactory"/> (typically
+    /// <c>IMcpConnectionManager.BuildToolDataAsync</c>) and caches the result. Reduces redundant
+    /// concurrent <c>ListToolsAsync</c> calls against the same downstream MCP server — a burst of
+    /// simultaneous agent invocations no longer each re-list tools individually.
+    /// Uses the same cache key as <see cref="GetOrConnectAsync"/>, so the tool cache is discarded
+    /// automatically whenever that connection entry is replaced (bindings change, TTL, eviction).
+    /// </summary>
+    public async Task<(Dictionary<string, McpClient> Map, List<McpClientTool> Tools)> GetOrListToolsAsync(
+        AgentDefinitionEntity definition,
+        Func<CancellationToken, Task<(Dictionary<string, McpClient> Map, List<McpClientTool> Tools)>> listFactory,
+        CancellationToken ct,
+        string? cacheKeySuffix = null,
+        string? cacheKeyDiscriminator = null)
+    {
+        var cacheKey = BuildCacheKey(definition.Id, cacheKeyDiscriminator, cacheKeySuffix);
+
+        if (TryGetFreshTools(cacheKey, out var cached))
+            return cached;
+
+        var gate = _locks.GetOrAdd(cacheKey, static _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
+        try
+        {
+            if (TryGetFreshTools(cacheKey, out cached))
+                return cached;
+
+            var (map, tools) = await listFactory(ct);
+
+            // Only cache alongside a live connection entry — if it's gone (e.g. evicted while we
+            // waited on the gate) the result is still correct, just not cached for next time.
+            if (_cache.TryGetValue(cacheKey, out var entry))
+                _cache[cacheKey] = entry with { ToolCache = new ToolCacheEntry(map, tools, DateTime.UtcNow) };
+
+            return (map, tools);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private bool TryGetFreshTools(string cacheKey, out (Dictionary<string, McpClient> Map, List<McpClientTool> Tools) result)
+    {
+        if (_cache.TryGetValue(cacheKey, out var entry)
+            && entry.ToolCache is { } toolCache
+            && DateTime.UtcNow - toolCache.CachedAt < _toolTtl)
+        {
+            result = (toolCache.Map, toolCache.Tools);
+            return true;
+        }
+        result = default;
+        return false;
     }
 
     private bool TryGetFresh(string cacheKey, string hash, out Dictionary<string, McpClient> clients)

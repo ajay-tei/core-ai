@@ -14,6 +14,7 @@ public static class Scenarios
     public static async Task<List<RequestResult>> RunBurstAsync(LoadTestOptions opts, DivaApiClient client, List<string> agentIds, DateTime testStart)
     {
         var results = new ConcurrentBag<RequestResult>();
+        var tracker = new ProgressTracker(opts.Users * opts.RequestsPerUser, testStart);
         var tasks = new List<Task>();
 
         for (var u = 0; u < opts.Users; u++)
@@ -25,14 +26,19 @@ public static class Scenarios
                 for (var r = 0; r < opts.RequestsPerUser; r++)
                 {
                     var bucket = (int)(DateTime.UtcNow - testStart).TotalSeconds;
+                    tracker.RequestStarting();
                     var (result, returnedSessionId) = await RunOneAsync(client, opts, agentId, opts.SharedSessionPerUser ? sessionId : null, bucket, opts.Users);
+                    tracker.RequestFinished(result.Success);
                     if (opts.SharedSessionPerUser) sessionId = returnedSessionId ?? sessionId;
                     results.Add(result);
                 }
             }));
         }
 
-        await Task.WhenAll(tasks);
+        var mainTask = Task.WhenAll(tasks);
+        var tickerTask = tracker.RunTickerAsync(() => opts.Users, mainTask, TimeSpan.FromSeconds(5));
+        await mainTask;
+        await tickerTask;
         return [.. results];
     }
 
@@ -40,6 +46,7 @@ public static class Scenarios
     public static async Task<List<RequestResult>> RunSoakAsync(LoadTestOptions opts, DivaApiClient client, List<string> agentIds, DateTime testStart)
     {
         var results = new ConcurrentBag<RequestResult>();
+        var tracker = new ProgressTracker(totalPlanned: null, testStart);
         using var stopAt = new CancellationTokenSource(TimeSpan.FromSeconds(opts.DurationSeconds));
         var tasks = new List<Task>();
 
@@ -52,14 +59,19 @@ public static class Scenarios
                 while (!stopAt.IsCancellationRequested)
                 {
                     var bucket = (int)(DateTime.UtcNow - testStart).TotalSeconds;
+                    tracker.RequestStarting();
                     var (result, returnedSessionId) = await RunOneAsync(client, opts, agentId, opts.SharedSessionPerUser ? sessionId : null, bucket, opts.Users);
+                    tracker.RequestFinished(result.Success);
                     if (opts.SharedSessionPerUser) sessionId = returnedSessionId ?? sessionId;
                     results.Add(result);
                 }
             }));
         }
 
-        try { await Task.WhenAll(tasks); } catch (OperationCanceledException) { /* expected at duration cutoff */ }
+        var mainTask = Task.WhenAll(tasks);
+        var tickerTask = tracker.RunTickerAsync(() => opts.Users, mainTask, TimeSpan.FromSeconds(5));
+        try { await mainTask; } catch (OperationCanceledException) { /* expected at duration cutoff */ }
+        await tickerTask;
         return [.. results];
     }
 
@@ -70,6 +82,7 @@ public static class Scenarios
     public static async Task<List<RequestResult>> RunRampAsync(LoadTestOptions opts, DivaApiClient client, List<string> agentIds, DateTime testStart)
     {
         var results = new ConcurrentBag<RequestResult>();
+        var tracker = new ProgressTracker(totalPlanned: null, testStart);
         var currentUsers = 0;
         using var overallStop = new CancellationTokenSource(TimeSpan.FromSeconds(opts.DurationSeconds));
         var userTasks = new List<Task>();
@@ -87,7 +100,9 @@ public static class Scenarios
                     {
                         var bucket = (int)(DateTime.UtcNow - testStart).TotalSeconds;
                         var snapshotUsers = Volatile.Read(ref currentUsers);
+                        tracker.RequestStarting();
                         var (result, returnedSessionId) = await RunOneAsync(client, opts, agentId, opts.SharedSessionPerUser ? sessionId : null, bucket, snapshotUsers);
+                        tracker.RequestFinished(result.Success);
                         if (opts.SharedSessionPerUser) sessionId = returnedSessionId ?? sessionId;
                         results.Add(result);
                     }
@@ -106,8 +121,11 @@ public static class Scenarios
             catch (OperationCanceledException) { break; }
         }
 
-        // Hold at the final concurrency level for whatever duration remains.
-        try { await Task.WhenAll(userTasks); } catch (OperationCanceledException) { /* expected at duration cutoff */ }
+        // Hold at the final concurrency level for whatever duration remains, printing periodic progress.
+        var mainTask = Task.WhenAll(userTasks);
+        var tickerTask = tracker.RunTickerAsync(() => Volatile.Read(ref currentUsers), mainTask, TimeSpan.FromSeconds(5));
+        try { await mainTask; } catch (OperationCanceledException) { /* expected at duration cutoff */ }
+        await tickerTask;
         return [.. results];
     }
 }

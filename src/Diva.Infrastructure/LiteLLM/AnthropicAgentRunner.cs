@@ -411,13 +411,16 @@ public sealed class AnthropicAgentRunner : IAgentRunner
         }
 
         {
-            // Build merged tool lookup + raw tool list in a single parallel pass.
+            // Build merged tool lookup + raw tool list in a single parallel pass (2-min cached —
+            // see McpClientCache.GetOrListToolsAsync — so a burst of concurrent invocations doesn't
+            // each re-list tools from the same downstream MCP server).
             // If a cached MCP session has expired on the server side ("Session ID not found"),
             // evict the dead entry and reconnect once before propagating the failure.
             (Dictionary<string, McpClient> toolClientMap, List<McpClientTool> allMcpTools) toolData;
             try
             {
-                toolData = await _mcpConnector.BuildToolDataAsync(mcpClients, ct);
+                toolData = await _mcpCache.GetOrListToolsAsync(
+                    definition, ct2 => _mcpConnector.BuildToolDataAsync(mcpClients, ct2), ct, sslCacheSuffix, cacheKeyDiscriminator);
             }
             catch (HttpRequestException ex) when (ex.Message.Contains("Session ID not found"))
             {
@@ -426,7 +429,8 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                     definition,
                     ct2 => _mcpConnector.ConnectAsync(definition, ct2, tenant, forwardSso, effectiveBindingsJson),
                     ct, sslCacheSuffix, effectiveBindingsJson, cacheKeyDiscriminator);
-                toolData = await _mcpConnector.BuildToolDataAsync(mcpClients, ct);
+                toolData = await _mcpCache.GetOrListToolsAsync(
+                    definition, ct2 => _mcpConnector.BuildToolDataAsync(mcpClients, ct2), ct, sslCacheSuffix, cacheKeyDiscriminator);
             }
             var (toolClientMap, allMcpTools) = toolData;
 
@@ -1432,6 +1436,7 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                 Type = "tool_call",
                 Iteration = iteration,
                 ToolName = tc.Name,
+                ToolCallId = tc.Id,
                 ToolInput = tc.InputJson,
             });
 
@@ -1466,16 +1471,16 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                     var agentResult = await _agentToolExecutor.ExecuteAsync(
                         agentTool, gInputJson, tenant, currentDelegationDepth, effectiveMaxToolChars, ct,
                         hookCtx.Request.ForwardSsoToMcp, parentSessionId: sessionId);
-                    return (Group: group, agentResult.Output, ContentParts: (IReadOnlyList<ContentPart>?)null, agentResult.Failed, agentResult.Error);
+                    return (Group: group, agentResult.Output, ContentParts: (IReadOnlyList<ContentPart>?)null, agentResult.Failed, agentResult.Error, DurationMs: (long?)null);
                 }
 
                 var toolResult = await _toolExecutor.ExecuteAsync(gName, gInputJson, toolClientMap, mcpClients, effectiveMaxToolChars, ct);
-                return (Group: group, toolResult.Output, ContentParts: toolResult.ContentParts, toolResult.Failed, toolResult.Error);
+                return (Group: group, toolResult.Output, ContentParts: toolResult.ContentParts, toolResult.Failed, toolResult.Error, DurationMs: (long?)toolResult.DurationMs);
             }
             finally { throttle?.Release(); }
         }));
 
-        var finalGroupOutputs = new List<(string Name, string InputJson, List<UnifiedToolCall> Originals, string Output, IReadOnlyList<ContentPart>? ContentParts, bool Failed, Exception? Error)>();
+        var finalGroupOutputs = new List<(string Name, string InputJson, List<UnifiedToolCall> Originals, string Output, IReadOnlyList<ContentPart>? ContentParts, bool Failed, Exception? Error, long? DurationMs)>();
         bool pipelineStreamError = false;
         foreach (var groupOutput in groupOutputs)
         {
@@ -1497,14 +1502,14 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                                 retryAgentTool, groupOutput.Group.InputJson, tenant,
                                 currentDelegationDepth, effectiveMaxToolChars, ct,
                                 hookCtx.Request.ForwardSsoToMcp, parentSessionId: sessionId);
-                            currentOutput = (groupOutput.Group, retryResult.Output, ContentParts: (IReadOnlyList<ContentPart>?)null, retryResult.Failed, retryResult.Error);
+                            currentOutput = (groupOutput.Group, retryResult.Output, ContentParts: (IReadOnlyList<ContentPart>?)null, retryResult.Failed, retryResult.Error, DurationMs: (long?)null);
                         }
                         else
                         {
                             var retryResult = await _toolExecutor.ExecuteAsync(
                                 groupOutput.Group.Name, groupOutput.Group.InputJson,
                                 toolClientMap, mcpClients, effectiveMaxToolChars, ct);
-                            currentOutput = (groupOutput.Group, retryResult.Output, ContentParts: retryResult.ContentParts, retryResult.Failed, retryResult.Error);
+                            currentOutput = (groupOutput.Group, retryResult.Output, ContentParts: retryResult.ContentParts, retryResult.Failed, retryResult.Error, DurationMs: (long?)retryResult.DurationMs);
                         }
                     }
                     else if (action == ErrorRecoveryAction.Abort)
@@ -1523,7 +1528,8 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                 currentOutput.Output,
                 currentOutput.ContentParts,
                 currentOutput.Failed,
-                currentOutput.Error));
+                currentOutput.Error,
+                currentOutput.DurationMs));
         }
 
         if (pipelineStreamError)
@@ -1532,13 +1538,13 @@ public sealed class AnthropicAgentRunner : IAgentRunner
         // ── Phase 3: emit results, update history, track failures ────────────
         var toolOutputs = finalGroupOutputs
             .SelectMany(go => go.Originals.Select(
-                tc => (tc, inputJson: go.InputJson, output: go.Output, contentParts: go.ContentParts, failed: go.Failed, error: go.Error, filtered: false)))
+                tc => (tc, inputJson: go.InputJson, output: go.Output, contentParts: go.ContentParts, failed: go.Failed, error: go.Error, filtered: false, durationMs: go.DurationMs)))
             .Concat(suppressedToolCalls.Select(
-                tc => (tc, inputJson: tc.InputJson, output: "Tool call filtered by rule pack policy.", contentParts: (IReadOnlyList<ContentPart>?)null, failed: false, error: (Exception?)null, filtered: true)))
+                tc => (tc, inputJson: tc.InputJson, output: "Tool call filtered by rule pack policy.", contentParts: (IReadOnlyList<ContentPart>?)null, failed: false, error: (Exception?)null, filtered: true, durationMs: (long?)null)))
             .ToList();
 
         var unifiedResults = new List<UnifiedToolResult>();
-        foreach (var (tc, inputJson, toolOutput, contentParts, stepFailed, _, filtered) in toolOutputs)
+        foreach (var (tc, inputJson, toolOutput, contentParts, stepFailed, _, filtered, durationMs) in toolOutputs)
         {
             var finalToolOutput = toolOutput;
             if (!filtered && _hookCoordinator is not null && hooks.Count > 0)
@@ -1555,7 +1561,9 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                 Type = "tool_result",
                 Iteration = iteration,
                 ToolName = tc.Name,
+                ToolCallId = tc.Id,
                 ToolOutput = finalToolOutput,
+                ToolDurationMs = durationMs,
             });
 
             // Pass content parts (e.g. image blocks from MCP tools) through to the LLM.

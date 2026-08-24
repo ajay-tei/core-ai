@@ -681,6 +681,36 @@ using (var scope = app.Services.CreateScope())
         await conn.CloseAsync();
     }
 
+    // ── Iteration/tool-call duration columns (EnsureCreated path — both providers) ────
+    // TraceIterations.DurationMs / TraceToolCalls.DurationMs are added idempotently so
+    // existing trace DBs (created before these columns) can surface per-iteration and
+    // per-tool-call wall-clock timing in the session viewer. EnsureCreated only provisions
+    // columns when the DB is first created, so we ALTER for pre-existing DBs on both providers.
+    {
+        var conn = traceDb.Database.GetDbConnection();
+        if (conn.State != System.Data.ConnectionState.Open)
+            await conn.OpenAsync();
+        var isSqliteTrace = traceDb.Database.IsSqlite();
+        foreach (var (table, col) in new[] { ("TraceIterations", "DurationMs"), ("TraceToolCalls", "DurationMs") })
+        {
+            await using var checkCol = conn.CreateCommand();
+            checkCol.CommandText = isSqliteTrace
+                ? $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name='{col}'"
+                : $"SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME='{table}' AND COLUMN_NAME='{col}'";
+            var exists = Convert.ToInt64(await checkCol.ExecuteScalarAsync() ?? 0L);
+            if (exists == 0)
+            {
+                await using var alterCol = conn.CreateCommand();
+                alterCol.CommandText = isSqliteTrace
+                    ? $"ALTER TABLE {table} ADD COLUMN {col} INTEGER"
+                    : $"ALTER TABLE {table} ADD {col} BIGINT NULL";
+                await alterCol.ExecuteNonQueryAsync();
+                Log.Information("Session trace: added {Column} column to {Table}", col, table);
+            }
+        }
+        await conn.CloseAsync();
+    }
+
     // ── Seed/sync platform LLM config from env vars ───────────────────────────
     // Creates the row on first startup; updates Provider/Model/Endpoint/ApiKey
     // when env vars are changed (so updating docker-compose.yml takes effect on restart).

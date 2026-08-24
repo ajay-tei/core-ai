@@ -94,10 +94,21 @@ public sealed class McpConnectionManager : IMcpConnectionManager
         var allTools = new List<McpClientTool>();
         if (clients.Count == 0) return (map, allTools);
 
-        var listTasks = clients.Values.Select(async client =>
+        var listTasks = clients.Select(async kvp =>
         {
-            var tools = await client.ListToolsAsync(cancellationToken: ct);
-            return (client, tools);
+            IList<McpClientTool> tools;
+            try
+            {
+                tools = await kvp.Value.ListToolsAsync(cancellationToken: ct);
+            }
+            catch (Exception ex)
+            {
+                // A single rate-limited/unreachable MCP server must not fail the whole agent
+                // invocation — degrade to "no tools from this server" and keep going with the rest.
+                _logger.LogWarning(ex, "Failed to list tools from MCP server '{Name}' — skipping its tools for this request", kvp.Key);
+                tools = [];
+            }
+            return (Client: kvp.Value, Tools: tools);
         });
         foreach (var (client, tools) in await Task.WhenAll(listTasks))
             foreach (var tool in tools)

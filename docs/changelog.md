@@ -4,7 +4,48 @@
 
 ---
 
-## [2026-08-24] Agent Chat: admin "Run as user" testing mode
+## [2026-08-24] Session viewer: per-iteration and per-tool-call duration tracking
+
+**Problem**: the Sessions window showed no timing breakdown below the turn level — `TraceSessionTurnEntity.ExecutionTimeMs` was the only duration field, so there was no way to see how long an individual iteration or tool call took.
+
+**Fix**: added nullable `DurationMs` to `TraceIterationEntity` and `TraceToolCallEntity`. The trace DB (`SessionTraceDbContext`) uses `EnsureCreated`, not migrations, so the columns are backfilled onto existing databases via the same idempotent `ALTER TABLE` pattern already used for prior trace-schema additions, branching on SQLite vs SQL Server syntax. `SessionTraceWriter` records a wall-clock start timestamp when it buffers a `tool_call`/`iteration_start` chunk and computes the elapsed time when that tool call resolves or the iteration finalizes. Exposed through `IterationDetail`/`ToolCallDetail` (`GET /api/sessions/{id}/turns/{turnNumber}/iterations`) and rendered in `SessionDetail.tsx`'s iteration cards and `SessionToolCallCard.tsx` (clock icon + `Xms`/`X.Xs`).
+(`src/Diva.Infrastructure/Data/Entities/SessionTraceEntities.cs`, `src/Diva.Infrastructure/Sessions/SessionTraceWriter.cs`, `src/Diva.Host/Program.cs`, `src/Diva.Core/Models/Session/SessionDtos.cs`, `src/Diva.Host/Controllers/SessionsController.cs`, `admin-portal/src/api.ts`, `admin-portal/src/components/SessionDetail.tsx`, `admin-portal/src/components/SessionToolCallCard.tsx`)
+
+**Bug found while validating #1 — cross-matched tool call input/output**: `SessionTraceWriter` paired a `tool_result` chunk to its `tool_call` buffer via `ToolName == chunk.ToolName` plus `LastOrDefault`. When the same tool was called more than once within one iteration (e.g. two parallel calls with different arguments), results arriving in the announced order got assigned to the wrong call — the first result went to the most-recently-added buffer instead of the first one. Fixed by threading the provider's own tool-call id (Anthropic `tool_use_id`, propagated through OpenAI-compatible `FunctionResultContent` too) through `AgentStreamChunk.ToolCallId` end to end, so pairing is unambiguous regardless of arrival order; the id-less fallback path was also corrected from `LastOrDefault` to `FirstOrDefault` (FIFO). Confirmed the actual LLM-facing tool result pairing (`UnifiedToolResult.ToolCallId` → Anthropic `ToolUseId` / OpenAI `FunctionResultContent`) was never affected — that path has always paired by id at construction time, independent of this trace-only bug.
+(`src/Diva.Core/Models/AgentStreamChunk.cs`, `src/Diva.Infrastructure/LiteLLM/AnthropicAgentRunner.cs`, `src/Diva.Infrastructure/Sessions/SessionTraceWriter.cs`)
+
+**Bug found while validating #2 — tool call duration always ~0ms**: a whole iteration's `tool_call` and `tool_result` chunks are built into one in-memory list *after* the real tool execution (`Task.WhenAll`) already completed, then drained together — so the wall-clock gap between capturing the two chunk types collapsed to the time to iterate a few list entries, never the real execution time. Fixed by exposing `ToolExecutor`'s own already-measured `startTime`/`endTime` via a new `ToolExecutorResult.DurationMs`, threaded through the dedup-group tuple chain (including the retry-on-error branch) up to `AgentStreamChunk.ToolDurationMs`; `SessionTraceWriter` now prefers that authoritative value, falling back to the capture-gap estimate only for agent-delegation calls (`AgentToolExecutor` doesn't yet report timing — a smaller, separate gap left as-is).
+(`src/Diva.Infrastructure/LiteLLM/ToolExecutorResult.cs`, `src/Diva.Infrastructure/LiteLLM/ToolExecutor.cs`, `src/Diva.Infrastructure/LiteLLM/AnthropicAgentRunner.cs`, `src/Diva.Infrastructure/Sessions/SessionTraceWriter.cs`)
+
+**Caveat**: both fixes are forward-only — sessions recorded before this change keep their already-wrong duration/pairing data permanently, since the correct values were never persisted anywhere to backfill from.
+
+**Verification**: `dotnet build Diva.slnx` 0 errors. New `tests/Diva.Agents.Tests/SessionTraceWriterTests.cs` (3 tests: id-based pairing with out-of-order results, FIFO fallback, authoritative-duration preference) plus the full `Diva.Agents.Tests` (56) and `Diva.Tools.Tests` (10) filtered runs touching this code path — all pass, no regressions.
+
+---
+
+## [2026-08-24] MCP tool listing: crash fix + tool-list caching
+
+**Problem**: per the P0/P1 findings in [`docs/scalability-load-review.md`](scalability-load-review.md), an unhandled `HttpRequestException` (429) from any single MCP server's `ListToolsAsync()` call crashed the *entire* agent invocation with an unhandled 500, and every invocation re-listed tools from every connected MCP server with no caching, hammering downstream servers under concurrent load.
+
+**Fix**: `McpConnectionManager.BuildToolDataAsync` now wraps each client's `ListToolsAsync()` in its own try/catch — a failure logs a warning and yields an empty tool list for just that server instead of propagating and crashing the request. `McpClientCache` gained a 2-minute tool-list cache (`GetOrListToolsAsync`, `ToolCacheEntry`) nested alongside the existing connection cache, keyed the same way, so repeated invocations within the TTL window reuse the last successful tool list instead of re-querying every MCP server.
+(`src/Diva.Infrastructure/LiteLLM/McpConnectionManager.cs`, `src/Diva.Infrastructure/LiteLLM/McpClientCache.cs`, `src/Diva.Infrastructure/LiteLLM/AnthropicAgentRunner.cs`, `tests/Diva.Agents.Tests/McpClientCacheTests.cs`)
+
+**Verification**: live-tested against the real deployment under concurrent load. The crash fix alone dropped the failure rate from 35.2% to 5.6% (all remaining failures were 504 timeouts, no more 500s); adding the tool-list cache dropped it further to 2.8%, with zero "Failed to list tools" warnings in that run.
+
+---
+
+## [2026-08-24] Load test tool: live progress ticker, configurable timeout, proxy path-prefix fix
+
+**Problem**: `tools/LoadTest` requests against a real LLM can take 20-70+ seconds each, so a burst/soak/ramp run gave no feedback until the very end — indistinguishable from a hang. Separately, `HttpClient.BaseAddress` silently discarded reverse-proxy path prefixes (e.g. `/beta/tei-ai/`) because relative request URIs started with `/`, and the client-side request timeout wasn't configurable from the convenience script.
+
+**Fix**: added `ProgressTracker` (thread-safe completed/succeeded/failed/in-flight counters) wired into all three scenario runners (`RunBurstAsync`, `RunSoakAsync`, `RunRampAsync`), printing a status line every 5 seconds until the run completes, followed by a "Test run complete — compiling summary..." transition line before the final report. Fixed `DivaApiClient`'s `BaseAddress` to end with a trailing slash and its relative request paths to drop the leading slash, so reverse-proxy prefixes are preserved. `Run-LoadTest.ps1` gained a `-RequestTimeout` parameter (default 180s) passed through as `--request-timeout`.
+(`tools/LoadTest/ProgressTracker.cs`, `tools/LoadTest/Scenarios.cs`, `tools/LoadTest/Program.cs`, `tools/LoadTest/DivaApiClient.cs`, `tools/LoadTest/Run-LoadTest.ps1`, `tools/LoadTest/README.md`)
+
+**Verification**: live-tested against the real deployment — 100% success (200/200) at 200 concurrent users in `--mode stream`, confirming the client-side fixes and matching real end-user SSE traffic patterns.
+
+---
+
+
 
 **Problem**: admins had no way to verify what a specific user would actually experience chatting
 with an agent — MCP credential-group selection and agent-access-group ACL evaluation both depend

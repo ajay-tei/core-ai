@@ -84,7 +84,8 @@ public class McpClientCacheTests : IAsyncDisposable
             var staleEntry = entryType.GetConstructors()[0].Invoke([
                 entryType.GetProperty("Clients")!.GetValue(existingEntry),
                 entryType.GetProperty("BindingsHash")!.GetValue(existingEntry),
-                DateTime.UtcNow.AddMinutes(-31)
+                DateTime.UtcNow.AddMinutes(-31),
+                null // ToolCache
             ]);
             dict[agent.Id] = staleEntry;
         }

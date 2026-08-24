@@ -153,6 +153,7 @@ public sealed class SessionTraceWriter
                         var toolBuf = new ToolCallBuffer
                         {
                             ToolName = chunk.ToolName,
+                            ToolCallId = chunk.ToolCallId,
                             ToolInput = chunk.ToolInput,
                             Sequence = _currentIteration.ToolCalls.Count + 1,
                         };
@@ -185,9 +186,21 @@ public sealed class SessionTraceWriter
                 case "tool_result":
                     if (_currentIteration is not null && !string.IsNullOrEmpty(chunk.ToolName))
                     {
-                        var tool = _currentIteration.ToolCalls.LastOrDefault(t => t.ToolName == chunk.ToolName && t.ToolOutput is null);
+                        // Prefer matching by the provider tool-call id — unambiguous even when the
+                        // same tool name is invoked more than once (in parallel) within an iteration.
+                        var tool = !string.IsNullOrEmpty(chunk.ToolCallId)
+                            ? _currentIteration.ToolCalls.FirstOrDefault(t => t.ToolCallId == chunk.ToolCallId)
+                            : _currentIteration.ToolCalls.FirstOrDefault(t => t.ToolName == chunk.ToolName && t.ToolOutput is null);
                         if (tool is not null)
+                        {
                             tool.ToolOutput = chunk.ToolOutput;
+                            // Tool calls are announced and resolved as a batch (parallel execution),
+                            // so the wall-clock gap between capturing tool_call and tool_result here
+                            // collapses to ~0ms. Prefer the runner's own measured execution time;
+                            // only estimate from capture timestamps when that isn't available
+                            // (e.g. agent-delegation calls, which run a nested ReAct loop).
+                            tool.DurationMs = chunk.ToolDurationMs ?? (long)(DateTime.UtcNow - tool.StartedAt).TotalMilliseconds;
+                        }
                     }
                     break;
 
@@ -325,6 +338,7 @@ public sealed class SessionTraceWriter
                     CacheReadTokens = itBuf.CacheReadTokens,
                     CacheCreationTokens = itBuf.CacheCreationTokens,
                     IsCorrection = itBuf.IsCorrection,
+                    DurationMs = itBuf.DurationMs,
                 };
                 _db.TraceIterations.Add(iteration);
                 await _db.SaveChangesAsync(ct);  // need IterationId before tool calls
@@ -349,6 +363,7 @@ public sealed class SessionTraceWriter
                         DelegatedAgentId = tcBuf.DelegatedAgentId,
                         DelegatedAgentName = tcBuf.DelegatedAgentName,
                         LinkedA2ATaskId = tcBuf.A2ATaskId,
+                        DurationMs = tcBuf.DurationMs,
                     });
 
                     if (isDelegation && !string.IsNullOrEmpty(tcBuf.A2ATaskId))
@@ -505,6 +520,7 @@ public sealed class SessionTraceWriter
     {
         if (_currentIteration is not null)
         {
+            _currentIteration.DurationMs = (long)(DateTime.UtcNow - _currentIteration.StartedAt).TotalMilliseconds;
             _iterations.Add(_currentIteration);
             _currentIteration = null;
         }
@@ -605,18 +621,23 @@ public sealed class SessionTraceWriter
         public int CacheReadTokens { get; set; }
         public int CacheCreationTokens { get; set; }
         public List<ToolCallBuffer> ToolCalls { get; set; } = [];
+        public DateTime StartedAt { get; set; } = DateTime.UtcNow;
+        public long? DurationMs { get; set; }
     }
 
     private sealed class ToolCallBuffer
     {
         public int Sequence { get; set; }
         public string? ToolName { get; set; }
+        public string? ToolCallId { get; set; }
         public string? ToolInput { get; set; }
         public string? ToolOutput { get; set; }
         public bool IsAgentDelegation { get; set; }
         public string? A2ATaskId { get; set; }
         public string? DelegatedAgentId { get; set; }
         public string? DelegatedAgentName { get; set; }
+        public DateTime StartedAt { get; set; } = DateTime.UtcNow;
+        public long? DurationMs { get; set; }
     }
 
     private sealed class DelegationBuffer

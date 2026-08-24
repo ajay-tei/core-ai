@@ -22,7 +22,10 @@ public sealed class DivaApiClient
         };
         _http = new HttpClient(handler)
         {
-            BaseAddress = new Uri(opts.BaseUrl),
+            // Trailing slash + no leading slash on relative paths below: HttpClient replaces the
+            // ENTIRE base path (not just appends) when a relative URI starts with '/', which would
+            // silently drop any reverse-proxy path prefix (e.g. "/beta/tei-ai-prod").
+            BaseAddress = new Uri(opts.BaseUrl.TrimEnd('/') + "/"),
             Timeout = Timeout.InfiniteTimeSpan, // per-request timeout applied via CancellationToken instead
         };
         if (!string.IsNullOrWhiteSpace(opts.ApiKey))
@@ -31,7 +34,7 @@ public sealed class DivaApiClient
 
     public async Task<List<AgentSummaryDto>> ListAgentsAsync(CancellationToken ct)
     {
-        using var resp = await _http.GetAsync("/api/agents", ct);
+        using var resp = await _http.GetAsync("api/agents", ct);
         resp.EnsureSuccessStatusCode();
         var json = await resp.Content.ReadAsStringAsync(ct);
         return JsonSerializer.Deserialize<List<AgentSummaryDto>>(json, JsonOpts) ?? [];
@@ -53,7 +56,7 @@ public sealed class DivaApiClient
         using var cts = new CancellationTokenSource(timeout);
         try
         {
-            using var resp = await _http.PostAsync($"/api/agents/{agentId}/invoke", BuildBody(query, sessionId), cts.Token);
+            using var resp = await _http.PostAsync($"api/agents/{agentId}/invoke", BuildBody(query, sessionId), cts.Token);
             var body = await resp.Content.ReadAsStringAsync(cts.Token);
             sw.Stop();
             if (!resp.IsSuccessStatusCode)
@@ -97,7 +100,7 @@ public sealed class DivaApiClient
 
         try
         {
-            using var req = new HttpRequestMessage(HttpMethod.Post, $"/api/agents/{agentId}/invoke/stream")
+            using var req = new HttpRequestMessage(HttpMethod.Post, $"api/agents/{agentId}/invoke/stream")
             {
                 Content = BuildBody(query, sessionId),
             };

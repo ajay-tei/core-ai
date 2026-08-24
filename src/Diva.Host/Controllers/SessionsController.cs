@@ -329,6 +329,7 @@ public class SessionsController : ControllerBase
             OutputTokens = iter.OutputTokens,
             CacheReadTokens = iter.CacheReadTokens,
             CacheCreationTokens = iter.CacheCreationTokens,
+            DurationMs = iter.DurationMs,
             ToolCalls = toolsByIter[iter.Id].Select(tc => new ToolCallDetail
             {
                 Sequence = tc.Sequence,
@@ -342,6 +343,7 @@ public class SessionsController : ControllerBase
                 ChildSessionId = tc.LinkedA2ATaskId != null
                     ? childSessionMap.GetValueOrDefault(tc.LinkedA2ATaskId)
                     : null,
+                DurationMs = tc.DurationMs,
             }).ToList(),
         }).ToList();
 

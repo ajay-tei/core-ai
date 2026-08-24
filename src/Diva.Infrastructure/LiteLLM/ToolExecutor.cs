@@ -35,7 +35,7 @@ public sealed class ToolExecutor(ILogger<ToolExecutor> logger, IOptions<AgentOpt
         int maxToolResultChars,
         CancellationToken ct)
     {
-        var startTime          = DateTime.UtcNow;
+        var startTime = DateTime.UtcNow;
         var toolTimeoutSeconds = agentOptions.Value.ToolTimeoutSeconds;
         logger.LogInformation("Starting tool execution: {ToolName} at {Time}",
             toolName, startTime.ToString("HH:mm:ss.fff"));
@@ -80,7 +80,7 @@ public sealed class ToolExecutor(ILogger<ToolExecutor> logger, IOptions<AgentOpt
                 .Select(img => (ContentPart)new ImageContentPart
                 {
                     MediaType = img.MimeType ?? "image/jpeg",
-                    Data      = Convert.ToBase64String(img.Data.Span)
+                    Data = Convert.ToBase64String(img.Data.Span)
                 })
                 .Concat(embeddedImageParts)
                 .ToList();
@@ -103,10 +103,11 @@ public sealed class ToolExecutor(ILogger<ToolExecutor> logger, IOptions<AgentOpt
 
             return new ToolExecutorResult
             {
-                Output       = textOutput,
+                Output = textOutput,
                 ContentParts = imageParts.Count > 0 ? imageParts : null,
-                Failed       = failed,
-                Error        = null
+                Failed = failed,
+                Error = null,
+                DurationMs = (long)(endTime - startTime).TotalMilliseconds,
             };
         }
         catch (OperationCanceledException)
@@ -121,7 +122,8 @@ public sealed class ToolExecutor(ILogger<ToolExecutor> logger, IOptions<AgentOpt
             {
                 Output = $"Tool '{toolName}' timed out after {toolTimeoutSeconds}s. Try a narrower query (e.g. shorter date range).",
                 Failed = true,
-                Error  = new TimeoutException($"Tool '{toolName}' timed out after {toolTimeoutSeconds}s.")
+                Error = new TimeoutException($"Tool '{toolName}' timed out after {toolTimeoutSeconds}s."),
+                DurationMs = (long)(endTime - startTime).TotalMilliseconds,
             };
         }
         catch (Exception ex)
@@ -136,7 +138,8 @@ public sealed class ToolExecutor(ILogger<ToolExecutor> logger, IOptions<AgentOpt
             {
                 Output = $"Error: {ex.Message}",
                 Failed = true,
-                Error  = ex
+                Error = ex,
+                DurationMs = (long)(endTime - startTime).TotalMilliseconds,
             };
         }
     }
