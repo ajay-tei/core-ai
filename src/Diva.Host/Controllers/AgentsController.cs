@@ -457,6 +457,7 @@ public class AgentsController : ControllerBase
         existing.MaxToolResultChars = dto.MaxToolResultChars;
         existing.MaxOutputTokens = dto.MaxOutputTokens;
         existing.EnableHistoryCaching = dto.EnableHistoryCaching;
+        existing.EnableOneHourCache = dto.EnableOneHourCache;
         existing.EnableExtendedThinking = dto.EnableExtendedThinking;
         existing.ThinkingBudgetTokens = dto.ThinkingBudgetTokens;
         existing.PipelineStagesJson = dto.PipelineStagesJson;
@@ -1050,6 +1051,7 @@ public class AgentsController : ControllerBase
         MaxToolResultChars = t.MaxToolResultChars,
         MaxOutputTokens = t.MaxOutputTokens,
         EnableHistoryCaching = t.EnableHistoryCaching,
+        EnableOneHourCache = t.EnableOneHourCache,
         PipelineStagesJson = t.PipelineStagesJson,
         ToolFilterJson = t.ToolFilterJson,
         StageInstructionsJson = t.StageInstructionsJson,

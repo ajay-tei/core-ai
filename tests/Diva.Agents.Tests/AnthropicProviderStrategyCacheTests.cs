@@ -2,6 +2,7 @@ using Anthropic.SDK.Messaging;
 using Diva.Agents.Tests.Helpers;
 using Diva.Infrastructure.LiteLLM;
 using Diva.Infrastructure.Sessions;
+using Microsoft.Extensions.AI;
 using NSubstitute;
 using System.Runtime.CompilerServices;
 
@@ -264,9 +265,104 @@ public class AnthropicProviderStrategyCacheTests
             $"Expected ≤ 2 cache markers after PrepareNewWindow, got {strategy.CountCacheControlMarkers()}");
     }
 
+    // ── Tool ordering stability ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// Tools passed to AddExtraTools out of order must come out sorted by name, so the
+    /// tools-array hash (part of the same cache prefix as BP1/BP2) stays stable regardless
+    /// of MCP server response order.
+    /// </summary>
+    [Fact]
+    public void AddExtraTools_OutOfOrderInput_SortedByName()
+    {
+        var strategy = BuildStrategy(enableHistoryCaching: true);
+        strategy.Initialize("sys", [], "query", []);
+
+        strategy.AddExtraTools([
+            AIFunctionFactory.Create(() => "", name: "zebra_tool"),
+            AIFunctionFactory.Create(() => "", name: "apple_tool"),
+            AIFunctionFactory.Create(() => "", name: "mango_tool"),
+        ]);
+
+        Assert.Equal(["apple_tool", "mango_tool", "zebra_tool"], strategy.GetToolNamesInOrder());
+    }
+
+    /// <summary>
+    /// Calling AddExtraTools twice with different (out-of-order) batches must still yield a
+    /// tool list where duplicate names are dropped and each batch is internally sorted.
+    /// </summary>
+    [Fact]
+    public void AddExtraTools_CalledTwice_EachBatchSortedAndDeduplicated()
+    {
+        var strategy = BuildStrategy(enableHistoryCaching: true);
+        strategy.Initialize("sys", [], "query", []);
+
+        strategy.AddExtraTools([
+            AIFunctionFactory.Create(() => "", name: "zebra_tool"),
+            AIFunctionFactory.Create(() => "", name: "apple_tool"),
+        ]);
+        strategy.AddExtraTools([
+            AIFunctionFactory.Create(() => "", name: "zebra_tool"),   // duplicate — must be skipped
+            AIFunctionFactory.Create(() => "", name: "banana_tool"),
+        ]);
+
+        Assert.Equal(["apple_tool", "zebra_tool", "banana_tool"], strategy.GetToolNamesInOrder());
+    }
+
+    // ── 1-hour cache TTL ─────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// With enableOneHourCache=true, BP3 (history boundary) must use the 1-hour TTL.
+    /// </summary>
+    [Fact]
+    public void Initialize_OneHourCacheEnabled_HistoryBoundaryUsesOneHourTtl()
+    {
+        var strategy = BuildStrategy(enableHistoryCaching: true, enableOneHourCache: true);
+
+        var history = new List<ConversationTurn> { new("user", "hi"), new("assistant", "hello") };
+        strategy.Initialize("sys", history, "query", []);
+
+        var cc = strategy.GetHistoryBoundaryCacheControl();
+        Assert.NotNull(cc);
+        Assert.Equal(CacheDuration.OneHour, cc!.TTL);
+    }
+
+    /// <summary>
+    /// With enableOneHourCache=false (default), BP3 must not set a TTL (plain 5-minute default).
+    /// </summary>
+    [Fact]
+    public void Initialize_OneHourCacheDisabled_HistoryBoundaryHasNoTtlOverride()
+    {
+        var strategy = BuildStrategy(enableHistoryCaching: true, enableOneHourCache: false);
+
+        var history = new List<ConversationTurn> { new("user", "hi"), new("assistant", "hello") };
+        strategy.Initialize("sys", history, "query", []);
+
+        var cc = strategy.GetHistoryBoundaryCacheControl();
+        Assert.NotNull(cc);
+        Assert.Null(cc!.TTL);
+    }
+
+    /// <summary>
+    /// BP4 (sliding tool-result marker) always keeps the plain 5-minute default, even when
+    /// enableOneHourCache is on — it slides every tool exchange and rarely survives that long.
+    /// </summary>
+    [Fact]
+    public void AddToolResults_OneHourCacheEnabled_SlidingBoundaryStaysFiveMinute()
+    {
+        var strategy = BuildStrategy(enableHistoryCaching: true, enableOneHourCache: true);
+        strategy.Initialize("sys", [], "query", []);
+
+        strategy.AddToolResults([new UnifiedToolResult("call-1", "tool-a", "output", false)]);
+
+        var content = strategy.GetSlidingBoundaryContent();
+        Assert.NotNull(content?.CacheControl);
+        Assert.Null(content!.CacheControl!.TTL);
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static AnthropicProviderStrategy BuildStrategy(bool enableHistoryCaching)
+    private static AnthropicProviderStrategy BuildStrategy(bool enableHistoryCaching, bool enableOneHourCache = false)
     {
         var anthropic = Substitute.For<IAnthropicProvider>();
         return new AnthropicProviderStrategy(
@@ -277,6 +373,7 @@ public class AnthropicProviderStrategyCacheTests
             "static-sys",
             "",
             (fn, ct) => fn(),
-            enableHistoryCaching: enableHistoryCaching);
+            enableHistoryCaching: enableHistoryCaching,
+            enableOneHourCache: enableOneHourCache);
     }
 }

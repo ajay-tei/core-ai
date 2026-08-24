@@ -201,6 +201,7 @@ public sealed class TenantGroupService : ITenantGroupService
             MaxToolResultChars = dto.MaxToolResultChars,
             MaxOutputTokens = dto.MaxOutputTokens,
             EnableHistoryCaching = dto.EnableHistoryCaching,
+            EnableOneHourCache = dto.EnableOneHourCache,
             PipelineStagesJson = dto.PipelineStagesJson,
             ToolFilterJson = dto.ToolFilterJson,
             StageInstructionsJson = dto.StageInstructionsJson,
@@ -244,6 +245,7 @@ public sealed class TenantGroupService : ITenantGroupService
         entity.MaxToolResultChars = dto.MaxToolResultChars;
         entity.MaxOutputTokens = dto.MaxOutputTokens;
         entity.EnableHistoryCaching = dto.EnableHistoryCaching;
+        entity.EnableOneHourCache = dto.EnableOneHourCache;
         entity.PipelineStagesJson = dto.PipelineStagesJson;
         entity.ToolFilterJson = dto.ToolFilterJson;
         entity.StageInstructionsJson = dto.StageInstructionsJson;

@@ -79,6 +79,7 @@ public class ConfigController : ControllerBase
             maxToolResultChars = _agent.MaxToolResultChars,
             maxOutputTokens = _agent.MaxOutputTokens,
             enableHistoryCaching = _agent.EnableHistoryCaching,
+            enableOneHourCache = _agent.EnableOneHourCache,
             thinkingBudgetTokens = _agent.ThinkingBudgetTokens,
             injectToolStrategy = _agent.InjectToolStrategy,
             verificationMode = _verification.Mode,

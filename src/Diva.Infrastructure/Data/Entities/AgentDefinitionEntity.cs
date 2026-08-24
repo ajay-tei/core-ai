@@ -27,6 +27,8 @@ public class AgentDefinitionEntity : ITenantEntity
     public int? MaxOutputTokens { get; set; }               // null = use global AgentOptions.MaxOutputTokens
     /// <summary>Override Anthropic prompt-caching per agent. null = use global AgentOptions.EnableHistoryCaching (default true).</summary>
     public bool? EnableHistoryCaching { get; set; }         // null = use global AgentOptions.EnableHistoryCaching
+    /// <summary>Override the 1-hour cache TTL per agent. null = use global AgentOptions.EnableOneHourCache (default false). No-op when EnableHistoryCaching resolves to false.</summary>
+    public bool? EnableOneHourCache { get; set; }            // null = use global AgentOptions.EnableOneHourCache
 
     /// <summary>Enable Anthropic extended thinking (reasoning) per agent. null/false = disabled. Anthropic-only; ignored by OpenAI-compatible providers and unsupported models.</summary>
     public bool? EnableExtendedThinking { get; set; }       // null/false = disabled

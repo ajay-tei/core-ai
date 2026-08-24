@@ -46,6 +46,7 @@ public sealed record AgentExportDefinition
     public int? MaxToolResultChars { get; init; }
     public int? MaxOutputTokens { get; init; }
     public bool? EnableHistoryCaching { get; init; }
+    public bool? EnableOneHourCache { get; init; }
     public bool? EnableExtendedThinking { get; init; }
     public int? ThinkingBudgetTokens { get; init; }
     public string? PipelineStagesJson { get; init; }

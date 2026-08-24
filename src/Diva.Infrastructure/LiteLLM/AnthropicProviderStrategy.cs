@@ -22,6 +22,12 @@ namespace Diva.Infrastructure.LiteLLM;
 ///          has no CacheControl property in SDK 5.10.0; relies on Anthropic API auto-caching tools when present)
 ///   BP3 — last prior-session history message:                          cache_control set in Initialize()
 ///   BP4 — most-recent tool-result message (sliding):                   cache_control moved in AddToolResults()
+///
+/// BP1 and BP3 use the optional 1-hour TTL (<see cref="_enableOneHourCache"/>) since they can span
+/// user think-time between turns; BP4 always keeps the plain 5-minute default since it slides on
+/// every tool exchange and rarely survives that long anyway. Tool lists are sorted by name
+/// (SetTools/AddExtraTools) so the tools-array hash — part of the same cache prefix as BP1/BP2 —
+/// stays stable regardless of MCP server response order.
 /// </summary>
 internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
 {
@@ -30,6 +36,7 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
     private string _model;
     private int _maxTokens;
     private readonly bool _enableHistoryCaching;
+    private readonly bool _enableOneHourCache;
     private readonly bool _enableThinking;
     private readonly int _thinkingBudget;
     private string? _apiKeyOverride;
@@ -74,6 +81,7 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
         string dynamicSystemPrompt,
         Func<Func<Task<MessageResponse>>, CancellationToken, Task<MessageResponse>> retry,
         bool enableHistoryCaching = true,
+        bool enableOneHourCache = false,
         string? apiKeyOverride = null,
         bool enableThinking = false,
         int thinkingBudget = 0,
@@ -86,6 +94,7 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
         _staticSystemPrompt = staticSystemPrompt;
         _dynamicSystemPrompt = dynamicSystemPrompt;
         _enableHistoryCaching = enableHistoryCaching;
+        _enableOneHourCache = enableOneHourCache;
         _enableThinking = enableThinking;
         _thinkingBudget = thinkingBudget;
         _apiKeyOverride = apiKeyOverride;
@@ -161,6 +170,16 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
     /// When caching is enabled: two blocks — static (BP1, ephemeral) + dynamic (no marker).
     /// When caching is disabled: one combined block.
     /// </summary>
+    /// <summary>
+    /// Builds a cache_control marker for a long-lived breakpoint (BP1/BP3). Uses the 1-hour TTL
+    /// when enabled — worthwhile for breakpoints that span user think-time or slow iterations,
+    /// which can easily exceed the default 5-minute window. BP4 (sliding, refreshed every tool
+    /// exchange) intentionally keeps the plain 5-minute default everywhere it's set.
+    /// </summary>
+    private CacheControl BuildLongLivedCacheControl() => _enableOneHourCache
+        ? new CacheControl { Type = CacheControlType.ephemeral, TTL = CacheDuration.OneHour }
+        : new CacheControl { Type = CacheControlType.ephemeral };
+
     private List<SystemMessage> BuildSystemBlocks()
     {
         var blocks = new List<SystemMessage>();
@@ -169,7 +188,7 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
         {
             // BP1: static block — marked ephemeral; stable across sessions for same agent+tenant.
             var staticBlock = new SystemMessage(_staticSystemPrompt);
-            staticBlock.CacheControl = new CacheControl { Type = CacheControlType.ephemeral };
+            staticBlock.CacheControl = BuildLongLivedCacheControl();
             blocks.Add(staticBlock);
 
             // Dynamic block — no cache_control; changes per session.
@@ -213,7 +232,7 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
         {
             var lastHist = _messages[^1];
             if (lastHist.Content is { Count: > 0 })
-                lastHist.Content[^1].CacheControl = new CacheControl { Type = CacheControlType.ephemeral };
+                lastHist.Content[^1].CacheControl = BuildLongLivedCacheControl();
         }
 
         // Attachments (images/docs) go BEFORE the text block per Anthropic best practice.
@@ -267,7 +286,10 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
         _toolNames.Clear();
         if (source.Count == 0) { _tools = null; return; }
         var list = new List<Anthropic.SDK.Common.Tool>(source.Count);
-        foreach (var t in source)
+        // Sorted by name so the tools array hash stays stable across requests regardless of
+        // MCP server response order or dictionary enumeration order — the tools array is part
+        // of the cache prefix (tools → system → messages), so reordering it invalidates BP1/BP2.
+        foreach (var t in source.OrderBy(t => t.Name, StringComparer.Ordinal))
             if (_toolNames.Add(t.Name))
                 list.Add(ToAnthropicTool(t));
         _tools = list.Count > 0 ? list : null;
@@ -278,7 +300,7 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
     {
         if (tools.Count == 0) return;
         _tools ??= new List<Anthropic.SDK.Common.Tool>();
-        foreach (var tool in tools)
+        foreach (var tool in tools.OrderBy(t => t.Name, StringComparer.Ordinal))
             if (_toolNames.Add(tool.Name))   // skip names already present to keep tool names unique
                 _tools.Add(ToAnthropicTool(tool));
     }
@@ -747,7 +769,7 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
             {
                 if (_messages[j].Content is { Count: > 0 })
                 {
-                    _messages[j].Content[^1].CacheControl = new CacheControl { Type = CacheControlType.ephemeral };
+                    _messages[j].Content[^1].CacheControl = BuildLongLivedCacheControl();
                     break;
                 }
             }
@@ -881,6 +903,10 @@ internal sealed class AnthropicProviderStrategy : ILlmProviderStrategy
         => _slidingCacheBoundary?.Content is { Count: > 0 }
             ? _slidingCacheBoundary.Content[^1]
             : null;
+
+    /// <summary>For tests only. Returns tool names in the order they'll be sent to the Anthropic API.</summary>
+    internal IReadOnlyList<string> GetToolNamesInOrder()
+        => _tools?.Select(t => t.Function.Name).ToList() ?? [];
 
     /// <summary>For tests only. Counts all content blocks with CacheControl set across all messages.</summary>
     internal int CountCacheControlMarkers()

@@ -185,6 +185,7 @@ public class GroupsController : ControllerBase
             t.MaxToolResultChars,
             t.MaxOutputTokens,
             t.EnableHistoryCaching,
+            t.EnableOneHourCache,
             t.PipelineStagesJson,
             t.ToolFilterJson,
             t.StageInstructionsJson,

@@ -53,6 +53,7 @@ public class GroupAgentTemplateEntity
     public int? MaxToolResultChars { get; set; }
     public int? MaxOutputTokens { get; set; }
     public bool? EnableHistoryCaching { get; set; }
+    public bool? EnableOneHourCache { get; set; }
     public string? PipelineStagesJson { get; set; }
     public string? ToolFilterJson { get; set; }
     public string? StageInstructionsJson { get; set; }

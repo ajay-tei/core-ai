@@ -103,6 +103,7 @@ export interface AgentDefinition
   maxToolResultChars?: number;     // null = global default (AgentOptions.MaxToolResultChars)
   maxOutputTokens?: number;        // null = global default (AgentOptions.MaxOutputTokens)
   enableHistoryCaching?: boolean;  // null = global default (AgentOptions.EnableHistoryCaching); Anthropic only
+  enableOneHourCache?: boolean;    // null = global default (AgentOptions.EnableOneHourCache); Anthropic only, no-op when enableHistoryCaching resolves to false
   enableExtendedThinking?: boolean; // null/false = disabled; Anthropic only (Claude 3.7+/4.x/sonnet-5)
   thinkingBudgetTokens?: number;   // null = global default budget when extended thinking is enabled
   pipelineStagesJson?: string;     // JSON {"Decompose":true,"Verify":false,...}
@@ -142,6 +143,7 @@ export interface AgentDefaults
   maxToolResultChars: number;
   maxOutputTokens: number;
   enableHistoryCaching: boolean;
+  enableOneHourCache: boolean;
   thinkingBudgetTokens: number;
   injectToolStrategy: boolean;
   verificationMode: string;

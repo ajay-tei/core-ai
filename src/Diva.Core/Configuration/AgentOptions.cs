@@ -48,6 +48,16 @@ public sealed class AgentOptions
     /// </summary>
     public bool EnableHistoryCaching { get; set; } = true;
 
+    /// <summary>
+    /// When true, the long-lived cache breakpoints (BP1 static system block, BP3 history boundary)
+    /// use Anthropic's 1-hour cache TTL instead of the 5-minute default. Costs 2x base input tokens
+    /// on cache writes (vs 1.25x for 5-minute) but survives longer user think-time gaps and slower
+    /// iterations. Global only — no per-agent override, since it's a deployment-wide cost/latency
+    /// tradeoff rather than a per-agent behavior choice. No-op when <see cref="EnableHistoryCaching"/>
+    /// is false, or for OpenAI-compatible providers.
+    /// </summary>
+    public bool EnableOneHourCache { get; set; } = false;
+
     /// <summary>Max tokens for the Agent Setup Assistant LLM suggestion calls. Default 4096.</summary>
     public int MaxSuggestionTokens { get; set; } = 4096;
     /// <summary>

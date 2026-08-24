@@ -42,6 +42,7 @@ public static class GroupAgentOverlayMerger
             MaxToolResultChars = template.MaxToolResultChars,
             MaxOutputTokens = template.MaxOutputTokens,
             EnableHistoryCaching = template.EnableHistoryCaching,
+            EnableOneHourCache = template.EnableOneHourCache,
             PipelineStagesJson = template.PipelineStagesJson,
             ToolFilterJson = template.ToolFilterJson,
             StageInstructionsJson = template.StageInstructionsJson,

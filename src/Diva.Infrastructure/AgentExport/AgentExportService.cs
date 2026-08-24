@@ -159,6 +159,7 @@ public sealed class AgentExportService : IAgentExportService
             MaxToolResultChars = a.MaxToolResultChars,
             MaxOutputTokens = a.MaxOutputTokens,
             EnableHistoryCaching = a.EnableHistoryCaching,
+            EnableOneHourCache = a.EnableOneHourCache,
             EnableExtendedThinking = a.EnableExtendedThinking,
             ThinkingBudgetTokens = a.ThinkingBudgetTokens,
             PipelineStagesJson = a.PipelineStagesJson,
@@ -232,6 +233,7 @@ public sealed class AgentExportService : IAgentExportService
         target.MaxToolResultChars = src.MaxToolResultChars;
         target.MaxOutputTokens = src.MaxOutputTokens;
         target.EnableHistoryCaching = src.EnableHistoryCaching;
+        target.EnableOneHourCache = src.EnableOneHourCache;
         target.EnableExtendedThinking = src.EnableExtendedThinking;
         target.ThinkingBudgetTokens = src.ThinkingBudgetTokens;
         target.PipelineStagesJson = src.PipelineStagesJson;

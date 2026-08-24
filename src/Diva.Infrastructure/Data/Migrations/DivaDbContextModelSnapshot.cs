@@ -77,6 +77,9 @@ namespace Diva.Infrastructure.Data.Migrations
                     b.Property<bool?>("EnableHistoryCaching")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool?>("EnableOneHourCache")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int?>("EnvironmentId")
                         .HasColumnType("INTEGER");
 
@@ -753,6 +756,9 @@ namespace Diva.Infrastructure.Data.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<bool?>("EnableHistoryCaching")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool?>("EnableOneHourCache")
                         .HasColumnType("INTEGER");
 
                     b.Property<string>("ExecutionMode")

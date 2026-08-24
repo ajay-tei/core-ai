@@ -16,7 +16,8 @@ internal sealed record ModelSwitchParameters(
     Func<Func<Task<MessageResponse>>, CancellationToken, Task<MessageResponse>> AnthropicRetry,
     Func<Func<Task<ChatResponse>>, CancellationToken, Task<ChatResponse>> OpenAiRetry,
     int MaxOutputTokens,
-    bool EnableHistoryCaching = true);
+    bool EnableHistoryCaching = true,
+    bool EnableOneHourCache = false);
 
 /// <summary>
 /// The outcome of a model switch attempt. When <see cref="Switched"/> is true,
@@ -124,6 +125,7 @@ internal sealed class ModelSwitchCoordinator(
                                     systemPrompt, string.Empty,
                                     p.AnthropicRetry,
                                     enableHistoryCaching: p.EnableHistoryCaching,
+                                    enableOneHourCache: p.EnableOneHourCache,
                                     apiKeyOverride: newCfg.ApiKey)
                                 : new OpenAiProviderStrategy(openAi, ctx, newCfg.Model,
                                     p.OpenAiRetry, maxOutputTokens: p.MaxOutputTokens,

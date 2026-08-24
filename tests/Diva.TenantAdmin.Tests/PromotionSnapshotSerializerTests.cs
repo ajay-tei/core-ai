@@ -669,6 +669,49 @@ public class AgentSnapshotSerializerTests : IDisposable
     }
 
     [Fact]
+    public async Task SerializeThenMaterialize_RoundTrip_PreservesEnableOneHourCache()
+    {
+        var sourceEnvId = await SeedEnvironmentAsync("dev", 0, isDefault: true);
+        var targetEnvId = await SeedEnvironmentAsync("qa", 1);
+
+        using (var db = new DivaDbContext(_options))
+        {
+            db.AgentDefinitions.Add(new AgentDefinitionEntity
+            {
+                TenantId = TenantId,
+                Name = "caching-agent",
+                DisplayName = "Caching Agent",
+                Description = "Test agent",
+                AgentType = "generic",
+                SystemPrompt = "You are helpful.",
+                LogicalId = Guid.NewGuid(),
+                EnvironmentId = sourceEnvId,
+                EnableHistoryCaching = false,
+                EnableOneHourCache = true,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        AgentDefinitionEntity agent;
+        using (var db = new DivaDbContext(_options))
+            agent = await db.AgentDefinitions.SingleAsync(a => a.Name == "caching-agent");
+
+        var snapshot = await _serializer.SerializeAsync(TenantId, sourceEnvId, agent.LogicalId!.Value, CancellationToken.None);
+        Assert.NotNull(snapshot);
+        await _serializer.MaterializeAsync(TenantId, targetEnvId, agent.LogicalId!.Value, snapshot!.SnapshotJson, CancellationToken.None);
+
+        using var verifyDb = new DivaDbContext(_options);
+        var target = await verifyDb.AgentDefinitions.SingleAsync(a => a.EnvironmentId == targetEnvId);
+        Assert.False(target.EnableHistoryCaching);
+        Assert.True(target.EnableOneHourCache);
+
+        // Re-promoting unchanged content must be a no-op (content hash matches) — proves the new
+        // field participates in the ledger's content hash the same way as every other agent field.
+        var secondSnapshot = await _serializer.SerializeAsync(TenantId, sourceEnvId, agent.LogicalId!.Value, CancellationToken.None);
+        Assert.Equal(snapshot.SnapshotJson, secondSnapshot!.SnapshotJson);
+    }
+
+    [Fact]
     public async Task MaterializeAsync_ImportsLinkedRules()
     {
         var sourceEnvId = await SeedEnvironmentAsync("dev", 0, isDefault: true);

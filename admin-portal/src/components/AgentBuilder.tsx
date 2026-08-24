@@ -821,6 +821,7 @@ function AdvancedConfigPanel({
     form.maxToolResultChars != null ||
     form.maxOutputTokens != null ||
     form.enableHistoryCaching != null ||
+    form.enableOneHourCache != null ||
     form.enableExtendedThinking != null ||
     form.thinkingBudgetTokens != null ||
     form.contextWindowJson ||
@@ -948,6 +949,30 @@ function AdvancedConfigPanel({
             checked={form.enableHistoryCaching ?? (defaults?.enableHistoryCaching ?? true)}
             onCheckedChange={(checked) =>
               set("enableHistoryCaching", checked === (defaults?.enableHistoryCaching ?? true) ? undefined : checked)
+            }
+          />
+        </div>
+
+        <div className="flex items-start justify-between gap-4 rounded-lg border p-4">
+          <div className="space-y-1">
+            <Label htmlFor="enableOneHourCache">1-Hour Cache TTL (Anthropic)</Label>
+            <p className="text-xs text-muted-foreground">
+              Extends the static system-prompt and history-boundary cache breakpoints from the default
+              5-minute TTL to 1 hour. Costs more per cache write but survives longer user think-time
+              gaps and slower iterations. No effect when Prompt Caching above is off.
+              {defaults && (
+                <span className="ml-1 text-muted-foreground/70">
+                  Global default: {defaults.enableOneHourCache ? "enabled" : "disabled"}.
+                </span>
+              )}
+            </p>
+          </div>
+          <Switch
+            id="enableOneHourCache"
+            disabled={!(form.enableHistoryCaching ?? (defaults?.enableHistoryCaching ?? true))}
+            checked={form.enableOneHourCache ?? (defaults?.enableOneHourCache ?? false)}
+            onCheckedChange={(checked) =>
+              set("enableOneHourCache", checked === (defaults?.enableOneHourCache ?? false) ? undefined : checked)
             }
           />
         </div>

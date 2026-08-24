@@ -247,6 +247,7 @@ public sealed class AnthropicAgentRunner : IAgentRunner
 
         // Per-agent override wins; falls through to global AgentOptions default.
         bool enableHistoryCaching = definition.EnableHistoryCaching ?? _agentOpts.EnableHistoryCaching;
+        bool enableOneHourCache = definition.EnableOneHourCache ?? _agentOpts.EnableOneHourCache;
 
         // ── System prompt build — split static/dynamic for Anthropic caching ─────
         string staticSystemPrompt;
@@ -485,6 +486,7 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                     dynamicSystemPrompt,
                     (call, retCt) => CallWithRetryAsync(call, retCt),
                     enableHistoryCaching: enableHistoryCaching,
+                    enableOneHourCache: enableOneHourCache,
                     apiKeyOverride: resolvedApiKey != opts.ApiKey ? resolvedApiKey : null,
                     enableThinking: enableThinking,
                     thinkingBudget: thinkingBudget,
@@ -650,6 +652,7 @@ public sealed class AnthropicAgentRunner : IAgentRunner
         int maxIterations = definition.MaxIterations > 0 ? definition.MaxIterations : _agentOpts.MaxIterations;
         int maxContinuations = definition.MaxContinuations ?? _agentOpts.MaxContinuations;
         bool enableHistoryCaching = definition.EnableHistoryCaching ?? _agentOpts.EnableHistoryCaching;
+        bool enableOneHourCache = definition.EnableOneHourCache ?? _agentOpts.EnableOneHourCache;
         bool completedNaturally = false;
         int iterationBase = 0;
 
@@ -770,7 +773,8 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                         AnthropicRetry: (call, retCt) => CallWithRetryAsync(call, retCt),
                         OpenAiRetry: (call, retCt) => CallWithRetryAsync(call, retCt),
                         MaxOutputTokens: definition.MaxOutputTokens ?? _agentOpts.MaxOutputTokens,
-                        EnableHistoryCaching: enableHistoryCaching);
+                        EnableHistoryCaching: enableHistoryCaching,
+                        EnableOneHourCache: enableOneHourCache);
 
                     ModelSwitchResult? switchResult = null;
                     Exception? switchEx = null;

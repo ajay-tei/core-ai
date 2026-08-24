@@ -120,7 +120,7 @@ public record CreateGroupAgentDto(
     string? ArchetypeId = null, string? HooksJson = null,
     string? A2AEndpoint = null, string? A2AAuthScheme = null, string? A2ASecretRef = null,
     string ExecutionMode = "Full", string? ModelSwitchingJson = null,
-    int? LlmConfigId = null, bool? EnableHistoryCaching = null);
+    int? LlmConfigId = null, bool? EnableHistoryCaching = null, bool? EnableOneHourCache = null);
 
 public record UpdateGroupAgentDto(
     string Name, string DisplayName, string Description,
@@ -134,7 +134,7 @@ public record UpdateGroupAgentDto(
     string? ArchetypeId = null, string? HooksJson = null,
     string? A2AEndpoint = null, string? A2AAuthScheme = null, string? A2ASecretRef = null,
     string ExecutionMode = "Full", string? ModelSwitchingJson = null,
-    int? LlmConfigId = null, bool? EnableHistoryCaching = null);
+    int? LlmConfigId = null, bool? EnableHistoryCaching = null, bool? EnableOneHourCache = null);
 
 public record CreateGroupRuleDto(
     string AgentType, string RuleCategory, string RuleKey,
