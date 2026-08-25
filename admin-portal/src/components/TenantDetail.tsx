@@ -159,6 +159,7 @@ export function TenantLlmConfigPanel({ tenantId }: { tenantId: number }) {
         deploymentName:     newForm.deploymentName     || undefined,
         availableModelsJson: newForm.availableModelsJson || undefined,
         environmentId:      newForm.environmentId,
+        additionalApiKeys:  newForm.additionalApiKeys?.filter(k => k.trim()),
       };
       const created = await api.createTenantLlmConfig(dto, tenantId);
       setOwnConfigs(l => [...l, created]);
@@ -205,7 +206,11 @@ export function TenantLlmConfigPanel({ tenantId }: { tenantId: number }) {
   async function saveEdit(id: number) {
     setEditSaving(true);
     try {
-      const updated = await api.updateTenantLlmConfigById(id, editForm, tenantId);
+      const dto: UpsertLlmConfigDto = {
+        ...editForm,
+        additionalApiKeys: editForm.additionalApiKeys?.filter(k => k.trim()),
+      };
+      const updated = await api.updateTenantLlmConfigById(id, dto, tenantId);
       setOwnConfigs(l => l.map(x => x.id === id ? updated : x));
       toast.success(`"${updated.name}" updated`);
       cancelEdit();
@@ -276,7 +281,7 @@ export function TenantLlmConfigPanel({ tenantId }: { tenantId: number }) {
                   onChange={e => setNewName(e.target.value)}
                 />
               </div>
-              <LlmForm value={newForm} onChange={p => setNewForm(f => ({ ...f, ...p }))} />
+              <LlmForm value={newForm} onChange={p => setNewForm(f => ({ ...f, ...p }))} additionalKeyCount={0} />
               {environments.length > 0 && (
                 <div className="space-y-1">
                   <Label className="text-xs">Environment</Label>
@@ -315,7 +320,7 @@ export function TenantLlmConfigPanel({ tenantId }: { tenantId: number }) {
           <Card key={c.id} className="border-dashed">
             <CardHeader><CardTitle className="text-sm">Edit "{c.name}"</CardTitle></CardHeader>
             <CardContent className="space-y-3">
-              <LlmForm value={editForm} onChange={p => setEditForm(f => ({ ...f, ...p }))} maskedApiKey={c.apiKey} />
+              <LlmForm value={editForm} onChange={p => setEditForm(f => ({ ...f, ...p }))} maskedApiKey={c.apiKey} additionalKeyCount={c.additionalApiKeyCount ?? 0} />
               {environments.length > 0 && (
                 <div className="space-y-1">
                   <Label className="text-xs">Environment</Label>

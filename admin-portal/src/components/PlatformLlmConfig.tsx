@@ -16,9 +16,21 @@ export interface LlmFormProps {
   value: UpsertLlmConfigDto;
   onChange: (patch: Partial<UpsertLlmConfigDto>) => void;
   maskedApiKey?: string;
+  /** Tenant-level only — when provided, renders the additional-keys rotation-pool editor. */
+  additionalKeyCount?: number;
 }
 
-export function LlmForm({ value, onChange, maskedApiKey }: LlmFormProps) {
+export function LlmForm({ value, onChange, maskedApiKey, additionalKeyCount }: LlmFormProps) {
+  const additionalKeys = value.additionalApiKeys;
+  const setAdditionalKey = (i: number, key: string) => {
+    const next = [...(additionalKeys ?? [])];
+    next[i] = key;
+    onChange({ additionalApiKeys: next });
+  };
+  const removeAdditionalKey = (i: number) =>
+    onChange({ additionalApiKeys: (additionalKeys ?? []).filter((_, idx) => idx !== i) });
+  const addAdditionalKey = () => onChange({ additionalApiKeys: [...(additionalKeys ?? []), ""] });
+
   return (
     <div className="grid gap-4">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -55,6 +67,41 @@ export function LlmForm({ value, onChange, maskedApiKey }: LlmFormProps) {
           autoComplete="new-password"
         />
       </div>
+
+      {additionalKeyCount !== undefined && (
+        <div className="space-y-1.5">
+          <Label>
+            Additional API Keys{" "}
+            <span className="text-xs text-muted-foreground">
+              (optional — rotates across all keys under load to spread requests past a single key's rate limit)
+            </span>
+          </Label>
+          {additionalKeys === undefined && additionalKeyCount > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {additionalKeyCount} currently set — editing here replaces the entire list.
+            </p>
+          )}
+          <div className="space-y-2">
+            {(additionalKeys ?? []).map((key, i) => (
+              <div key={i} className="flex gap-2">
+                <Input
+                  type="password"
+                  value={key}
+                  onChange={(e) => setAdditionalKey(i, e.target.value)}
+                  placeholder="Additional API key…"
+                  autoComplete="new-password"
+                />
+                <Button type="button" variant="ghost" size="icon" onClick={() => removeAdditionalKey(i)}>
+                  <Trash2 className="size-4" />
+                </Button>
+              </div>
+            ))}
+            <Button type="button" variant="outline" size="sm" onClick={addAdditionalKey}>
+              <Plus className="size-3.5 mr-1" /> Add key
+            </Button>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-1.5">

@@ -171,12 +171,16 @@ public record UpdateGroupTaskDto(
 public record UpsertLlmConfigDto(
     string? Provider, string? ApiKey, string? Model,
     string? Endpoint, string? DeploymentName, string? AvailableModelsJson,
-    int? EnvironmentId = null);
+    int? EnvironmentId = null,
+    /// <summary>Full replacement list of extra keys to rotate across, alongside ApiKey. Null =
+    /// leave unchanged; empty list = clear the pool back down to just ApiKey.</summary>
+    List<string>? AdditionalApiKeys = null);
 
 public record CreateNamedLlmConfigDto(
     string? Name, string? Provider, string? ApiKey, string? Model,
     string? Endpoint, string? DeploymentName, string? AvailableModelsJson,
-    int? EnvironmentId = null);
+    int? EnvironmentId = null,
+    List<string>? AdditionalApiKeys = null);
 
 public record CreatePlatformLlmConfigDto(
     string Name, string? Provider, string? ApiKey, string? Model,

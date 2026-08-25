@@ -42,4 +42,14 @@ public class TenantLlmConfigEntity : ITenantEntity
     /// to (Phase G). Null = untagged (resolves for any environment until tagged). Keys never travel
     /// with promotion — an agent promoted to a new environment must have its own tagged config.</summary>
     public int? EnvironmentId { get; set; }
+
+    /// <summary>
+    /// Extra API keys for this config, JSON array of strings. Null/empty = single-key pool (just
+    /// <see cref="ApiKey"/>, unchanged behavior). When set, the resolver builds a pool of
+    /// [ApiKey, ...these] and rotates across them — proactively (random pick per run) and
+    /// reactively (on a 429/rate-limit, retry with a different key from the pool) — to spread
+    /// concurrent load across more than one provider rate-limit budget. Plaintext, matching the
+    /// existing <see cref="ApiKey"/> field's convention (no ICredentialEncryptor involved here).
+    /// </summary>
+    public string? AdditionalApiKeysJson { get; set; }
 }

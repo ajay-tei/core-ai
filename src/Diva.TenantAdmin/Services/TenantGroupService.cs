@@ -6,6 +6,7 @@ using Diva.Infrastructure.Scheduler;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 
 namespace Diva.TenantAdmin.Services;
 
@@ -812,6 +813,7 @@ public sealed class TenantGroupService : ITenantGroupService
             DeploymentName = dto.DeploymentName,
             AvailableModelsJson = dto.AvailableModelsJson,
             EnvironmentId = dto.EnvironmentId,
+            AdditionalApiKeysJson = dto.AdditionalApiKeys is { Count: > 0 } ? JsonSerializer.Serialize(dto.AdditionalApiKeys) : null,
         };
         db.TenantLlmConfigs.Add(config);
         await db.SaveChangesAsync(ct);
@@ -1142,6 +1144,10 @@ public sealed class TenantGroupService : ITenantGroupService
         if (dto.DeploymentName is not null) config.DeploymentName = dto.DeploymentName;
         if (dto.AvailableModelsJson is not null) config.AvailableModelsJson = dto.AvailableModelsJson;
         if (dto.EnvironmentId.HasValue) config.EnvironmentId = dto.EnvironmentId;
+        if (dto.AdditionalApiKeys is not null)
+            config.AdditionalApiKeysJson = dto.AdditionalApiKeys.Count > 0
+                ? JsonSerializer.Serialize(dto.AdditionalApiKeys)
+                : null;
     }
 
     private async Task InvalidateGroupMemberResolversAsync(int groupId, DivaDbContext db, CancellationToken ct)

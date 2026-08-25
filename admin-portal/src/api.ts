@@ -949,6 +949,7 @@ export interface TenantLlmConfig
   availableModelsJson?: string;
   updatedAt: string;
   environmentId?: number;
+  additionalApiKeyCount?: number;   // extra keys configured for rotation, alongside apiKey (count only, never the values)
 }
 
 export interface UpsertLlmConfigDto
@@ -960,6 +961,7 @@ export interface UpsertLlmConfigDto
   deploymentName?: string;
   availableModelsJson?: string;
   environmentId?: number;
+  additionalApiKeys?: string[];      // full replacement list; omit to leave unchanged, [] to clear
 }
 
 export interface CreateNamedLlmConfigDto
@@ -972,6 +974,7 @@ export interface CreateNamedLlmConfigDto
   deploymentName?: string;
   availableModelsJson?: string;
   environmentId?: number;
+  additionalApiKeys?: string[];
 }
 
 /** Lightweight summary for the agent-builder LLM config picker. */

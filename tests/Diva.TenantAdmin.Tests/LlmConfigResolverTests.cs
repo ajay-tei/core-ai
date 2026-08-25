@@ -159,15 +159,60 @@ public class LlmConfigResolverTests : IDisposable
     }
 
     [Fact]
-    public void InvalidateForTenant_AllowsFreshResolution()
+    public async Task InvalidateForTenant_AllowsFreshResolution()
     {
-        // Cache key format: llm_resolved_{tenantId}_{configId}_{modelId}
-        // For (tenantId=3, configId=null, modelId=null) → "llm_resolved_3__"
-        _cache.Set("llm_resolved_3__", new ResolvedLlmConfig("A", "k", "m", null, null, []));
+        _db.PlatformLlmConfigs.Add(new PlatformLlmConfigEntity
+        {
+            Id = 1,
+            Provider = "Anthropic",
+            ApiKey = "plat-key",
+            Model = "cached-model",
+        });
+        await _db.SaveChangesAsync();
 
-        _resolver.InvalidateForTenant(3);
+        var first = await _resolver.ResolveAsync(0, null, null, 0, CancellationToken.None);
+        Assert.Equal("cached-model", first.Model);
 
-        Assert.False(_cache.TryGetValue("llm_resolved_3__", out _));
+        var config = await _db.PlatformLlmConfigs.FindAsync(1);
+        config!.Model = "new-model";
+        await _db.SaveChangesAsync();
+        _resolver.InvalidateForTenant(0);
+
+        var second = await _resolver.ResolveAsync(0, null, null, 0, CancellationToken.None);
+        Assert.Equal("new-model", second.Model);   // invalidation bypassed the cache — fresh DB read
+    }
+
+    /// <summary>
+    /// Regression test: InvalidateForTenant used to only clear the no-config-id cache combo
+    /// (llm_resolved_{tenantId}__), so editing a NAMED config (the realistic admin workflow — e.g.
+    /// adding rotation keys via the UI) kept serving the pre-edit resolution for up to the full
+    /// 2-minute TTL. Fixed via a per-tenant version token baked into every cache key.
+    /// </summary>
+    [Fact]
+    public async Task InvalidateForTenant_AlsoAppliesToNamedConfigResolutions()
+    {
+        _db.TenantLlmConfigs.Add(new TenantLlmConfigEntity
+        {
+            Id = 301,
+            TenantId = 30,
+            Name = "Rotated",
+            Provider = "Anthropic",
+            ApiKey = "key-1",
+            Model = "claude-base",
+        });
+        await _db.SaveChangesAsync();
+
+        var first = await _resolver.ResolveAsync(30, 301, null, 0, CancellationToken.None);
+        Assert.Equal(["key-1"], first.EffectiveApiKeys);
+
+        // Simulate an admin adding rotation keys via the UI (UpdateTenantLlmConfigByIdAsync).
+        var config = await _db.TenantLlmConfigs.FindAsync(301);
+        config!.AdditionalApiKeysJson = """["key-2"]""";
+        await _db.SaveChangesAsync();
+        _resolver.InvalidateForTenant(30);
+
+        var second = await _resolver.ResolveAsync(30, 301, null, 0, CancellationToken.None);
+        Assert.Equal(["key-1", "key-2"], second.EffectiveApiKeys);
     }
 
     // ── Named config path (agentLlmConfigId) ──────────────────────────────────
@@ -406,5 +451,92 @@ public class LlmConfigResolverTests : IDisposable
 
         Assert.Equal("tenant-key", result.ApiKey);   // config key applied
         Assert.Equal("claude-base", result.Model);   // blank model inherited from platform
+    }
+
+    // ── Multi-key rotation pool (tenant-level named configs only) ─────────────
+
+    [Fact]
+    public async Task ResolveAsync_TenantConfigWithAdditionalKeys_ReturnsFullPool()
+    {
+        _db.TenantLlmConfigs.Add(new TenantLlmConfigEntity
+        {
+            Id = 201,
+            TenantId = 20,
+            Name = "Rotated",
+            Provider = "Anthropic",
+            ApiKey = "key-1",
+            Model = "claude-base",
+            AdditionalApiKeysJson = """["key-2","key-3"]""",
+        });
+        await _db.SaveChangesAsync();
+
+        var result = await _resolver.ResolveAsync(20, 201, null, 0, CancellationToken.None);
+
+        Assert.Equal("key-1", result.ApiKey);   // primary key unchanged for callers reading ApiKey directly
+        Assert.Equal(["key-1", "key-2", "key-3"], result.EffectiveApiKeys);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_TenantConfigNoAdditionalKeys_PoolIsJustThePrimaryKey()
+    {
+        _db.TenantLlmConfigs.Add(new TenantLlmConfigEntity
+        {
+            Id = 202,
+            TenantId = 20,
+            Name = "Single",
+            Provider = "Anthropic",
+            ApiKey = "solo-key",
+            Model = "claude-base",
+        });
+        await _db.SaveChangesAsync();
+
+        var result = await _resolver.ResolveAsync(20, 202, null, 0, CancellationToken.None);
+
+        Assert.Null(result.ApiKeys);
+        Assert.Equal(["solo-key"], result.EffectiveApiKeys);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_TenantConfigMalformedAdditionalKeysJson_FallsBackToPrimaryKeyOnly()
+    {
+        _db.TenantLlmConfigs.Add(new TenantLlmConfigEntity
+        {
+            Id = 203,
+            TenantId = 20,
+            Name = "Malformed",
+            Provider = "Anthropic",
+            ApiKey = "solo-key",
+            Model = "claude-base",
+            AdditionalApiKeysJson = "not valid json",
+        });
+        await _db.SaveChangesAsync();
+
+        var result = await _resolver.ResolveAsync(20, 203, null, 0, CancellationToken.None);
+
+        Assert.Equal(["solo-key"], result.EffectiveApiKeys);
+    }
+
+    [Fact]
+    public async Task ResolveAsync_GroupConfig_NeverGetsAMultiKeyPool()
+    {
+        // Multi-key rotation is scoped to tenant-level named configs only (per design) — a group
+        // config's AdditionalApiKeysJson (if the column existed there) would not be read at all.
+        _db.TenantGroups.Add(new TenantGroupEntity { Id = 60, Name = "G2", IsActive = true, CreatedAt = DateTime.UtcNow });
+        _db.TenantGroupMembers.Add(new TenantGroupMemberEntity { GroupId = 60, TenantId = 21, JoinedAt = DateTime.UtcNow });
+        _db.GroupLlmConfigs.Add(new GroupLlmConfigEntity
+        {
+            Id = 61,
+            GroupId = 60,
+            Name = "Group Config",
+            Provider = "Anthropic",
+            ApiKey = "group-key",
+            Model = "claude-base",
+        });
+        await _db.SaveChangesAsync();
+
+        var result = await _resolver.ResolveAsync(21, 61, null, 0, CancellationToken.None);
+
+        Assert.Null(result.ApiKeys);
+        Assert.Equal(["group-key"], result.EffectiveApiKeys);
     }
 }

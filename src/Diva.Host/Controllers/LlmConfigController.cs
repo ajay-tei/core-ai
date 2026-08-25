@@ -137,6 +137,14 @@ public class LlmConfigController : ControllerBase
         c.UpdatedAt,
     };
 
+    /// <summary>Counts entries in a config's AdditionalApiKeysJson without ever exposing the raw values.</summary>
+    private static int CountAdditionalKeys(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return 0;
+        try { return System.Text.Json.JsonSerializer.Deserialize<List<string>>(json)?.Count ?? 0; }
+        catch { return 0; }
+    }
+
     // ── Per-tenant LLM config ─────────────────────────────────────────────────
 
     // GET /api/admin/llm-config?tenantId=N
@@ -159,6 +167,7 @@ public class LlmConfigController : ControllerBase
             config.AvailableModelsJson,
             config.UpdatedAt,
             config.EnvironmentId,
+            additionalApiKeyCount = CountAdditionalKeys(config.AdditionalApiKeysJson),
         });
     }
 
@@ -183,6 +192,7 @@ public class LlmConfigController : ControllerBase
             config.AvailableModelsJson,
             config.UpdatedAt,
             config.EnvironmentId,
+            additionalApiKeyCount = CountAdditionalKeys(config.AdditionalApiKeysJson),
         });
     }
 
@@ -221,6 +231,7 @@ public class LlmConfigController : ControllerBase
             c.AvailableModelsJson,
             c.UpdatedAt,
             c.EnvironmentId,
+            additionalApiKeyCount = CountAdditionalKeys(c.AdditionalApiKeysJson),
         }));
     }
 
@@ -246,6 +257,7 @@ public class LlmConfigController : ControllerBase
             config.AvailableModelsJson,
             config.UpdatedAt,
             config.EnvironmentId,
+            additionalApiKeyCount = CountAdditionalKeys(config.AdditionalApiKeysJson),
         });
     }
 
@@ -273,6 +285,7 @@ public class LlmConfigController : ControllerBase
                 config.AvailableModelsJson,
                 config.UpdatedAt,
                 config.EnvironmentId,
+                additionalApiKeyCount = CountAdditionalKeys(config.AdditionalApiKeysJson),
             });
         }
         catch (KeyNotFoundException) { return NotFound(); }

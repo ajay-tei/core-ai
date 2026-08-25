@@ -313,6 +313,20 @@ public sealed class AnthropicAgentRunner : IAgentRunner
         // Fall back to the configured key when the resolved key is null OR blank — a blank
         // DB key must never be sent to the provider (would yield 401 invalid x-api-key).
         var resolvedApiKey = !string.IsNullOrWhiteSpace(resolved?.ApiKey) ? resolved!.ApiKey : opts.ApiKey;
+        // Multi-key rotation (tenant-level named configs only): when the resolved config has more
+        // than one key, spread concurrent runs across the pool with an initial random pick instead
+        // of always using the same primary key — this alone multiplies the effective rate-limit
+        // budget available under concurrent load. CallWithRetryAsync additionally rotates to a
+        // different pool key reactively when a specific attempt gets rate-limited (see below).
+        var apiKeyPool = resolved?.EffectiveApiKeys is { Count: > 1 } pool ? pool : null;
+        if (apiKeyPool is not null)
+        {
+            resolvedApiKey = ApiKeyPoolSelector.PickRandom(apiKeyPool);
+            var tail = resolvedApiKey.Length >= 4 ? resolvedApiKey[^4..] : resolvedApiKey;
+            _logger.LogInformation(
+                "LLM key pool for agent {Agent} (tenant {TenantId}): {PoolSize} keys available, using key ****{Tail}",
+                definition.Name, tenant.TenantId, apiKeyPool.Count, tail);
+        }
         // When a named config is resolved, use its endpoint exactly (null = provider's native endpoint,
         // which the Overlay already cleared when the provider changed). Fall back to opts only when
         // there is no resolved config at all (e.g. TenantId=0 or resolver not registered).
@@ -480,11 +494,13 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                     effectiveMaxOutputTokens = thinkingBudget + answerReserve;
             }
 
+            ILlmProviderStrategy? strategyHandle = null;
             ILlmProviderStrategy strategy = useAnthropic
                 ? new AnthropicProviderStrategy(_anthropic, _ctx, effectiveModel, effectiveMaxOutputTokens,
                     staticSystemPrompt,
                     dynamicSystemPrompt,
-                    (call, retCt) => CallWithRetryAsync(call, retCt),
+                    (call, retCt) => CallWithRetryAsync(call, retCt, apiKeyPool, resolvedApiKey,
+                        newKey => strategyHandle?.SetModel(effectiveModel, apiKeyOverride: newKey)),
                     enableHistoryCaching: enableHistoryCaching,
                     enableOneHourCache: enableOneHourCache,
                     apiKeyOverride: resolvedApiKey != opts.ApiKey ? resolvedApiKey : null,
@@ -492,10 +508,12 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                     thinkingBudget: thinkingBudget,
                     logger: _logger)
                 : new OpenAiProviderStrategy(_openAi, _ctx, effectiveModel,
-                    (call, retCt) => CallWithRetryAsync(call, retCt),
+                    (call, retCt) => CallWithRetryAsync(call, retCt, apiKeyPool, resolvedApiKey,
+                        newKey => strategyHandle?.SetModel(effectiveModel, apiKeyOverride: newKey)),
                     maxOutputTokens: effectiveMaxOutputTokens,
                     apiKeyOverride: resolvedApiKey != opts.ApiKey ? resolvedApiKey : null,
                     endpointOverride: resolvedEndpoint);  // null = provider native; set = custom URL
+            strategyHandle = strategy;
 
             // OpenAI strategy receives the combined prompt; Anthropic strategy uses constructor fields.
             strategy.Initialize(systemPrompt, history, request.Query, allMcpTools, request.Attachments);
@@ -1703,7 +1721,12 @@ public sealed class AnthropicAgentRunner : IAgentRunner
 
     // ── LLM retry with exponential backoff ───────────────────────────────────
 
-    private async Task<T> CallWithRetryAsync<T>(Func<Task<T>> call, CancellationToken ct)
+    private async Task<T> CallWithRetryAsync<T>(
+        Func<Task<T>> call,
+        CancellationToken ct,
+        IReadOnlyList<string>? apiKeyPool = null,
+        string? currentApiKey = null,
+        Action<string>? onKeyRotated = null)
     {
         int attempt = 0;
         while (true)
@@ -1716,6 +1739,24 @@ public sealed class AnthropicAgentRunner : IAgentRunner
             {
                 lastEx = ex;
                 attempt++;
+
+                // Reactive key rotation: a 429 means THIS key is rate-limited right now — retrying
+                // it after a delay just waits out the same limit. When the config has more than one
+                // key, switch to a different one for the next attempt instead, multiplying the
+                // effective rate-limit budget available to this run.
+                if (apiKeyPool is { Count: > 1 } && currentApiKey is not null && onKeyRotated is not null && IsRateLimitError(ex))
+                {
+                    var nextKey = ApiKeyPoolSelector.PickDifferent(apiKeyPool, currentApiKey);
+                    if (nextKey != currentApiKey)
+                    {
+                        var tail = nextKey.Length >= 4 ? nextKey[^4..] : nextKey;
+                        _logger.LogWarning("LLM rate-limited (attempt {A}/{Max}) — rotating to a different pool key ****{Tail}.",
+                            attempt, _agentOpts.Retry.MaxRetries, tail);
+                        onKeyRotated(nextKey);
+                        currentApiKey = nextKey;
+                    }
+                }
+
                 var maxDelayMs = _agentOpts.Retry.BaseDelayMs * (1 << attempt);  // 2s, 4s, 8s ceiling
                 // Equal jitter: half fixed + half random, so concurrent requests hitting the same
                 // provider-side rate limit don't all retry in lockstep and re-create the spike.
@@ -1750,6 +1791,12 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                ex is TimeoutException ||
                (ex is TaskCanceledException tce && !tce.CancellationToken.IsCancellationRequested);
     }
+
+    /// <summary>Narrower than <see cref="IsTransientLlmError"/> — true only for the specific
+    /// rate-limit case where switching to a different pool key is actually likely to help (a
+    /// 502/503/timeout is a provider-side or network issue that a different key won't fix).</summary>
+    private static bool IsRateLimitError(Exception ex) =>
+        ex.Message.Contains("429") || ex.Message.Contains("rate_limit", StringComparison.OrdinalIgnoreCase);
 
     private static readonly JsonSerializerOptions _bindingJsonOpts = new() { PropertyNameCaseInsensitive = true };
 

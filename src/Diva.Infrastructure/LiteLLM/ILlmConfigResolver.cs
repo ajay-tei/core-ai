@@ -40,4 +40,12 @@ public sealed record ResolvedLlmConfig(
     string Model,
     string? Endpoint,
     string? DeploymentName,
-    IReadOnlyList<string> AvailableModels);
+    IReadOnlyList<string> AvailableModels,
+    /// <summary>Full API key pool for this resolution — [ApiKey] when the resolved config has no
+    /// additional keys, or has none (e.g. platform/group configs, which don't support multiple keys
+    /// in this version). Only tenant-level named configs can contribute more than one key.</summary>
+    IReadOnlyList<string>? ApiKeys = null)
+{
+    /// <summary>Convenience accessor — always non-empty, defaults to [ApiKey] when ApiKeys is null.</summary>
+    public IReadOnlyList<string> EffectiveApiKeys => ApiKeys is { Count: > 0 } ? ApiKeys : [ApiKey];
+}
