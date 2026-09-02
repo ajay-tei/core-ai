@@ -24,6 +24,9 @@
 variables:
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
   DOTNET_NOLOGO: "true"
+  # Prevent lingering dotnet/MSBuild node-reuse processes from holding file locks in
+  # .nuget/packages/ that block the NEXT job's git-clean checkout step on this runner.
+  MSBUILDDISABLENODEREUSE: "1"
   GIT_CLONE_PATH: 'C:\ci\tei-ai'
   GIT_CLEAN_FLAGS: "-ffd"
   DEV_DEPLOY_PATH: 'C:\ai-app\tei-ai-dev'
@@ -93,6 +96,8 @@ build:
   script:
     - dotnet restore Diva.slnx --packages $env:NUGET_PACKAGES
     - dotnet build Diva.slnx --no-restore -c Release
+  after_script:
+    - dotnet build-server shutdown
   # No artifacts: the Release output is ~640 MB (506 MB of it duplicated dependency
   # DLLs across each test project), which exceeds the instance artifact limit and failed
   # the job with HTTP 413 after a successful build. The test stage compiles from the
@@ -111,6 +116,8 @@ test:
       dotnet test Diva.slnx --no-restore -c Release `
         --logger "junit;LogFilePath=$PWD/results.xml" `
         --filter "Category!=Integration&Category!=Flaky"
+  after_script:
+    - dotnet build-server shutdown
   artifacts:
     when: always
     reports:
