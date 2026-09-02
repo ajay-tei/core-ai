@@ -6,12 +6,19 @@
 #
 # All stages run on a Windows shell executor (pwsh) with tags: ai, aiengine.
 # Requires .NET 10 SDK, Docker Desktop, and SSH client on the runner machine.
-# Dev stages auto-trigger on push to master.
-# Prod requires manual trigger on backup:prod; deploy + verify auto-chain.
+# Dev stages auto-trigger on push to main.
+# Prod requires manual trigger on package:ssh + backup:prod; deploy + verify auto-chain.
+#
+# Both dev and prod run against an EXTERNAL SQL Server — docker-compose.tei.yml +
+# docker-compose.sqlserver.yml (NOT docker-compose.enterprise.yml). Compose project
+# name is always "core-ai" (-p core-ai) so the images built/loaded by the package
+# stage (core-ai-diva-api / core-ai-diva-portal) are reused instead of rebuilt.
+# See TEI/prod-release.md for the full prod runbook this pipeline mirrors.
 #
 # Two Docker images are built and deployed:
 #   diva-api    → root Dockerfile   (ASP.NET Core 10 + Node 22 for MCP tools)
-#   diva-portal → admin-portal/Dockerfile (React/Vite SPA served by nginx)
+#   diva-portal → admin-portal/Dockerfile (React/Vite SPA served by nginx; base path
+#                 baked in at build time — /beta/tei-ai for dev, /beta/tei-ai-prod for prod)
 # ─────────────────────────────────────────────────────────────────────────────
 
 variables:
@@ -21,13 +28,21 @@ variables:
   GIT_CLEAN_FLAGS: "-ffd"
   DEV_DEPLOY_PATH: 'C:\ai-app\tei-ai-dev'
   PROD_DEPLOY_PATH: 'C:\ai-app\tei-ai'
+  # Fixed local image names — match the Compose-derived name for project "core-ai" so
+  # `docker compose -p core-ai up -d` reuses the loaded image instead of rebuilding.
+  CORE_AI_API_IMAGE: "core-ai-diva-api"
+  CORE_AI_PORTAL_IMAGE: "core-ai-diva-portal"
+  # Registry-qualified names — only used when CI_REGISTRY_IMAGE is available (dev extra).
   DIVA_API_IMAGE: "$CI_REGISTRY_IMAGE/diva-api"
   DIVA_PORTAL_IMAGE: "$CI_REGISTRY_IMAGE/diva-portal"
   DOCKER_HOST_PROD: "tcp://localhost:2375"
   NUGET_PACKAGES: '$CI_PROJECT_DIR\.nuget\packages'
-  # Portal branding — override in GitLab CI/CD Variables if white-labelled
-  VITE_APP_NAME: "Diva AI"
-  VITE_APP_SLUG: "diva"
+  # Portal branding — edit directly here if white-labelling (no GitLab variable needed)
+  VITE_APP_NAME: "TEI AI"
+  VITE_APP_SLUG: "tei"
+  # Reverse-proxy subpaths baked into the portal build (see TEI/prod-release.md)
+  DEV_VITE_BASE_PATH: "/beta/tei-ai"
+  PROD_VITE_BASE_PATH: "/beta/tei-ai-prod"
 
 cache:
   key: nuget-${CI_COMMIT_REF_SLUG}
@@ -68,7 +83,7 @@ stages:
 
 .only-main:
   rules:
-    - if: $CI_COMMIT_BRANCH == "master"
+    - if: $CI_COMMIT_BRANCH == "main"
 
 # ── Stage: build ──────────────────────────────────────────────────────────────
 
@@ -113,19 +128,12 @@ package:registry:
     - |
       Write-Host "=== Validating Docker daemon ==="
       docker info | Select-Object -First 5
-      if ($env:CI_REGISTRY_IMAGE) {
-        $apiImage    = $env:DIVA_API_IMAGE
-        $portalImage = $env:DIVA_PORTAL_IMAGE
-        $useRegistry = $true
-        Write-Host "Registry:      $env:CI_REGISTRY"
-        Write-Host "API image:     $apiImage"
-        Write-Host "Portal image:  $portalImage"
-      } else {
-        $apiImage    = "diva-api"
-        $portalImage = "diva-portal"
-        $useRegistry = $false
-        Write-Warning "CI_REGISTRY_IMAGE not set — building locally (no push)"
-      }
+
+      $apiImage    = $env:CORE_AI_API_IMAGE
+      $portalImage = $env:CORE_AI_PORTAL_IMAGE
+      $basePath    = $env:DEV_VITE_BASE_PATH
+      Write-Host "API image:     $apiImage"
+      Write-Host "Portal image:  $portalImage (base path: $basePath)"
 
       Write-Host "=== Building diva-api image ==="
       docker build `
@@ -137,23 +145,35 @@ package:registry:
       docker build `
         --build-arg "VITE_APP_NAME=$env:VITE_APP_NAME" `
         --build-arg "VITE_APP_SLUG=$env:VITE_APP_SLUG" `
+        --build-arg "VITE_BASE_PATH=$basePath" `
         -t "${portalImage}:$env:CI_COMMIT_SHORT_SHA" `
         -t "${portalImage}:latest" `
         ./admin-portal
 
-      if ($useRegistry) {
-        Write-Host "=== Pushing images to registry ==="
-        docker login $env:CI_REGISTRY -u $env:CI_REGISTRY_USER -p $env:CI_REGISTRY_PASSWORD
-        docker push "${apiImage}:$env:CI_COMMIT_SHORT_SHA"
-        docker push "${apiImage}:latest"
-        docker push "${portalImage}:$env:CI_COMMIT_SHORT_SHA"
-        docker push "${portalImage}:latest"
-      } else {
-        Write-Host "=== Skipping push (no registry) — images available locally ==="
-      }
-      Write-Host "=== Package (registry) complete ==="
+      Write-Host "=== Verifying portal base path ==="
+      docker run --rm --entrypoint sh "${portalImage}:latest" `
+        -c "grep -o '/beta/tei-ai[a-z-]*' /usr/share/nginx/html/index.html | sort -u"
 
-# Manual alternative: build tars and ship to prod via SSH (no registry on prod host)
+      if ($env:CI_REGISTRY_IMAGE) {
+        Write-Host "=== Also tagging + pushing to registry ==="
+        $regApi    = $env:DIVA_API_IMAGE
+        $regPortal = $env:DIVA_PORTAL_IMAGE
+        docker tag "${apiImage}:latest"    "${regApi}:$env:CI_COMMIT_SHORT_SHA"
+        docker tag "${apiImage}:latest"    "${regApi}:latest"
+        docker tag "${portalImage}:latest" "${regPortal}:$env:CI_COMMIT_SHORT_SHA"
+        docker tag "${portalImage}:latest" "${regPortal}:latest"
+        docker login $env:CI_REGISTRY -u $env:CI_REGISTRY_USER -p $env:CI_REGISTRY_PASSWORD
+        docker push "${regApi}:$env:CI_COMMIT_SHORT_SHA"
+        docker push "${regApi}:latest"
+        docker push "${regPortal}:$env:CI_COMMIT_SHORT_SHA"
+        docker push "${regPortal}:latest"
+      } else {
+        Write-Warning "CI_REGISTRY_IMAGE not set — skipping registry push (local images ready for deploy:dev)"
+      }
+      Write-Host "=== Package (dev) complete ==="
+
+# Manual: build for PROD (base path /beta/tei-ai-prod), ship via SSH, load on prod.
+# Mirrors TEI/prod-release.md steps 1-5 (no GitLab Container Registry involved).
 package:ssh:
   stage: package
   extends:
@@ -162,34 +182,42 @@ package:ssh:
     - .only-main
   needs: [test]
   when: manual
-  allow_failure: true
-  variables:
-    IMAGE_DELIVERY: "ssh"
   script:
     - |
       Write-Host "=== Validating Docker daemon ==="
       docker info | Select-Object -First 5
 
-      $apiImage    = if ($env:CI_REGISTRY_IMAGE) { $env:DIVA_API_IMAGE }    else { "diva-api" }
-      $portalImage = if ($env:CI_REGISTRY_IMAGE) { $env:DIVA_PORTAL_IMAGE } else { "diva-portal" }
+      $apiImage    = $env:CORE_AI_API_IMAGE
+      $portalImage = $env:CORE_AI_PORTAL_IMAGE
+      $basePath    = $env:PROD_VITE_BASE_PATH
+      $sha         = $env:CI_COMMIT_SHORT_SHA
+      Write-Host "API image:     $apiImage"
+      Write-Host "Portal image:  $portalImage (base path: $basePath)"
 
-      Write-Host "=== Building diva-api image ==="
-      docker build `
-        --build-arg "VITE_APP_NAME=$env:VITE_APP_NAME" `
-        --build-arg "VITE_APP_SLUG=$env:VITE_APP_SLUG" `
-        -t "${apiImage}:$env:CI_COMMIT_SHORT_SHA" `
+      Write-Host "=== Building diva-api image (--no-cache) ==="
+      docker build --no-cache `
+        -t "${apiImage}:$sha" `
         -t "${apiImage}:latest" .
 
-      Write-Host "=== Building diva-portal image ==="
-      docker build `
+      Write-Host "=== Building diva-portal image (--no-cache) ==="
+      docker build --no-cache `
         --build-arg "VITE_APP_NAME=$env:VITE_APP_NAME" `
         --build-arg "VITE_APP_SLUG=$env:VITE_APP_SLUG" `
-        -t "${portalImage}:$env:CI_COMMIT_SHORT_SHA" `
-        -t "${portalImage}:latest" ./admin-portal
+        --build-arg "VITE_BASE_PATH=$basePath" `
+        -t "${portalImage}:${sha}-prod" ./admin-portal
+
+      Write-Host "=== Verifying portal base path ==="
+      $detected = docker run --rm --entrypoint sh "${portalImage}:${sha}-prod" `
+        -c "grep -o '/beta/tei-ai[a-z-]*' /usr/share/nginx/html/index.html | sort -u"
+      Write-Host "Detected: $detected"
+      if ($detected -ne $basePath) {
+        Write-Error "Portal base path mismatch — expected '$basePath', got '$detected'"
+        exit 1
+      }
 
       Write-Host "=== Saving images to tars ==="
-      docker save "${apiImage}:latest"    -o diva-api.tar
-      docker save "${portalImage}:latest" -o diva-portal.tar
+      docker save "${apiImage}:$sha" "${apiImage}:latest" -o diva-api.tar
+      docker save "${portalImage}:${sha}-prod"              -o diva-portal.tar
       $apiSize    = [math]::Round((Get-Item diva-api.tar).Length    / 1MB, 1)
       $portalSize = [math]::Round((Get-Item diva-portal.tar).Length / 1MB, 1)
       Write-Host "diva-api.tar:    ${apiSize} MB"
@@ -201,20 +229,16 @@ package:ssh:
       scp -i $keyFile -o BatchMode=yes -o StrictHostKeyChecking=yes `
         diva-api.tar diva-portal.tar "${target}:$env:PROD_DEPLOY_PATH\"
 
-      Write-Host "=== Loading images on prod ==="
+      Write-Host "=== Loading images on prod + retagging portal to :latest ==="
       ssh -i $keyFile -o BatchMode=yes -o StrictHostKeyChecking=yes $target `
         "powershell -NoProfile -Command docker -H $env:DOCKER_HOST_PROD load -i $env:PROD_DEPLOY_PATH\diva-api.tar"
       ssh -i $keyFile -o BatchMode=yes -o StrictHostKeyChecking=yes $target `
         "powershell -NoProfile -Command docker -H $env:DOCKER_HOST_PROD load -i $env:PROD_DEPLOY_PATH\diva-portal.tar"
+      ssh -i $keyFile -o BatchMode=yes -o StrictHostKeyChecking=yes $target `
+        "powershell -NoProfile -Command docker -H $env:DOCKER_HOST_PROD tag ${portalImage}:${sha}-prod ${portalImage}:latest"
 
       Remove-Item diva-api.tar, diva-portal.tar -Force -ErrorAction SilentlyContinue
-      Write-Host "=== Package (SSH) complete ==="
-  artifacts:
-    reports:
-      dotenv: image_delivery.env
-  after_script:
-    - |
-      "IMAGE_DELIVERY=ssh" | Out-File -FilePath image_delivery.env -Encoding UTF8
+      Write-Host "=== Package (SSH → prod) complete ==="
 
 # ── Stage: backup ─────────────────────────────────────────────────────────────
 
@@ -236,11 +260,7 @@ backup:prod:
     - .base-job
     - .prod-ssh-setup
     - .only-main
-  needs:
-    - job: package:registry
-      optional: true
-    - job: package:ssh
-      optional: true
+  needs: [package:ssh]
   when: manual
   script:
     - |
@@ -264,39 +284,47 @@ deploy:dev:
       Write-Host "=== Ensuring dev deploy directory: $devPath ==="
       if (-not (Test-Path $devPath)) { $null = New-Item -ItemType Directory -Path $devPath -Force }
 
-      Write-Host "=== Writing .env ==="
+      Write-Host "=== Writing .env (SQL Server) ==="
       $envContent = @"
-LLM__DirectProvider__Provider=$env:LLM_DIRECT_PROVIDER
-LLM__DirectProvider__ApiKey=$env:LLM_DIRECT_API_KEY
-LLM__DirectProvider__Model=$env:LLM_DIRECT_MODEL
-LLM__DirectProvider__Endpoint=$env:LLM_DIRECT_ENDPOINT
-Credentials__MasterKey=$env:CREDENTIALS_MASTER_KEY
-LocalAuth__SigningKey=$env:LOCAL_AUTH_SIGNING_KEY
-AdminPortal__CorsOrigin=$($env:PORTAL_ORIGIN ?? 'http://localhost:6010')
-AppBranding__ProductName=$($env:VITE_APP_NAME ?? 'Diva AI')
-AppBranding__Slug=$($env:VITE_APP_SLUG ?? 'diva')
-Smtp__Host=$env:SMTP_HOST
-Smtp__Port=$($env:SMTP_PORT ?? '587')
-Smtp__UseSsl=$($env:SMTP_USE_SSL ?? 'true')
-Smtp__Username=$env:SMTP_USERNAME
-Smtp__Password=$env:SMTP_PASSWORD
-Smtp__DefaultFromAddress=$($env:SMTP_FROM_ADDRESS ?? 'noreply@tei.local')
+LLM__DirectProvider__Provider=Anthropic
+LLM__DirectProvider__ApiKey=$env:DEV_LLM_DIRECT_API_KEY
+LLM__DirectProvider__Model=claude-sonnet-4-6
+ANTHROPIC_API_KEY=$env:DEV_LLM_DIRECT_API_KEY
+SQL_SERVER_HOST=$env:DEV_SQL_SERVER_HOST
+SQL_DB_NAME=$env:DEV_SQL_DB_NAME
+SQL_TRACE_DB_NAME=$env:DEV_SQL_TRACE_DB_NAME
+SQL_USER=$env:DEV_SQL_USER
+SQL_PASSWORD=$env:DEV_SQL_PASSWORD
+Credentials__MasterKey=$env:DEV_CREDENTIALS_MASTER_KEY
+LocalAuth__SigningKey=$env:DEV_LOCAL_AUTH_SIGNING_KEY
+SCHEDULER_FEEDBACK_TOKEN_SECRET=$env:DEV_SCHEDULER_FEEDBACK_TOKEN_SECRET
+TaskScheduler__AutoPollEnabled=false
+OAuth__Enabled=true
+AdminPortal__CorsOrigin=$env:DEV_PORTAL_ORIGIN
+AppBranding__ProductName=$env:VITE_APP_NAME
+AppBranding__Slug=$env:VITE_APP_SLUG
+AppBranding__ApiAudience=$($env:VITE_APP_SLUG)-api
+AppBranding__LocalIssuer=$($env:VITE_APP_SLUG)-local
+Agent__LlmStreamIdleTimeoutSeconds=300
+Agent__LlmTimeoutSeconds=300
+Smtp__Host=$env:DEV_SMTP_HOST
+Smtp__Port=587
+Smtp__UseSsl=false
+Smtp__Username=$env:DEV_SMTP_USERNAME
+Smtp__Password=$env:DEV_SMTP_PASSWORD
+Smtp__DefaultFromAddress=$env:DEV_SMTP_FROMEMAIL
+Smtp__DefaultFromName=TEI AI
 "@
       [System.IO.File]::WriteAllText("$devPath\.env", $envContent, [System.Text.UTF8Encoding]::new($false))
 
-      Write-Host "=== Copying compose file ==="
-      Copy-Item "$env:CI_PROJECT_DIR\docker-compose.yml" -Destination $devPath -Force
+      Write-Host "=== Copying compose files (tei + sqlserver overlay) ==="
+      Copy-Item "$env:CI_PROJECT_DIR\docker-compose.tei.yml" -Destination $devPath -Force
+      Copy-Item "$env:CI_PROJECT_DIR\docker-compose.sqlserver.yml" -Destination $devPath -Force
 
-      Write-Host "=== Deploying dev stack ==="
+      Write-Host "=== Deploying dev stack (images already built by package:registry) ==="
       Push-Location $devPath
       try {
-        if ($env:CI_REGISTRY_IMAGE) {
-          docker login $env:CI_REGISTRY -u $env:CI_REGISTRY_USER -p $env:CI_REGISTRY_PASSWORD
-          $env:DIVA_API_IMAGE    = "$env:CI_REGISTRY_IMAGE/diva-api"
-          $env:DIVA_PORTAL_IMAGE = "$env:CI_REGISTRY_IMAGE/diva-portal"
-          docker compose pull
-        }
-        docker compose up -d --remove-orphans
+        docker compose -p core-ai -f docker-compose.tei.yml -f docker-compose.sqlserver.yml up -d --remove-orphans
       } finally {
         Pop-Location
       }
@@ -315,10 +343,8 @@ deploy:prod:
     - .prod-ssh-setup
     - .only-main
   needs:
-    - job: backup:prod
-    - job: package:ssh
-      optional: true
-      artifacts: true
+    - backup:prod
+    - package:ssh
   allow_failure: false
   script:
     - |
@@ -326,23 +352,36 @@ deploy:prod:
       $target     = "$env:PROD_SSH_USER@$env:PROD_SSH_HOST"
       $deployPath = $env:PROD_DEPLOY_PATH
 
-      Write-Host "=== Writing .env.prod ==="
+      Write-Host "=== Writing .env (SQL Server) ==="
       $envContent = @"
-LLM__DirectProvider__Provider=$env:PROD_LLM_DIRECT_PROVIDER
+LLM__DirectProvider__Provider=Anthropic
 LLM__DirectProvider__ApiKey=$env:PROD_LLM_DIRECT_API_KEY
-LLM__DirectProvider__Model=$env:PROD_LLM_DIRECT_MODEL
-LLM__DirectProvider__Endpoint=$env:PROD_LLM_DIRECT_ENDPOINT
+LLM__DirectProvider__Model=claude-sonnet-4-6
+ANTHROPIC_API_KEY=$env:PROD_LLM_DIRECT_API_KEY
+SQL_SERVER_HOST=$env:PROD_SQL_SERVER_HOST
+SQL_DB_NAME=$env:PROD_SQL_DB_NAME
+SQL_TRACE_DB_NAME=$env:PROD_SQL_TRACE_DB_NAME
+SQL_USER=$env:PROD_SQL_USER
+SQL_PASSWORD=$env:PROD_SQL_PASSWORD
 Credentials__MasterKey=$env:PROD_CREDENTIALS_MASTER_KEY
 LocalAuth__SigningKey=$env:PROD_LOCAL_AUTH_SIGNING_KEY
-AdminPortal__CorsOrigin=$($env:PROD_PORTAL_ORIGIN ?? 'http://localhost:6010')
-AppBranding__ProductName=$($env:VITE_APP_NAME ?? 'Diva AI')
-AppBranding__Slug=$($env:VITE_APP_SLUG ?? 'diva')
+SCHEDULER_FEEDBACK_TOKEN_SECRET=$env:PROD_SCHEDULER_FEEDBACK_TOKEN_SECRET
+TaskScheduler__AutoPollEnabled=true
+OAuth__Enabled=true
+AdminPortal__CorsOrigin=$env:PROD_PORTAL_ORIGIN
+AppBranding__ProductName=$env:VITE_APP_NAME
+AppBranding__Slug=$env:VITE_APP_SLUG
+AppBranding__ApiAudience=$($env:VITE_APP_SLUG)-api
+AppBranding__LocalIssuer=$($env:VITE_APP_SLUG)-local
+Agent__LlmStreamIdleTimeoutSeconds=300
+Agent__LlmTimeoutSeconds=300
 Smtp__Host=$env:PROD_SMTP_HOST
-Smtp__Port=$($env:PROD_SMTP_PORT ?? '587')
-Smtp__UseSsl=$($env:PROD_SMTP_USE_SSL ?? 'true')
+Smtp__Port=587
+Smtp__UseSsl=false
 Smtp__Username=$env:PROD_SMTP_USERNAME
 Smtp__Password=$env:PROD_SMTP_PASSWORD
-Smtp__DefaultFromAddress=$($env:PROD_SMTP_FROM_ADDRESS ?? 'noreply@tei.local')
+Smtp__DefaultFromAddress=$env:PROD_SMTP_FROMEMAIL
+Smtp__DefaultFromName=TEI AI
 "@
       $tmpEnvFile = Join-Path $env:TEMP ".env.prod.$env:CI_PIPELINE_ID"
       [System.IO.File]::WriteAllText($tmpEnvFile, $envContent, [System.Text.UTF8Encoding]::new($false))
@@ -353,25 +392,15 @@ Smtp__DefaultFromAddress=$($env:PROD_SMTP_FROM_ADDRESS ?? 'noreply@tei.local')
       Remove-Item $tmpEnvFile -Force
 
       scp -i $keyFile -o BatchMode=yes -o StrictHostKeyChecking=yes `
-        "$env:CI_PROJECT_DIR\docker-compose.yml" "${target}:${deployPath}\"
+        "$env:CI_PROJECT_DIR\docker-compose.tei.yml" "${target}:${deployPath}\"
+      scp -i $keyFile -o BatchMode=yes -o StrictHostKeyChecking=yes `
+        "$env:CI_PROJECT_DIR\docker-compose.sqlserver.yml" "${target}:${deployPath}\"
 
-      Write-Host "=== Deploying on prod ==="
-      if ($env:IMAGE_DELIVERY -eq "ssh") {
-        # Images already loaded on prod by package:ssh — just restart the stack
-        ssh -i $keyFile -o BatchMode=yes -o StrictHostKeyChecking=yes $target `
-          "powershell -NoProfile -Command Set-Location '$deployPath'; docker -H $env:DOCKER_HOST_PROD compose up -d --remove-orphans"
-      } else {
-        # Pull from GitLab registry on prod host
-        $apiImage    = "$env:CI_REGISTRY_IMAGE/diva-api"
-        $portalImage = "$env:CI_REGISTRY_IMAGE/diva-portal"
-        $loginCmd    = "docker -H $env:DOCKER_HOST_PROD login $env:CI_REGISTRY -u $env:CI_REGISTRY_USER -p $env:CI_REGISTRY_PASSWORD"
-        $pullCmd     = "docker -H $env:DOCKER_HOST_PROD compose -f $deployPath\docker-compose.yml pull"
-        $upCmd       = "docker -H $env:DOCKER_HOST_PROD compose -f $deployPath\docker-compose.yml up -d --remove-orphans"
-        $remoteScript = "$loginCmd; $pullCmd; $upCmd"
-        $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($remoteScript))
-        ssh -i $keyFile -o BatchMode=yes -o StrictHostKeyChecking=yes $target `
-          "powershell -NoProfile -EncodedCommand $encoded"
-      }
+      Write-Host "=== Deploying on prod (images already loaded by package:ssh) ==="
+      # -p core-ai matches the Compose project name the package:ssh images were tagged
+      # under, so this reuses the loaded images instead of rebuilding (no source on prod).
+      ssh -i $keyFile -o BatchMode=yes -o StrictHostKeyChecking=yes $target `
+        "powershell -NoProfile -Command Set-Location '$deployPath'; docker -H $env:DOCKER_HOST_PROD compose -p core-ai -f docker-compose.tei.yml -f docker-compose.sqlserver.yml up -d --remove-orphans"
       Write-Host "=== Deploy:prod complete ==="
   after_script:
     - |
@@ -383,6 +412,30 @@ Smtp__DefaultFromAddress=$($env:PROD_SMTP_FROM_ADDRESS ?? 'noreply@tei.local')
           -DeployPath $env:PROD_DEPLOY_PATH `
           -DockerHost $env:DOCKER_HOST_PROD
       }
+
+# Manual, one-time SQLite -> SQL Server data copy — see TEI/prod-release.md step 5.
+# Only needed the first time prod moves to a fresh/unprovisioned SQL Server database.
+migrate:prod:
+  stage: deploy
+  extends:
+    - .base-job
+    - .prod-ssh-setup
+    - .only-main
+  when: manual
+  allow_failure: true
+  script:
+    - |
+      Write-Host "=== One-time SQLite -> SQL Server data migration (prod) ==="
+      $keyFile    = "$env:USERPROFILE\.ssh\deploy_key"
+      $target     = "$env:PROD_SSH_USER@$env:PROD_SSH_HOST"
+      $deployPath = $env:PROD_DEPLOY_PATH
+      scp -i $keyFile -o BatchMode=yes -o StrictHostKeyChecking=yes `
+        "$env:CI_PROJECT_DIR\docker-compose.tei.yml" "${target}:${deployPath}\"
+      scp -i $keyFile -o BatchMode=yes -o StrictHostKeyChecking=yes `
+        "$env:CI_PROJECT_DIR\docker-compose.sqlserver.yml" "${target}:${deployPath}\"
+      ssh -i $keyFile -o BatchMode=yes -o StrictHostKeyChecking=yes $target `
+        "powershell -NoProfile -Command Set-Location '$deployPath'; docker -H $env:DOCKER_HOST_PROD compose -p core-ai -f docker-compose.tei.yml -f docker-compose.sqlserver.yml --profile migrate run --rm dbmigrate"
+      Write-Host "=== Migration complete ==="
 
 # ── Stage: verify ─────────────────────────────────────────────────────────────
 
