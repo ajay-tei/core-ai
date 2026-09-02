@@ -282,6 +282,10 @@ public class ContextWindowTests : IAsyncDisposable
             AgentTestFixtures.AnthropicLlm(),
             AgentTestFixtures.Opts(agentOpts ?? new AgentOptions
             {
+                // The mock only stubs the buffered GetClaudeMessageAsync, not the streaming
+                // method — leaving streaming on makes NSubstitute auto-return an empty stream,
+                // which the runner treats as an empty end_turn response and retries once.
+                EnableResponseStreaming = false,
                 Retry = new LlmRetryOptions { MaxRetries = 3, BaseDelayMs = 1 }
             }),
             AgentTestFixtures.Opts(new VerificationOptions { Mode = "Off" }),
