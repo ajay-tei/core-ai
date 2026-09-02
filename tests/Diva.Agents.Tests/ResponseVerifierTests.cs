@@ -322,4 +322,65 @@ public class ResponseVerifierTests
             Model = "claude-sonnet-4-20250514"
         };
     }
+
+    // ── UI directives ────────────────────────────────────────────────────────
+
+    [Fact]
+    public void StripUiDirectives_RemovesSuggestionsMarker()
+    {
+        var text = "Which course would you like?\n\n[[SUGGESTIONS:[\"8:00 AM\",\"2 players\"]]]";
+
+        var stripped = ResponseVerifier.StripUiDirectives(text);
+
+        Assert.Equal("Which course would you like?", stripped);
+        Assert.DoesNotContain("8:00", stripped);
+    }
+
+    [Fact]
+    public void StripUiDirectives_RemovesMultiSelectBuilderSpanningLines()
+    {
+        var text = "Pick a few details:\n[[SUGGESTIONS:{\"type\":\"multi\",\"groups\":[\n"
+                 + "{\"label\":\"Players\",\"options\":[\"2 players\",\"4 players\"]}]}]]";
+
+        Assert.Equal("Pick a few details:", ResponseVerifier.StripUiDirectives(text));
+    }
+
+    [Fact]
+    public void StripUiDirectives_LeavesProseDigitsIntact()
+    {
+        var text = "12:00 PM is available at $175 per player. [[SUGGESTIONS:[\"Book it\"]]]";
+
+        var stripped = ResponseVerifier.StripUiDirectives(text);
+
+        Assert.Contains("12:00 PM", stripped);
+        Assert.Contains("$175", stripped);
+        Assert.DoesNotContain("SUGGESTIONS", stripped);
+    }
+
+    [Fact]
+    public async Task ToolGrounded_ClarifyingQuestion_IsVerifiedDespiteChipDigits()
+    {
+        var verifier = BuildVerifier("ToolGrounded");
+        var question = "I'd be happy to help! Which course, and how many players?\n"
+                     + "[[SUGGESTIONS:{\"type\":\"multi\",\"groups\":["
+                     + "{\"label\":\"Time\",\"options\":[\"8:00 AM\",\"2:00 PM\"]},"
+                     + "{\"label\":\"Players\",\"options\":[\"2 players\",\"4 players\"]}]}]]";
+
+        var result = await verifier.VerifyAsync(question, [], string.Empty, CancellationToken.None);
+
+        Assert.True(result.IsVerified);
+        Assert.Empty(result.UngroundedClaims);
+    }
+
+    [Fact]
+    public async Task ToolGrounded_ProseDigitsWithoutTools_StillFlagged()
+    {
+        var verifier = BuildVerifier("ToolGrounded");
+
+        var result = await verifier.VerifyAsync(
+            "12:00 PM is available at $175 per player.", [], string.Empty, CancellationToken.None);
+
+        Assert.False(result.IsVerified);
+        Assert.NotEmpty(result.UngroundedClaims);
+    }
 }
