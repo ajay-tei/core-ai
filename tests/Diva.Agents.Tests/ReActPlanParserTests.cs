@@ -108,4 +108,55 @@ public class ReActPlanParserTests
         var text = "1. Get data\n2. Process data";
         Assert.False(ReActPlanParser.IsPlanEmission(text, isFirstIteration: true, planAlreadyEmitted: true));
     }
+
+    // ── ParseActionPlanSteps ──────────────────────────────────────────────────
+
+    [Fact]
+    public void ParseActionPlanSteps_ActionSteps_AreKept()
+    {
+        var text = "1. Get the current weather data\n2. Check flight availability";
+
+        Assert.Equal(2, ReActPlanParser.ParseActionPlanSteps(text).Length);
+    }
+
+    [Fact]
+    public void ParseActionPlanSteps_NumberedQuestionsToUser_AreExcluded()
+    {
+        var text = """
+            To find the right tee time, I need a few details:
+            1. Which course would you like to play?
+            2. What time works best for you?
+            3. How many players?
+            """;
+
+        Assert.Empty(ReActPlanParser.ParseActionPlanSteps(text));
+        Assert.Equal(3, ReActPlanParser.ParsePlanSteps(text).Length);
+    }
+
+    [Fact]
+    public void ParseActionPlanSteps_QuestionsWithTrailingMarkdown_AreExcluded()
+    {
+        var text = "1. **Date** — which day would you like to play?**\n2. Course — Orca, or a different one?*";
+
+        Assert.Empty(ReActPlanParser.ParseActionPlanSteps(text));
+    }
+
+    [Fact]
+    public void ParseActionPlanSteps_MixedList_KeepsOnlyActions()
+    {
+        var text = "1. Which course would you like?\n2. Search the tee sheet\n3. Book the slot";
+
+        var steps = ReActPlanParser.ParseActionPlanSteps(text);
+
+        Assert.Equal(2, steps.Length);
+        Assert.Equal("2. Search the tee sheet", steps[0]);
+    }
+
+    [Fact]
+    public void IsPlanEmission_NumberedQuestionsToUser_ReturnsFalse()
+    {
+        var text = "1. Which course would you like to play?\n2. What time works best for you?";
+
+        Assert.False(ReActPlanParser.IsPlanEmission(text, isFirstIteration: true, planAlreadyEmitted: false));
+    }
 }

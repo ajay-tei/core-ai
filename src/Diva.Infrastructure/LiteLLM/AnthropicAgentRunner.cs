@@ -960,7 +960,7 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                 if (!string.IsNullOrEmpty(response.Text))
                 {
                     finalResponse = response.Text;
-                    var planSteps = ReActPlanParser.ParsePlanSteps(response.Text);
+                    var planSteps = ReActPlanParser.ParseActionPlanSteps(response.Text);
                     if (i == 0 && !planEmitted && planSteps.Length >= 2)
                     {
                         _logger.LogInformation("Plan detected with {StepCount} steps (iter={Iter}, agent={Agent})",
@@ -1088,7 +1088,7 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                     if (toolClientMap.Count > 0
                         && preambleNudgeRetries > 0
                         && (ReActToolHelper.LooksLikeToolPreamble(finalResponse)
-                            || (toolsUsed.Count == 0 && ReActPlanParser.ParsePlanSteps(finalResponse).Length >= 2)))
+                            || (toolsUsed.Count == 0 && ReActPlanParser.ParseActionPlanSteps(finalResponse).Length >= 2)))
                     {
                         preambleNudgeRetries--;
                         _logger.LogInformation(
