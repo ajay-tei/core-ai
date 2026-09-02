@@ -93,12 +93,10 @@ build:
   script:
     - dotnet restore Diva.slnx --packages $env:NUGET_PACKAGES
     - dotnet build Diva.slnx --no-restore -c Release
-  artifacts:
-    paths:
-      - src/**/bin/Release/
-      - tests/**/bin/Release/
-      - tools/**/bin/Release/
-    expire_in: 1 hour
+  # No artifacts: the Release output is ~640 MB (506 MB of it duplicated dependency
+  # DLLs across each test project), which exceeds the instance artifact limit and failed
+  # the job with HTTP 413 after a successful build. The test stage compiles from the
+  # NuGet cache instead — see its dependencies: [] below.
 
 # ── Stage: test ───────────────────────────────────────────────────────────────
 
@@ -106,9 +104,11 @@ test:
   stage: test
   extends: .base-job
   needs: [build]
+  dependencies: []
   script:
+    - dotnet restore Diva.slnx --packages $env:NUGET_PACKAGES
     - |
-      dotnet test Diva.slnx --no-build -c Release `
+      dotnet test Diva.slnx --no-restore -c Release `
         --logger "junit;LogFilePath=$PWD/results.xml" `
         --filter "Category!=Integration&Category!=Flaky"
   artifacts:
