@@ -48,7 +48,6 @@ publish/
 docker-images/
 .github/agents/
 .playwright-mcp/
-docker-compose.tei.yml
 .github/prompts/
 
 # Local TEI deploy notes / runbooks (not for the public repo)
