@@ -37,6 +37,14 @@ public sealed class ResponseVerifier
         new(@"[\$\£\€]?\d[\d,\.]*\s*(%|transactions?|units?|pts?|points?|\b)?",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    // Machine-readable directives an agent appends for the client to render (e.g. quick-reply
+    // chips). They are stripped before the member sees the reply, so they are not claims the
+    // agent is making and must not be analysed as prose. The closing run is greedy because a
+    // JSON payload ends in its own brackets before the directive's ("…\"2 players\"]]]").
+    private static readonly Regex UiDirectivePattern =
+        new(@"\[\[[A-Z][A-Z0-9_]*:.*?\]{2,}",
+            RegexOptions.Singleline | RegexOptions.Compiled);
+
     // Matches action/delivery/meta claims whose truth lives in a downstream tool's self-reported
     // success rather than in returned DATA — these are the classic Strict-mode false positives
     // (e.g. "email delivered", "Sent At ...", "CC'd", "rendered correctly").
@@ -68,6 +76,8 @@ public sealed class ResponseVerifier
     {
         // Per-agent override takes priority over global config
         var effectiveMode = !string.IsNullOrWhiteSpace(modeOverride) ? modeOverride : _opts.Mode;
+
+        responseText = StripUiDirectives(responseText);
 
         _logger.LogDebug("Verifying response (mode={Mode}, tools={Count}, evidence={Len})",
             effectiveMode, toolsUsed.Count, toolEvidence.Length);
@@ -338,4 +348,14 @@ public sealed class ResponseVerifier
 
     private static bool ContainsFactualClaims(string text) =>
         FactualClaimPattern.IsMatch(text);
+
+    /// <summary>
+    /// Removes client-render directives so they are never treated as the agent's own prose.
+    /// A chip list such as <c>[[SUGGESTIONS:["8:00 AM","2 players"]]]</c> carries digits that
+    /// <see cref="FactualClaimPattern"/> reads as factual data, which marked plain clarifying
+    /// questions as ungrounded and triggered a correction retry the member saw as the reply
+    /// being rewritten mid-turn.
+    /// </summary>
+    internal static string StripUiDirectives(string? text) =>
+        string.IsNullOrEmpty(text) ? string.Empty : UiDirectivePattern.Replace(text, " ").Trim();
 }
