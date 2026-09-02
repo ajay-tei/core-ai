@@ -102,4 +102,66 @@ public class ToolExecutorTests
         var isError = ReActToolHelper.IsToolOutputError(output);
         Assert.Equal(expectedFailed, isError);
     }
+
+    // ── MayAutoRetry ──────────────────────────────────────────────────────────
+
+    private static IReadOnlyList<(string ToolName, string InputJson, bool Failed)> Breakdown(
+        params (string Name, bool Failed)[] calls) =>
+        calls.Select(c => (c.Name, "{}", c.Failed)).ToList();
+
+    [Fact]
+    public void MayAutoRetry_FailedReadOnlyTool_IsAllowed()
+    {
+        var readOnly = new Dictionary<string, bool> { ["search_tee_times"] = true };
+
+        Assert.True(ReActToolHelper.MayAutoRetry(Breakdown(("search_tee_times", true)), readOnly));
+    }
+
+    [Fact]
+    public void MayAutoRetry_FailedWriteTool_IsRefused()
+    {
+        var readOnly = new Dictionary<string, bool> { ["book_tee_time"] = false };
+
+        Assert.False(ReActToolHelper.MayAutoRetry(Breakdown(("book_tee_time", true)), readOnly));
+    }
+
+    [Fact]
+    public void MayAutoRetry_UnknownTool_IsRefused()
+    {
+        Assert.False(ReActToolHelper.MayAutoRetry(
+            Breakdown(("unlisted_tool", true)), new Dictionary<string, bool>()));
+    }
+
+    [Fact]
+    public void MayAutoRetry_WriteToolThatSucceeded_DoesNotBlockReadOnlyRetry()
+    {
+        var readOnly = new Dictionary<string, bool>
+        {
+            ["book_tee_time"] = false,
+            ["search_tee_times"] = true,
+        };
+
+        Assert.True(ReActToolHelper.MayAutoRetry(
+            Breakdown(("book_tee_time", false), ("search_tee_times", true)), readOnly));
+    }
+
+    [Fact]
+    public void MayAutoRetry_MixedFailures_IsRefused()
+    {
+        var readOnly = new Dictionary<string, bool>
+        {
+            ["book_tee_time"] = false,
+            ["search_tee_times"] = true,
+        };
+
+        Assert.False(ReActToolHelper.MayAutoRetry(
+            Breakdown(("search_tee_times", true), ("book_tee_time", true)), readOnly));
+    }
+
+    [Fact]
+    public void MayAutoRetry_NoBreakdown_IsRefused()
+    {
+        Assert.False(ReActToolHelper.MayAutoRetry(null, new Dictionary<string, bool>()));
+        Assert.False(ReActToolHelper.MayAutoRetry(Breakdown(), new Dictionary<string, bool>()));
+    }
 }

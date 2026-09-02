@@ -678,6 +678,10 @@ public sealed class AnthropicAgentRunner : IAgentRunner
         int consecutiveFailures = 0;
         bool hadToolErrors = false;
         IReadOnlyList<(string ToolName, string InputJson, bool Failed)>? lastToolBreakdown = null;
+        // Read-only hints drive the auto-retry guard; a tool missing the hint counts as a write.
+        var readOnlyByTool = allMcpTools
+            .GroupBy(t => t.Name, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First().ProtocolTool.Annotations?.ReadOnlyHint == true, StringComparer.Ordinal);
         int maxTokensNudgeRetries = 1;  // max nudge attempts per window before accepting partial output
         var executionLog = new List<(string ToolName, string InputJson, string Output, bool Success)>();
         VerificationResult? lastVerification = null;
@@ -1070,13 +1074,20 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                     // Tool error retry: LLM acknowledged errors but didn't retry — nudge it
                     if (hadToolErrors)
                     {
+                        var mayRetry = ReActToolHelper.MayAutoRetry(lastToolBreakdown, readOnlyByTool);
                         var retryPrompt = lastToolBreakdown is { Count: > 0 }
                             ? ReActToolHelper.BuildSelectiveRetryPrompt(lastToolBreakdown)
                             : ReActToolHelper.ToolErrorRetryPrompt;
                         hadToolErrors = false;
                         lastToolBreakdown = null;
-                        strategy.AddAssistantThenUser(finalResponse, retryPrompt);
-                        continue;
+                        if (mayRetry)
+                        {
+                            strategy.AddAssistantThenUser(finalResponse, retryPrompt);
+                            continue;
+                        }
+                        _logger.LogInformation(
+                            "Tool error retry suppressed — a failed tool is not marked read-only (agent={Agent})",
+                            definition.Name);
                     }
 
                     // Preamble / plan stall: model announced imminent tool use ("Let me

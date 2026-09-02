@@ -56,6 +56,22 @@ internal static class ReActToolHelper
     }
 
     /// <summary>
+    /// Whether a failed batch of tool calls may be retried automatically. Only calls the server
+    /// explicitly marked read-only qualify: a write tool that reports an error may still have
+    /// applied part of its effect (a hold placed, a charge authorised), so re-issuing it risks a
+    /// duplicate booking or payment. Unknown tools are treated as writes, and an absent breakdown
+    /// means we cannot tell what failed — both refuse the retry.
+    /// </summary>
+    internal static bool MayAutoRetry(
+        IReadOnlyList<(string ToolName, string InputJson, bool Failed)>? breakdown,
+        IReadOnlyDictionary<string, bool> readOnlyByTool)
+    {
+        if (breakdown is null || breakdown.Count == 0) return false;
+        return breakdown.Where(t => t.Failed)
+                        .All(t => readOnlyByTool.GetValueOrDefault(t.ToolName, false));
+    }
+
+    /// <summary>
     /// Builds a selective retry prompt that tells the LLM exactly which tool calls failed
     /// and which succeeded, so it retries only the failed ones instead of re-executing the
     /// entire batch (which would cause duplicate side-effects for succeeded actions).
