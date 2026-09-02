@@ -1,0 +1,89 @@
+version: "3.9"
+
+# ── Dev stack (SQLite, no LiteLLM, no telemetry) ─────────────────────────────
+services:
+
+  diva-api:
+    build: .
+    env_file: .env
+    ports:
+      - "6032:6032"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: "http://+:6032"
+      Database__Provider: SQLite
+      Database__SQLite__ConnectionString: "Data Source=/data/diva.db"
+      # SessionTrace: persisted to the same /data volume so it survives container restarts
+      ConnectionStrings__SessionTrace: "Data Source=/data/sessions-trace.db"
+      LLM__UseLiteLLM: "false"
+      LLM__DirectProvider__Provider: "${LLM_DIRECT_PROVIDER:-Anthropic}"
+      LLM__DirectProvider__ApiKey: "${LLM_DIRECT_API_KEY:-no-key}"
+      LLM__DirectProvider__Model: "${LLM_DIRECT_MODEL:-claude-sonnet-4-6}"
+      LLM__DirectProvider__Endpoint: "${LLM_DIRECT_ENDPOINT}"
+      # Comma-separated list of allowed portal origins (browser-facing URL(s)).
+      # When accessed via a reverse proxy (e.g. https://ai.company.com), add that URL here.
+      # Multiple values: PORTAL_ORIGIN=https://ai.company.com,http://localhost:6010
+      AdminPortal__CorsOrigin: "${PORTAL_ORIGIN:-http://localhost:6010}"
+      Verification__Mode: LlmVerifier
+      Verification__ConfidenceThreshold: "0.5"
+      Agent__MaxIterations: "10"
+      Agent__LlmStreamIdleTimeoutSeconds: "${AGENT_LLM_STREAM_IDLE_TIMEOUT_SECONDS:-300}"
+      Agent__LlmTimeoutSeconds: "${AGENT_LLM_TIMEOUT_SECONDS:-300}"
+      Agent__ToolTimeoutSeconds: "300"
+      Agent__RuleLearning__ApprovalMode: RequireAdmin
+      Agent__RuleLearning__ConfidenceThreshold: "0.8"
+      # Credentials vault master key — MUST be a stable base64-encoded 32-byte key.
+      # If not set, an ephemeral key is generated per startup and all stored MCP
+      # credentials become unrecoverable after restart.
+      # Generate with: openssl rand -base64 32
+      Credentials__MasterKey: "${CREDENTIALS_MASTER_KEY}"
+      Smtp__Host: "${SMTP_HOST}"
+      Smtp__Port: "${SMTP_PORT:-587}"
+      Smtp__UseSsl: "${SMTP_USE_SSL:-true}"
+      Smtp__Username: "${SMTP_USERNAME}"
+      Smtp__Password: "${SMTP_PASSWORD}"
+      Smtp__DefaultFromAddress: "${SMTP_FROM_ADDRESS:-noreply@tei.local}"
+      Smtp__DefaultFromName: "${SMTP_FROM_NAME:-TEI AI}"
+      A2A__Enabled: "true"
+      # Auth — set OAuth__Enabled=true to enforce JWT auth and enable user profile creation
+      OAuth__Enabled: "${OAUTH_ENABLED:-false}"
+      LocalAuth__SigningKey: "${LOCAL_AUTH_SIGNING_KEY:-change-me-in-production-must-be-32-chars!!}"
+      AppBranding__ProductName: "${AppBranding__ProductName:-Diva AI}"
+      AppBranding__Slug: "${AppBranding__Slug:-diva}"
+      AppBranding__ApiAudience: "${AppBranding__ApiAudience:-diva-api}"
+      AppBranding__LocalIssuer: "${AppBranding__LocalIssuer:-diva-local}"
+      # Feedback token HMAC key — MUST be a stable base64-encoded 32-byte key.
+      # If not set, an ephemeral key is generated per startup and emailed feedback links
+      # become invalid after any container restart.
+      # Generate with: openssl rand -base64 32
+      TaskScheduler__FeedbackTokenSecret: "${SCHEDULER_FEEDBACK_TOKEN_SECRET}"
+      # Scheduler leader election for multi-instance deployments. Keep true on exactly ONE
+      # replica so scheduled tasks fire once; set false on the others. Manual "Run now"
+      # always executes on whichever instance receives the request.
+      TaskScheduler__AutoPollEnabled: "${TaskScheduler__AutoPollEnabled:-true}"
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6032/health/live"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  diva-portal:
+    build:
+      context: ./admin-portal
+      args:
+        VITE_APP_NAME: "${VITE_APP_NAME:-Diva AI}"
+        VITE_APP_SLUG: "${VITE_APP_SLUG:-diva}"
+        # Subpath prefix for reverse-proxy deployments (no trailing slash).
+        # Example: VITE_BASE_PATH=/beta/tei-ai in .env
+        VITE_BASE_PATH: "${VITE_BASE_PATH:-}"
+    ports:
+      - "6010:6010"
+    depends_on:
+      diva-api:
+        condition: service_healthy
+    restart: unless-stopped
+
+# No named volumes — /data is bind-mounted to ./data on the host
