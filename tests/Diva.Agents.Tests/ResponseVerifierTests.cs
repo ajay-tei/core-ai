@@ -383,4 +383,40 @@ public class ResponseVerifierTests
         Assert.False(result.IsVerified);
         Assert.NotEmpty(result.UngroundedClaims);
     }
+
+    // ── JSON payloads ────────────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("{\"type\":\"flat\",\"suggestions\":[\"2 players\",\"8:00 AM\"]}")]
+    [InlineData("[{\"label\":\"Players\",\"options\":[\"4 players\"]}]")]
+    [InlineData("  {\"a\":1}  ")]
+    public void LooksLikeJsonDocument_WholePayload_IsRecognised(string text)
+    {
+        Assert.True(ResponseVerifier.LooksLikeJsonDocument(text));
+    }
+
+    [Theory]
+    [InlineData("Your tee time is confirmed at 12:00 PM.")]
+    [InlineData("{ this is not json")]
+    [InlineData("Use {braces} in your reply")]
+    [InlineData("")]
+    [InlineData(null)]
+    public void LooksLikeJsonDocument_Prose_IsNotRecognised(string? text)
+    {
+        Assert.False(ResponseVerifier.LooksLikeJsonDocument(text));
+    }
+
+    [Fact]
+    public async Task ToolGrounded_JsonOnlyResponse_IsSkippedNotFlagged()
+    {
+        var verifier = BuildVerifier("ToolGrounded");
+        var payload = "{\"type\":\"multi\",\"groups\":[{\"label\":\"Time\",\"options\":[\"8:00 AM\","
+                    + "\"10:00 AM\"]},{\"label\":\"Players\",\"options\":[\"2 players\"]}],"
+                    + "\"submitLabel\":\"Search\"}";
+
+        var result = await verifier.VerifyAsync(payload, [], string.Empty, CancellationToken.None);
+
+        Assert.True(result.IsVerified);
+        Assert.Empty(result.UngroundedClaims);
+    }
 }
