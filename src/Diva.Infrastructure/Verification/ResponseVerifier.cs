@@ -79,6 +79,12 @@ public sealed class ResponseVerifier
 
         responseText = StripUiDirectives(responseText);
 
+        // A response that is entirely a JSON document is a machine payload, not prose making
+        // claims. Structured-output calls always carry digits and never call tools, so the
+        // zero-tools branch below would flag every one of them and trigger a correction retry.
+        if (LooksLikeJsonDocument(responseText))
+            return Skipped();
+
         _logger.LogDebug("Verifying response (mode={Mode}, tools={Count}, evidence={Len})",
             effectiveMode, toolsUsed.Count, toolEvidence.Length);
 
@@ -358,4 +364,25 @@ public sealed class ResponseVerifier
     /// </summary>
     internal static string StripUiDirectives(string? text) =>
         string.IsNullOrEmpty(text) ? string.Empty : UiDirectivePattern.Replace(text, " ").Trim();
+
+    /// <summary>
+    /// True when the whole response is one JSON object or array. Parsed rather than pattern
+    /// matched so prose that merely mentions braces is not mistaken for a payload.
+    /// </summary>
+    internal static bool LooksLikeJsonDocument(string? text)
+    {
+        var t = text?.Trim();
+        if (string.IsNullOrEmpty(t) || t.Length < 2) return false;
+        if (!((t[0] == '{' && t[^1] == '}') || (t[0] == '[' && t[^1] == ']'))) return false;
+
+        try
+        {
+            using var _ = JsonDocument.Parse(t);
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
 }
