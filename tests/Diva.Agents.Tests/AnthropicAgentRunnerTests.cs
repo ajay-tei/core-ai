@@ -550,6 +550,50 @@ public class AnthropicAgentRunnerTests : IAsyncDisposable
         StopReason = "max_tokens",
         Model = "claude-sonnet-4-20250514"
     };
+
+    // ── BuildCorrectionPrompt ────────────────────────────────────────────────
+
+    [Fact]
+    public void BuildCorrectionPrompt_NoToolsCalled_DemandsAToolCall()
+    {
+        var prompt = AnthropicAgentRunner.BuildCorrectionPrompt(
+            ["Response contains factual claims but no tools were called to support them"],
+            noToolsCalled: true);
+
+        Assert.Contains("called NO tools", prompt);
+        Assert.Contains("Do NOT reply with text alone", prompt);
+        // The escape hatch is what let the model restate an unbacked outcome in hedged wording.
+        Assert.DoesNotContain("omit or qualify", prompt);
+    }
+
+    [Fact]
+    public void BuildCorrectionPrompt_NoToolsCalled_ForbidsClaimingFailureOrUncertainty()
+    {
+        var prompt = AnthropicAgentRunner.BuildCorrectionPrompt(["ungrounded"], noToolsCalled: true);
+
+        Assert.Contains("succeeded, failed, did not complete, or cannot be verified", prompt);
+    }
+
+    [Fact]
+    public void BuildCorrectionPrompt_ToolsWereCalled_KeepsOriginalGuidance()
+    {
+        var prompt = AnthropicAgentRunner.BuildCorrectionPrompt(["ungrounded"], noToolsCalled: false);
+
+        Assert.Contains("omit or qualify", prompt);
+        Assert.DoesNotContain("Do NOT reply with text alone", prompt);
+    }
+
+    [Fact]
+    public void BuildCorrectionPrompt_AlwaysListsTheUngroundedClaims()
+    {
+        foreach (var noTools in new[] { true, false })
+        {
+            var prompt = AnthropicAgentRunner.BuildCorrectionPrompt(["claim A", "claim B"], noTools);
+
+            Assert.Contains("- claim A", prompt);
+            Assert.Contains("- claim B", prompt);
+        }
+    }
 }
 
 /// <summary>

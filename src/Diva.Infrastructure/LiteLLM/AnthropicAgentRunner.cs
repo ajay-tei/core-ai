@@ -1121,7 +1121,8 @@ public sealed class AnthropicAgentRunner : IAgentRunner
                         verificationRetries--;
                         _logger.LogInformation("Correction retry triggered: {Claims} ungrounded claim(s), {Retries} retries left (agent={Agent})",
                             lastVerification.UngroundedClaims.Count, verificationRetries, definition.Name);
-                        var correctionMsg = BuildCorrectionPrompt(lastVerification.UngroundedClaims);
+                        var correctionMsg = BuildCorrectionPrompt(
+                            lastVerification.UngroundedClaims, noToolsCalled: toolsUsed.Count == 0);
                         yield return new AgentStreamChunk { Type = "correction", Content = correctionMsg };
                         strategy.AddAssistantThenUser(finalResponse, correctionMsg);
                         continue;
@@ -1261,10 +1262,25 @@ public sealed class AnthropicAgentRunner : IAgentRunner
         }
     }
 
-    private static string BuildCorrectionPrompt(IReadOnlyList<string> ungroundedClaims)
+    internal static string BuildCorrectionPrompt(IReadOnlyList<string> ungroundedClaims, bool noToolsCalled)
     {
         var sb = new StringBuilder("Your response contained claims that could not be verified against the tool results:\n");
         foreach (var c in ungroundedClaims) sb.AppendLine($"- {c}");
+
+        // With no tools called there is no evidence to qualify against, and inviting the model to
+        // "omit or qualify" lets it restate the same unbacked outcome in hedged wording instead of
+        // doing the work. Observed on booking agents answering a bare "Yes" to a confirmation:
+        // the model reported the action as failed or unverifiable without ever calling the tool.
+        if (noToolsCalled)
+        {
+            sb.AppendLine("\nYou called NO tools in this turn, so nothing above is grounded in evidence.");
+            sb.AppendLine("Call the tool that performs or verifies this now, then answer from what it returns.");
+            sb.AppendLine("Do NOT reply with text alone. Do NOT state or imply any outcome you have not obtained "
+                        + "from a tool result — including that something succeeded, failed, did not complete, or "
+                        + "cannot be verified. If you are missing a required argument, ask for that one detail instead.");
+            return sb.ToString();
+        }
+
         sb.AppendLine("\nPlease call the appropriate tools to retrieve evidence for these specific claims, then revise your answer based on what the tools return.");
         sb.AppendLine("If the tools cannot provide this information, omit or qualify the unverified claims rather than asserting them as facts.");
         return sb.ToString();
