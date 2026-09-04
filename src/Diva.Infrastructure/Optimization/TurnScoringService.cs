@@ -1,4 +1,5 @@
 using System.ClientModel;
+using System.Globalization;
 using System.Text.Json;
 using Anthropic.SDK;
 using Anthropic.SDK.Messaging;
@@ -100,7 +101,9 @@ public sealed class TurnScoringService : ITurnScoringService
             "- completeness: Did the response address all parts of the query? (1.0=fully addressed, 0.0=only partially answered)\n" +
             "- tool_efficiency: Were tool calls appropriate? (1.0=optimal, 0.0=wrong tools or none when needed)\n" +
             "- coherence: Is the response clear and well-structured? (1.0=clear, 0.0=confusing/disorganized)\n\n" +
-            "Return ONLY JSON: {\"faithfulness\":0.0,\"completeness\":0.0,\"tool_efficiency\":0.0,\"coherence\":0.0}";
+            "Return ONLY a JSON object with exactly these four keys and YOUR OWN numeric ratings, " +
+            "for example: {\"faithfulness\":0.9,\"completeness\":0.8,\"tool_efficiency\":1.0,\"coherence\":0.95}. " +
+            "The example values are illustrative — do not copy them.";
     }
 
     private async Task<ResolvedLlmConfig> ResolveLlmConfigAsync(string agentId, CancellationToken ct)
@@ -155,7 +158,7 @@ public sealed class TurnScoringService : ITurnScoringService
         return result.Value.Content.FirstOrDefault()?.Text ?? "{}";
     }
 
-    private ScoringResult? ParseScores(string raw)
+    internal ScoringResult? ParseScores(string raw)
     {
         try
         {
@@ -167,13 +170,18 @@ public sealed class TurnScoringService : ITurnScoringService
 
             using var doc = JsonDocument.Parse(json);
             var r = doc.RootElement;
-            return new ScoringResult
-            {
-                Faithfulness = GetFloat(r, "faithfulness"),
-                Completeness = GetFloat(r, "completeness"),
-                ToolEfficiency = GetFloat(r, "tool_efficiency"),
-                Coherence = GetFloat(r, "coherence")
-            };
+
+            // All four or nothing. A partial payload used to be written as zeros for the missing keys,
+            // which is indistinguishable from a genuine zero verdict and quietly drags the pilot KPIs down;
+            // recording no score at all says "unknown", which is what we actually have.
+            if (TryReadScores(r, out var scores) || TryReadNestedScores(r, out scores))
+                return scores;
+
+            _logger.LogWarning(
+                "Scoring response carried no usable faithfulness/completeness/tool_efficiency/coherence "
+                + "values; leaving the turn unscored. Raw: {Raw}",
+                json.Length > 300 ? json[..300] + "..." : json);
+            return null;
         }
         catch (Exception ex)
         {
@@ -182,14 +190,81 @@ public sealed class TurnScoringService : ITurnScoringService
         }
     }
 
-    private static float GetFloat(JsonElement root, string key)
+    private static bool TryReadScores(JsonElement element, out ScoringResult scores)
     {
-        if (root.TryGetProperty(key, out var prop) && prop.ValueKind == JsonValueKind.Number)
-            return Math.Clamp((float)prop.GetDouble(), 0f, 1f);
-        return 0f;
+        scores = null!;
+        if (element.ValueKind != JsonValueKind.Object) return false;
+
+        if (!TryGetScore(element, "faithfulness", out var faithfulness) ||
+            !TryGetScore(element, "completeness", out var completeness) ||
+            !TryGetScore(element, "tool_efficiency", out var toolEfficiency) ||
+            !TryGetScore(element, "coherence", out var coherence))
+            return false;
+
+        scores = new ScoringResult
+        {
+            Faithfulness = faithfulness,
+            Completeness = completeness,
+            ToolEfficiency = toolEfficiency,
+            Coherence = coherence
+        };
+        return true;
     }
 
-    private sealed record ScoringResult
+    /// <summary>Some models wrap the scores in an envelope such as <c>{"scores":{…}}</c>.</summary>
+    private static bool TryReadNestedScores(JsonElement root, out ScoringResult scores)
+    {
+        scores = null!;
+        if (root.ValueKind != JsonValueKind.Object) return false;
+
+        foreach (var property in root.EnumerateObject())
+            if (property.Value.ValueKind == JsonValueKind.Object && TryReadScores(property.Value, out scores))
+                return true;
+
+        return false;
+    }
+
+    private static bool TryGetScore(JsonElement root, string key, out float value)
+    {
+        value = 0f;
+        if (!TryGetProperty(root, key, out var prop)) return false;
+
+        double parsed;
+        switch (prop.ValueKind)
+        {
+            case JsonValueKind.Number:
+                parsed = prop.GetDouble();
+                break;
+            // Models routinely quote the numbers; treating those as missing scored the turn zero.
+            case JsonValueKind.String when double.TryParse(
+                prop.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out var fromString):
+                parsed = fromString;
+                break;
+            default:
+                return false;
+        }
+
+        value = Math.Clamp((float)parsed, 0f, 1f);
+        return true;
+    }
+
+    /// <summary>Matches ignoring case and underscores, so <c>toolEfficiency</c> reads as <c>tool_efficiency</c>.</summary>
+    private static bool TryGetProperty(JsonElement root, string key, out JsonElement value)
+    {
+        foreach (var property in root.EnumerateObject())
+        {
+            if (!Normalise(property.Name).Equals(Normalise(key), StringComparison.Ordinal)) continue;
+            value = property.Value;
+            return true;
+        }
+
+        value = default;
+        return false;
+    }
+
+    private static string Normalise(string name) => name.Replace("_", string.Empty).ToLowerInvariant();
+
+    internal sealed record ScoringResult
     {
         public float Faithfulness { get; init; }
         public float Completeness { get; init; }

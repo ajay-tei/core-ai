@@ -15,7 +15,7 @@ namespace Diva.Agents.Tests.Optimization;
 /// <summary>
 /// Tests for TurnScoringService.
 /// The LLM call paths cannot be unit-tested without a real API (no injectable abstraction).
-/// Testable: EnablePerTurnScoring=false guard (no DB write, no exception).
+/// Testable: EnablePerTurnScoring=false guard (no DB write, no exception), and score parsing.
 /// </summary>
 public class TurnScoringServiceTests : IAsyncDisposable
 {
@@ -125,5 +125,98 @@ public class TurnScoringServiceTests : IAsyncDisposable
             () => svc.ScoreTurnAsync("sess-x", 1, "agent", "query", "answer", "", default));
 
         Assert.Null(ex);
+    }
+
+    // ── Score parsing ──────────────────────────────────────────────────────────
+    // A scorer response that cannot be read must leave the turn UNSCORED. Defaulting the
+    // missing dimensions to 0 wrote a verdict indistinguishable from a genuine zero, and
+    // claude-sonnet-5 hit it on a third of its turns — dragging the pilot KPIs down with
+    // scores no one had actually given.
+
+    [Fact]
+    public void ParseScores_ReadsAWellFormedResponse()
+    {
+        var scores = BuildService(true).ParseScores(
+            """{"faithfulness":0.9,"completeness":0.8,"tool_efficiency":1.0,"coherence":0.95}""");
+
+        Assert.NotNull(scores);
+        Assert.Equal(0.9f, scores!.Faithfulness, 3);
+        Assert.Equal(0.8f, scores.Completeness, 3);
+        Assert.Equal(1.0f, scores.ToolEfficiency, 3);
+        Assert.Equal(0.95f, scores.Coherence, 3);
+    }
+
+    [Theory]
+    // Nothing recognisable at all.
+    [InlineData("""{"score":0.9}""")]
+    // A partial payload: the absent dimensions used to be recorded as zero.
+    [InlineData("""{"faithfulness":0.9,"completeness":0.8}""")]
+    // Non-numeric values that carry no rating.
+    [InlineData("""{"faithfulness":null,"completeness":null,"tool_efficiency":null,"coherence":null}""")]
+    [InlineData("""{"faithfulness":"high","completeness":"high","tool_efficiency":"high","coherence":"high"}""")]
+    [InlineData("not json at all")]
+    public void ParseScores_ReturnsNull_WhenTheResponseCarriesNoUsableScores(string raw)
+        => Assert.Null(BuildService(true).ParseScores(raw));
+
+    [Fact]
+    public void ParseScores_AcceptsQuotedNumbers()
+    {
+        var scores = BuildService(true).ParseScores(
+            """{"faithfulness":"0.9","completeness":"0.8","tool_efficiency":"1.0","coherence":"0.7"}""");
+
+        Assert.NotNull(scores);
+        Assert.Equal(0.9f, scores!.Faithfulness, 3);
+    }
+
+    [Fact]
+    public void ParseScores_AcceptsCamelCaseKeys()
+    {
+        var scores = BuildService(true).ParseScores(
+            """{"faithfulness":0.9,"completeness":0.8,"toolEfficiency":0.6,"coherence":0.7}""");
+
+        Assert.NotNull(scores);
+        Assert.Equal(0.6f, scores!.ToolEfficiency, 3);
+    }
+
+    [Fact]
+    public void ParseScores_UnwrapsAnEnvelope()
+    {
+        var scores = BuildService(true).ParseScores(
+            """{"scores":{"faithfulness":0.9,"completeness":0.8,"tool_efficiency":1.0,"coherence":0.7}}""");
+
+        Assert.NotNull(scores);
+        Assert.Equal(0.9f, scores!.Faithfulness, 3);
+    }
+
+    [Fact]
+    public void ParseScores_KeepsAGenuineZeroVerdict()
+    {
+        // A real all-zero rating is still recorded — only unreadable responses are discarded.
+        var scores = BuildService(true).ParseScores(
+            """{"faithfulness":0.0,"completeness":0.0,"tool_efficiency":0.0,"coherence":0.0}""");
+
+        Assert.NotNull(scores);
+        Assert.Equal(0f, scores!.Faithfulness, 3);
+    }
+
+    [Fact]
+    public void ParseScores_ClampsOutOfRangeValues()
+    {
+        var scores = BuildService(true).ParseScores(
+            """{"faithfulness":5,"completeness":-2,"tool_efficiency":0.5,"coherence":1}""");
+
+        Assert.NotNull(scores);
+        Assert.Equal(1f, scores!.Faithfulness, 3);
+        Assert.Equal(0f, scores.Completeness, 3);
+    }
+
+    [Fact]
+    public void ParseScores_ToleratesFencedJson()
+    {
+        var scores = BuildService(true).ParseScores(
+            "```json\n{\"faithfulness\":0.9,\"completeness\":0.8,\"tool_efficiency\":1.0,\"coherence\":0.7}\n```");
+
+        Assert.NotNull(scores);
+        Assert.Equal(0.8f, scores!.Completeness, 3);
     }
 }
